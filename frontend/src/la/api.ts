@@ -1,4 +1,4 @@
-import { API, type Action, type Job, type Plan } from "../api";
+import { API, type Action, type BuildingsOut, type Job, type Plan } from "../api";
 
 export type LAEvent = {
   id: string; name: string; kind: "wind" | "heat" | "control" | "forecast"; split: "train" | "test" | "none"; fetched_utc?: string;
@@ -66,12 +66,15 @@ export type FireCheck = { fire: string; ignition_utc: string; nearest_line: stri
   facility: string | null; substation: { id: string; name: string } | null; named_in_report?: boolean };
 export type Conditions = { gust_pct: number; rh_pct: number; temp_c: number; demand_pct: number };
 export const NO_CONDITIONS: Conditions = { gust_pct: 0, rh_pct: 0, temp_c: 0, demand_pct: 0 };
+/** Vegetation within `corridor_m` of a line's wires, from its aerial photos (site_agent/greenery.py). */
+export type Greenery = { share: number; level: "low" | "medium" | "high"; photos: number; corridor_m: number; method: string; source: string; photo_date: string | null };
 export type TopLine = { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number;
-  downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number } };
+  downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number };
+  greenery?: Greenery | null; if_cut?: BuildingsOut & { customers: number } };
 /** POST /la/simulate: physics for one moment + actions (+ Study conditions), never touching the Operate state. */
 export type SimResult = {
   is_safe: boolean; unserved_mw: number; customers_out: number; critical_on_backup: string[]; hospitals_on_backup: number;
-  critical_names: (string | null)[]; violations: string[]; n_violations: number; watch: string[];
+  critical_names: (string | null)[]; buildings_out?: BuildingsOut; violations: string[]; n_violations: number; watch: string[];
   lines: { risk: number[]; loading: number[]; energized: boolean[]; gust: number[]; rh: number[]; temp: number[] };
   buses_out: string[]; bus_load: Record<string, number>;
   situation: { n_high_risk: number; max_loading: number; n_overloaded: number; load_mw: number; max_gust: number; min_rh: number;
@@ -100,6 +103,8 @@ export type Site = {
   notes: string[];
   disclaimer: string;
 };
+/** GET /la/imagery: the stitched aerial picture under the map, if one has been built. */
+export type Imagery = { available: boolean; source: string; built_utc?: string; zoom?: number };
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -135,7 +140,9 @@ export const la = {
   refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
   site: (line: string, eid: string, i: number) => get<Site>(`/la/site/${line}?event=${eid}&i=${i}`),
   forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
+  imagery: () => get<Imagery>("/la/imagery"),
 };
+export const imageryUrl = (version: string) => `${API}/la/imagery/basemap.jpg?v=${encodeURIComponent(version)}`;
 export const resultUrl = (f: string) => `${API}/results/${f}`;
 export const siteImageUrl = (line: string, n: number, item: string) => `${API}/la/site/${line}/photo/${n}.jpg?v=${item}`;
 export type { Action, Job, Plan };

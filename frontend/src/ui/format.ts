@@ -104,6 +104,17 @@ export function mergeAction(list: Action[], a: Action): Action[] {
   return [...rest, a];
 }
 
+const BUILDING_WORDS: Record<string, [string, string]> = {
+  hospital: ["hospital", "hospitals"], water: ["water plant", "water plants"], emergency: ["emergency service", "emergency services"],
+  medical: ["medical site", "medical sites"], data_center: ["data center", "data centers"], cold_storage: ["cold store", "cold stores"],
+  school: ["school", "schools"], residential: ["residential building", "residential buildings"], industrial: ["industrial site", "industrial sites"],
+  lodging: ["hotel", "hotels"], office: ["office", "offices"], retail: ["shop", "shops"], other: ["other building", "other buildings"],
+};
+/** "1 hospital · 4 water plants" from counts by kind (the backend sends them heaviest first). */
+export function buildingsText(byKind: Record<string, number>, sep = " · "): string {
+  return Object.entries(byKind).map(([k, n]) => `${fmtInt(n)} ${(BUILDING_WORDS[k] ?? [k, `${k}s`])[n === 1 ? 0 : 1]}`).join(sep);
+}
+
 export function hospitalsOf(critical: string[], s: LAStatic): number {
   const hosp = new Set(s.critical_sites.filter((c) => c.type === "hospital").map((c) => c.bus));
   return critical.filter((b) => hosp.has(b)).length;

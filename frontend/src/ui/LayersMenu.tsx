@@ -22,8 +22,8 @@ export function Legend({ color, anyOff, hospitals }: { color: ColorLayer; anyOff
   );
 }
 
-export default function LayersMenu({ color, layers, hasStorm, onColor, onLayers }: {
-  color: ColorLayer; layers: Layers; hasStorm: boolean; onColor: (c: ColorLayer) => void; onLayers: (l: Layers) => void;
+export default function LayersMenu({ color, layers, hasStorm, imagerySource, onColor, onLayers }: {
+  color: ColorLayer; layers: Layers; hasStorm: boolean; imagerySource: string | null; onColor: (c: ColorLayer) => void; onLayers: (l: Layers) => void;
 }) {
   const [open, setOpen] = useState(false);
   const toggle = (k: keyof Layers, label: string) => (
@@ -43,6 +43,9 @@ export default function LayersMenu({ color, layers, hasStorm, onColor, onLayers 
           {toggle("hospitals", "Hospitals")}
           {toggle("wind", "Wind")}
           {toggle("labels", "Labels on riskiest lines")}
+          {imagerySource
+            ? toggle("imagery", `Aerial imagery (${imagerySource})`)
+            : <div className="layer-row muted">Aerial imagery: not built yet (make imagery)</div>}
         </div>
       )}
     </div>

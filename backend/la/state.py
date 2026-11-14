@@ -12,15 +12,18 @@ INPUTS scaled (weather and demand); no model, threshold or calibration changes. 
 from __future__ import annotations
 
 import copy
+import json
 import threading
 
 import numpy as np
 import pandas as pd
 
+from . import buildings as B
 from . import data as D
 from . import engine as E
 
 CUSTOMERS_PER_MW = 500
+CUT_IMPACT_LINES = 8  # the riskiest lines get a "what if we cut this one" answer; the screen lists eight
 # Utility-style safety policy (validation/DECISIONS.md, "Co-pilot safety policy"):
 #  * a sub-transmission line (< 180 kV) above the fire alarm is a VIOLATION (de-energize it, PSPS style);
 #  * a bulk 220-500 kV line above the alarm is a WATCH item (patrol/monitor): these are the import corridors that
@@ -72,6 +75,7 @@ class LAState:
         self.reports: list[dict] = []
         self.plans, self.plan_status, self.bulletin = {}, {}, None
         self.gens: dict = {}
+        self._cut_cache: dict = {}
         crit = {}
         for c in D.grid()["critical_sites"]:
             crit.setdefault(c["bus"], c)
@@ -202,13 +206,16 @@ class LAState:
         P, load = g.injections(self.ldwp, self.sce, top, shed, imp)
         _, full = g.injections(self.ldwp, self.sce, g.base_topology())
         _, sourced, _, _ = g.ptdf(top)
-        buses, backup = {}, []
+        buses, backup, dark = {}, [], []
         for i, b in enumerate(g.buses):
             served = float(load[0, i]) if sourced[i] else 0.0
             uns = float(full[0, i]) - served
             info = self.buses[b["id"]]
             # a critical site goes to backup only if its substation loses supply (partial rotating shed skips its feeder)
-            ob = info["critical"] and (not sourced[i] or not top.bus_on[i])
+            cut_off = not sourced[i] or not top.bus_on[i]
+            ob = info["critical"] and cut_off
+            if cut_off:
+                dark.append(b["id"])
             if ob:
                 backup.append(b["id"])
             buses[b["id"]] = {"id": b["id"], "served_mw": round(served, 1), "unserved_mw": round(max(uns, 0.0), 1),
@@ -221,7 +228,9 @@ class LAState:
             viol.append(f"Blackout: {tot_uns:.0f} MW unserved is {tot_uns / total_load * 100:.0f}% of regional load (limit {MAX_UNSERVED_FRACTION * 100:.0f}%)")
         return {"lines": lines, "buses": buses, "gens": {},
                 "totals": {"unserved_mw": round(tot_uns, 1), "customers_out": int(tot_uns * CUSTOMERS_PER_MW),
-                           "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0)},
+                           "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0),
+                           # every building behind a cut-off substation, by kind (critical_on_backup lists substations only)
+                           "buildings_out": B.outage_impact(dark)},
                 "violations": viol, "n1_warnings": [], "watch": watch, "actions": actions or [], "is_safe": not viol,
                 "region_index": round(float(r["region_index"][0]), 1)}
 
@@ -277,6 +286,8 @@ class LAState:
     def fire_lines(self, sim: dict | None = None, limit: int = 25):
         """Energized overhead lines at or above the fire alarm in `sim` (default: this state's own), riskiest first, in the
         replay's over_alarm row shape with the downwind cone for this hour's wind. Returns (rows, cone points, total count)."""
+        from site_agent import greenery as G
+
         from . import consequence as C
 
         sim = sim or self.sim
@@ -288,14 +299,37 @@ class LAState:
         wx, h = self.wx, self.hour_idx
         wdir = wx["wind_direction_10m"][h]
         rows, pts = [], []
-        for k in hot[:limit]:
+        for n, k in enumerate(hot[:limit]):
             b = g.branches[k]
             lat, lon = np.array(b["geometry"]).mean(0)[:2]
             wf = float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
             pts.append((float(lat), float(lon), wf))
-            rows.append({"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
-                         "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)})
+            row = {"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
+                   "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)}
+            row["greenery"] = G.line_greenery(b["id"])  # from cached aerial photos; None until the line has photos
+            if n < CUT_IMPACT_LINES:
+                row["if_cut"] = self.cut_impact(b["id"], sim.get("actions"))
+            rows.append(row)
         return rows, pts, len(hot)
+
+    def cut_impact(self, line_id: str, actions=None) -> dict:
+        """What loses grid power if this one line is switched off, on top of the current switching and `actions`:
+        buildings by kind with their triage score, and the modeled customers behind the newly cut-off substations.
+        Topology only (no power flow), and cached, because the screen asks for the riskiest lines on every refresh."""
+        key = (line_id, json.dumps(actions or [], sort_keys=True), tuple(self.operator_opened), tuple(self.deenergized))
+        if key not in self._cut_cache:
+            g = self.grid
+
+            def cut_off(extra):
+                top = self._topology(list(actions or []) + extra)[0]
+                sourced = g.ptdf(top)[1]
+                return {b["id"] for i, b in enumerate(g.buses) if not sourced[i] or not top.bus_on[i]}
+
+            newly = cut_off([{"type": "open_line", "target": line_id}]) - cut_off([])
+            impact = B.outage_impact(sorted(newly))
+            impact["customers"] = int(sum(self.buses[b]["load_mw"] for b in newly) * CUSTOMERS_PER_MW)
+            self._cut_cache[key] = impact
+        return self._cut_cache[key]
 
     def weather_extremes(self) -> dict:
         """Worst gridded weather this hour, from this state's own (possibly Study-scaled) inputs."""
@@ -317,6 +351,7 @@ class LAState:
         st.operator_opened, st.deenergized = list(self.operator_opened), list(self.deenergized)
         st.shed, st.caps = dict(self.shed), dict(self.caps)
         st.plans, st.plan_status, st.bulletin = {}, {}, None
+        st._cut_cache = {}  # customers behind a cut depend on the study's demand
         st.conditions = c
         if any(c.values()):
             h = self.hour_idx

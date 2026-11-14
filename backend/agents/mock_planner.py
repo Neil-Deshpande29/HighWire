@@ -57,6 +57,42 @@ def _site_phrase(s) -> str:
     return ""
 
 
+def _greenery(state, line_id: str):
+    """Vegetation near an LA line from its cached aerial photos, or None (no photos yet, or not the LA grid)."""
+    if not hasattr(state, "grid"):
+        return None
+    try:
+        from site_agent import greenery as G
+
+        return G.line_greenery(line_id)
+    except Exception:  # noqa: BLE001  context only: never let it break planning
+        return None
+
+
+def _greenery_phrase(state, ids) -> str:
+    """Names the lines whose photos show vegetation close to the wires: the ones to act on first."""
+    green = [l for l in ids if (_greenery(state, l) or {}).get("level") == "high"]
+    return f" Aerial photos show vegetation close to the wires on {', '.join(green[:6])}." if green else ""
+
+
+def _cut_phrase(state, line_id: str) -> str:
+    """What cutting one LA line costs, by kind of building behind it. '' off the LA grid."""
+    if not hasattr(state, "cut_impact"):
+        return ""
+    kinds = state.cut_impact(line_id)["by_kind"]
+    if not kinds:
+        return " No listed building loses grid power."
+    return " It feeds " + ", ".join(f"{n} {k.replace('_', ' ')}{'s' if n > 1 and not k.endswith('s') else ''}" for k, n in kinds.items()) + ", which would go to backup."
+
+
+def _cut_order(state, risk: float, line_id: str):
+    """Order for single-line cuts: vegetation near the wires first, then the cut that costs the least critical
+    buildings, then the higher fire index."""
+    green = (_greenery(state, line_id) or {}).get("level") == "high"
+    score = state.cut_impact(line_id)["score"] if hasattr(state, "cut_impact") else 0
+    return (not green, score, -risk)
+
+
 class _Planner:
     def __init__(self, state, log: JobLog, pace: float):
         self.state, self.log, self.pace = state, log, pace
@@ -212,7 +248,8 @@ class _Planner:
             if len(ids_all) >= 2:
                 add({"type": "deenergize_lines", "target": "all sub-transmission lines over fire alarm", "targets": ids_all},
                     f"PSPS-style shutoff of all {len(ids_all)} sub-transmission line(s) above the calibrated fire alarm "
-                    f"(worst {max(rk for _, rk, _ in fire_lines):.2f}); bulk import corridors stay on and are patrolled.",
+                    f"(worst {max(rk for _, rk, _ in fire_lines):.2f}); bulk import corridors stay on and are patrolled."
+                    + _greenery_phrase(st, ids_all),
                     ["fire_agent", "wind_agent"], f"PSPS: de-energize all {len(ids_all)} flagged sub-transmission lines")
             by_zone = {}
             for l, rk, _ in fire_lines:
@@ -223,11 +260,12 @@ class _Planner:
                     if len(ids) < 2:
                         continue  # a single line is covered by the individual open_line candidates below
                     add({"type": "deenergize_lines", "target": f"{z} sub-transmission lines over fire alarm", "targets": ids},
-                        f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm (worst {max(items)[0]:.2f}).",
+                        f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm (worst {max(items)[0]:.2f})."
+                        + _greenery_phrase(st, ids),
                         ["fire_agent", "wind_agent"], f"de-energize {len(ids)} {z} sub-transmission lines")
-            for l, rk, v in sorted(fire_lines, key=lambda x: -x[1])[:3]:
+            for l, rk, v in sorted(fire_lines, key=lambda x: _cut_order(st, x[1], x[0]))[:3]:
                 add({"type": "open_line", "target": l}, f"{v.split(': ', 1)[1]}; de-energize to remove the ignition source."
-                    + _site_phrase(_site(st, l)),
+                    + _greenery_phrase(st, [l]) + _cut_phrase(st, l) + _site_phrase(_site(st, l)),
                     ["fire_agent", "wind_agent"], f"de-energize {l}")
         for v in base["violations"]:
             m = re.match(r"Line (\w+): clearance ([\d.]+) m .*\((.*)\)", v)

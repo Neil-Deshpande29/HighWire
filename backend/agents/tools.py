@@ -124,7 +124,7 @@ def critical_sites(state) -> list[dict]:
 
 
 def summarize_result(r: dict) -> dict:
-    return {
+    out = {
         "is_safe": r["is_safe"],
         "unserved_mw": r["totals"]["unserved_mw"],
         "customers_out": r["totals"]["customers_out"],
@@ -135,6 +135,16 @@ def summarize_result(r: dict) -> dict:
         "n_watch": len(r.get("watch", [])),
         "watch": r.get("watch", [])[:5],
     }
+    built = r["totals"].get("buildings_out")  # LA grid only: the buildings behind cut-off substations, by kind
+    if built is not None:
+        out["hospitals_on_backup"] = built["hospitals"]
+        out["buildings_out"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "sites": built["sites"][:12]}
+    return out
+
+
+def building_score(result: dict) -> int:
+    """Triage weight of the buildings a plan cuts off (0 where buildings are not modelled)."""
+    return (result.get("buildings_out") or {}).get("score", 0)
 
 
 # --------------------------------------------------------------------------- tool factory
@@ -315,10 +325,11 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         if log:
             verdict = "safe" if r["is_safe"] else f"NOT SAFE ({r['violations'][0]})"
             log("physics", f"backend re-verified {p['id']}: {verdict}")
-    # safe plans first, then fewer violations, less unserved load, fewer actions
+    # safe plans first, then fewer violations, then the plan that cuts off less critical buildings (a hospital outranks
+    # an office), then less unserved load, fewer actions
     load = max(base["totals"].get("load_mw", 1.0), 1.0)
     plans.sort(key=lambda p: (not p["result"]["is_safe"], p["result"]["unserved_mw"] > 0.1 * load, len(p["result"]["violations"]),
-                              p["result"]["unserved_mw"], len(p["actions"])))
+                              building_score(p["result"]), p["result"]["unserved_mw"], len(p["actions"])))
     for i, p in enumerate(plans):
         p["id"] = f"P{i + 1}"
     safe = [p for p in plans if p["result"]["is_safe"]]
