@@ -11,7 +11,7 @@ import SituationCard from "../ui/SituationCard";
 import SituationDetails from "../ui/SituationDetails";
 import Timeline from "../ui/Timeline";
 import type { Mode } from "../ui/TopBar";
-import { la, NO_CONDITIONS, type Conditions, type Hour, type LAEvent, type LAStatic, type LAView, type Series } from "./api";
+import { imageryUrl, la, NO_CONDITIONS, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView, type Series } from "./api";
 import {
   agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHoverText, riskFrame, sameHour, situationNumbers,
   userPlanFrom, type ApprovedPlan,
@@ -36,7 +36,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [playing, setPlaying] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [color, setColor] = useState<ColorLayer>("fire");
-  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true });
+  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true, imagery: false });
+  const [imagery, setImagery] = useState<Imagery | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const pendingFocus = useRef(true);
   const [err, setErr] = useState<string | null>(null);
@@ -59,6 +60,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [hover, setHover] = useState<{ bi: number; x: number; y: number } | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { la.imagery().then(setImagery).catch(() => setImagery(null)); }, []); // is there an aerial picture to offer?
 
   // ---------------------------------------------------------------- clock
   useEffect(() => {
@@ -221,7 +224,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   return (
     <div className={`screen ${study ? "study" : ""}`}>
       <div className="map-full">
-        <LAScene s={s} hour={hour} colors={colors} layers={layers} labelIds={labelIds} selected={selLine} dimBuses={dimBuses}
+        <LAScene s={s} hour={hour} colors={colors} layers={layers} imagery={imagery?.available ? imageryUrl(imagery.built_utc ?? "") : null}
+          labelIds={labelIds} selected={selLine} dimBuses={dimBuses}
           showFires={past && revealed} focus={focus} overlay={overlay}
           onHoverLine={(bi, x, y) => setHover(bi == null ? null : { bi, x: x!, y: y! })}
           onClickLine={(bi, x, y) => { setSelLine(s.branches[bi].id); setPop({ kind: "line", bi, x, y }); }}
@@ -232,7 +236,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       {study && <div className="study-frame" />}
       <div className="map-ui-left">
         <Legend color={color} anyOff={!!energized?.some((e) => !e)} hospitals={layers.hospitals} />
-        <LayersMenu color={color} layers={layers} hasStorm={!!hour?.line_damage} onColor={setColor} onLayers={setLayers} />
+        <LayersMenu color={color} layers={layers} hasStorm={!!hour?.line_damage} imagerySource={imagery?.available ? imagery.source : null}
+          onColor={setColor} onLayers={setLayers} />
         {study && <ConditionsPanel value={cond} onChange={setCond} />}
       </div>
       {hovered && hover && !pop && (
@@ -271,7 +276,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           <PlanList job={job} chips={chips} cards={cards} outcome={study ? null : outcome} bulletin={study ? null : bulletinText} noSafe={!!out?.no_safe_option} />
         )}
         <div className="foot muted small">
-          Weather: {past ? "Open-Meteo reanalysis (recorded)" : "Open-Meteo forecast"} · Outages: EAGLE-I · Line ratings are modeled from voltage class.
+          Weather: {past ? "Open-Meteo reanalysis (recorded)" : "Open-Meteo forecast"} · Outages: EAGLE-I{layers.imagery && imagery?.available ? ` · Imagery: ${imagery.source}` : ""} · Line ratings are modeled from voltage class.
           The AI only proposes; physics checks every plan and nothing switches without your approval.
         </div>
       </aside>

@@ -103,6 +103,8 @@ export type Site = {
   notes: string[];
   disclaimer: string;
 };
+/** GET /la/imagery: the stitched aerial picture under the map, if one has been built. */
+export type Imagery = { available: boolean; source: string; built_utc?: string; zoom?: number };
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -138,7 +140,9 @@ export const la = {
   refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
   site: (line: string, eid: string, i: number) => get<Site>(`/la/site/${line}?event=${eid}&i=${i}`),
   forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
+  imagery: () => get<Imagery>("/la/imagery"),
 };
+export const imageryUrl = (version: string) => `${API}/la/imagery/basemap.jpg?v=${encodeURIComponent(version)}`;
 export const resultUrl = (f: string) => `${API}/results/${f}`;
 export const siteImageUrl = (line: string, n: number, item: string) => `${API}/la/site/${line}/photo/${n}.jpg?v=${item}`;
 export type { Action, Job, Plan };

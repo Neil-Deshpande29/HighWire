@@ -30,3 +30,6 @@ data/processed/costar/
 data/processed/vexcel/
 data/processed/matterport/
 data/processed/buildings/
+
+# Stitched aerial picture under the map (make imagery). A provider's tiles may be licensed.
+data/processed/imagery/

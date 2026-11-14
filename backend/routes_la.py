@@ -142,6 +142,26 @@ def la_site_photo(line_id: str, n: int):
     return FileResponse(t["img"], media_type="image/jpeg")
 
 
+# --------------------------------------------------------------------------- aerial imagery under the map
+@router.get("/la/imagery")
+def la_imagery():
+    """Whether a stitched aerial picture of the region has been built (`make imagery`), and where it came from."""
+    from .la import basemap
+
+    m = basemap.meta()
+    return {"available": m is not None, **(m or {"source": basemap.source()["name"]})}
+
+
+@router.get("/la/imagery/basemap.jpg")
+def la_imagery_picture():
+    from .la import basemap
+
+    f = basemap.path()
+    if f is None:
+        raise HTTPException(404, "no aerial picture yet (run `make imagery`)")
+    return FileResponse(f, media_type="image/jpeg")
+
+
 # --------------------------------------------------------------------------- validation
 @router.get("/validation")
 def validation():

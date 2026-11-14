@@ -227,3 +227,10 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 - **Weather is coarse.** 0.1 deg cells. Downwind direction is the nearest cell to the line's mean point (`fire_lines`, `replay._downwind`) or to the photo point (`facts.hour_weather`).
 - **No key, no `.env`.** `backend/llm.py` loads `.env` on import. Tests run without a key or network.
 - **Timings measured here.** `LAGrid()` 0.9 s, `LAState` 0.09 s with a shared grid, `simulate` 0.03 s, cold `build_brief` 0.7 s (3,171 characters). Compute is cheap; network and LLM calls are the slow part.
+
+## 10. Added after this map was written (2026-11-14)
+
+- `backend/la/buildings.py`: buildings behind each substation, by kind, with triage weights; `outage_impact`, `impact_of`, `kind_of`. `LAState.simulate` adds `totals.buildings_out`; `LAState.cut_impact(line_id)` says what one line feeds.
+- `site_agent/greenery.py`: vegetated share of the 100 m corridor around a line, from its aerial photos (infrared when available). `site_agent/imagery.py` is the provider switch.
+- `backend/la/basemap.py`: the stitched aerial picture under the map; routes `GET /la/imagery` and `GET /la/imagery/basemap.jpg`; `make imagery`.
+- How CoStar and Vexcel data plug in: `docs/COSTAR.md`.

@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 FETCH = cd data/fetch && ../../$(PY)
 
-.PHONY: data grid calibrate validate forecast naip site test dev all clean-results
+.PHONY: data grid calibrate validate forecast naip site imagery test dev all clean-results
 
 # 1. Download + process every public source (idempotent; skips files already present).
 data:
@@ -49,6 +49,11 @@ naip:
 
 site: naip
 	$(PY) -m site_agent.agent --batch
+
+# 7. Aerial picture under the map: stitches public USGS imagery for the region (about 170 tiles, 2 MB, git-ignored).
+#    Another provider: set HIGHWIRE_BASEMAP_URL (an XYZ tile address) and HIGHWIRE_BASEMAP_NAME in .env first.
+imagery:
+	$(PY) -m backend.la.basemap
 
 test:
 	$(PY) -m pytest backend site_agent -q

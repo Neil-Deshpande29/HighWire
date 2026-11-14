@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Line, MapControls } from "@react-three/drei";
-import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { Label, PortalCtx } from "../components/sceneUtils";
 import type { Hour, LAStatic } from "./api";
@@ -34,13 +34,30 @@ export const loadColor = (p: number) => (p > 100 ? C.act : p >= 80 ? C.elevated 
 export const damageColor = (p: number) => (p >= 0.5 ? C.act : p >= 0.25 ? C.elevated : C.normal);
 
 // ---------------------------------------------------------------- terrain (Apple Maps light palette)
-function Terrain({ s, proj }: { s: LAStatic; proj: Proj }) {
+/** Loads the aerial picture once it is wanted; null until it has arrived (or if it cannot be loaded). */
+function useImagery(url: string | null): THREE.Texture | null {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    if (!url) { setTex(null); return; }
+    let live = true;
+    new THREE.TextureLoader().load(url, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      if (live) setTex(t); else t.dispose();
+    }, undefined, () => { if (live) setTex(null); });
+    return () => { live = false; };
+  }, [url]);
+  return tex;
+}
+
+function Terrain({ s, proj, imagery }: { s: LAStatic; proj: Proj; imagery: string | null }) {
+  const picture = useImagery(imagery);
   const w = proj.x(s.bbox.lon_max) - proj.x(s.bbox.lon_min), d = proj.z(s.bbox.lat_min) - proj.z(s.bbox.lat_max);
   const cx = (proj.x(s.bbox.lon_max) + proj.x(s.bbox.lon_min)) / 2, cz = (proj.z(s.bbox.lat_min) + proj.z(s.bbox.lat_max)) / 2;
   const geom = useMemo(() => {
     const { lats, lons, elev } = s.terrain;
     const ny = lats.length, nx = lons.length;
-    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3);
+    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
     const stops: [number, string][] = [[-1e9, "#a7d3f5"], [0, "#f5f2eb"], [150, "#f1f0e6"], [500, "#e5ebd9"], [1000, "#d6e5c6"], [1700, "#dfe3d6"], [2300, "#f2f2ef"]];
     const c = new THREE.Color(), tmp = new THREE.Color();
     for (let j = 0; j < ny; j++)
@@ -53,6 +70,7 @@ function Terrain({ s, proj }: { s: LAStatic; proj: Proj }) {
         const t = b === a ? 0 : Math.max(0, Math.min(1, (h - stops[a][0]) / Math.max(1, stops[b][0] - stops[a][0])));
         c.set(stops[a][1]).lerp(tmp.set(stops[b][1]), a === 0 ? 0 : t);
         col.set([c.r, c.g, c.b], k * 3);
+        uv.set([i / (nx - 1), j / (ny - 1)], k * 2); // the aerial picture covers exactly this grid, south edge at v = 0
       }
     const idx: number[] = [];
     for (let j = 0; j < ny - 1; j++)
@@ -63,13 +81,18 @@ function Terrain({ s, proj }: { s: LAStatic; proj: Proj }) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
     return g;
   }, [s, proj]);
   return (
     <>
-      <mesh geometry={geom}><meshLambertMaterial vertexColors side={THREE.DoubleSide} /></mesh>
+      <mesh geometry={geom}>
+        {picture
+          ? <meshLambertMaterial key="picture" map={picture} side={THREE.DoubleSide} />
+          : <meshLambertMaterial key="palette" vertexColors side={THREE.DoubleSide} />}
+      </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.004, cz]}>
         <planeGeometry args={[w, d]} />
         <meshBasicMaterial color="#a7d3f5" />
@@ -227,10 +250,10 @@ function CameraRig({ focus, proj }: { focus: Focus | null; proj: Proj }) {
 }
 
 // ---------------------------------------------------------------- main scene
-export type Layers = { wind: boolean; redflag: boolean; hospitals: boolean; labels: boolean };
+export type Layers = { wind: boolean; redflag: boolean; hospitals: boolean; labels: boolean; imagery: boolean };
 
-export default function LAScene({ s, hour, colors, layers, labelIds, selected, dimBuses, showFires, focus, overlay, onHoverLine, onClickLine, onClickBus, onMiss }: {
-  s: LAStatic; hour: Hour | null; colors: string[]; layers: Layers; labelIds: string[]; selected: string | null;
+export default function LAScene({ s, hour, colors, layers, imagery, labelIds, selected, dimBuses, showFires, focus, overlay, onHoverLine, onClickLine, onClickBus, onMiss }: {
+  s: LAStatic; hour: Hour | null; colors: string[]; layers: Layers; imagery: string | null; labelIds: string[]; selected: string | null;
   dimBuses: string[]; showFires: boolean; focus: Focus | null; overlay: RefObject<HTMLDivElement | null>;
   onHoverLine: (bi: number | null, x?: number, y?: number) => void; onClickLine: Pick; onClickBus: (id: string, x: number, y: number) => void; onMiss: () => void;
 }) {
@@ -252,7 +275,7 @@ export default function LAScene({ s, hour, colors, layers, labelIds, selected, d
         <color attach="background" args={["#e9eef3"]} />
         <ambientLight intensity={1.6} />
         <directionalLight position={[-80, 120, 30]} intensity={1.1} />
-        <Terrain s={s} proj={proj} />
+        <Terrain s={s} proj={proj} imagery={layers.imagery ? imagery : null} />
         {tiers.map((tier, k) => <LineTier key={k} {...tier} colors={colors} onHover={onHoverLine} onClick={onClickLine} />)}
         {selSeg.length > 0 && <Line points={selSeg} segments color="#007aff" lineWidth={7} transparent opacity={0.45} />}
         {hour && layers.wind && <WindArrows hour={hour} proj={proj} height={height} />}
