@@ -1,7 +1,13 @@
 """LAState: the real-LA grid at one replay hour, exposing the same interface the Phase-1 planner/tools use
 (lines, buses, weather, sim, simulate(actions), reports_view, ...). All numbers come from the deterministic engine.
 
-Extra action type for PSPS-style plans:  {"type": "deenergize_lines", "target": "mountain lines over alarm", "targets": ["L12", ...]}
+Extra action types:
+  * PSPS-style plans:  {"type": "deenergize_lines", "target": "mountain lines over alarm", "targets": ["L12", ...]}
+  * operator derate:   {"type": "limit_line", "target": "L12", "pct": 60}  caps that line at 60% of its modeled rating;
+    the physics flags an overload when the flow exceeds the cap (it does not redispatch anything by itself).
+
+Study mode (UI): `with_conditions({gust_pct, rh_pct, temp_c, demand_pct})` returns a copy of this hour with the model
+INPUTS scaled (weather and demand); no model, threshold or calibration changes. The original state is never mutated.
 """
 from __future__ import annotations
 
@@ -23,6 +29,10 @@ CUSTOMERS_PER_MW = 500
 #    stay violations.
 SUBTRANSMISSION_MAX_KV = 180.0
 MAX_UNSERVED_FRACTION = 0.10
+CONDITION_KEYS = ("gust_pct", "rh_pct", "temp_c", "demand_pct")
+# weather variables read by engine.tower_weather for one hour; Study conditions scale these inputs only
+_WX_HOURLY = ("temperature_2m", "relative_humidity_2m", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
+              "shortwave_radiation", "precipitation")
 
 
 class LAState:
@@ -57,6 +67,8 @@ class LAState:
         self.operator_opened: list[str] = []
         self.deenergized: list[str] = []
         self.shed: dict[str, float] = {}
+        self.caps: dict[str, float] = {}  # operator derates: line id -> % of modeled rating
+        self.conditions = {k: 0.0 for k in CONDITION_KEYS}
         self.reports: list[dict] = []
         self.plans, self.plan_status, self.bulletin = {}, {}, None
         self.gens: dict = {}
@@ -100,6 +112,7 @@ class LAState:
         g = self.grid
         top = g.base_topology()
         shed = dict(self.shed)
+        caps = dict(self.caps)
         imp = dict(getattr(self, "imp_override", {}))
         imp_ids = {x["id"]: g.bix[x["bus"]] for x in D.grid()["imports"]}
         errors = []
@@ -117,6 +130,14 @@ class LAState:
                 deen.add(a.get("target"))
             elif t == "shed_load":
                 shed[a["target"]] = shed.get(a["target"], 0.0) + float(a.get("mw", 0))
+            elif t == "limit_line":  # operator derate: cap the line at pct of its modeled rating
+                pct = float(a.get("pct", 100))
+                if a.get("target") not in g.lix:
+                    errors.append(f"Invalid action: unknown line {a.get('target')}")
+                elif not 0 < pct <= 100:
+                    errors.append(f"Invalid action: limit_line pct must be in (0, 100], got {pct:g}")
+                else:
+                    caps[a["target"]] = pct
             elif t == "dispatch_gen":
                 if a.get("target") in imp_ids:  # redispatch an import point; the island slack absorbs the change
                     imp[imp_ids[a["target"]]] = max(0.0, float(a.get("mw", 0)))
@@ -134,12 +155,15 @@ class LAState:
                 top.bus_on[g.bix[bid]] = False
             else:
                 errors.append(f"Invalid action: unknown bus {bid}")
-        return top, shed, errors, opened, deen, imp
+        return top, shed, errors, opened, deen, imp, caps
 
     def simulate(self, actions=None) -> dict:
         g = self.grid
-        top, shed, errors, opened, deen, imp = self._topology(actions)
+        top, shed, errors, opened, deen, imp, caps = self._topology(actions)
         r = E.hindcast(g, self.wx, np.array([self.hour_idx]), self.ldwp, self.sce, top=top, shed=shed, imp_override=imp)
+        cap_pct = np.full(g.nl, 100.0)  # operator derates (limit_line); loading is checked against the cap
+        for lid, pct in caps.items():
+            cap_pct[g.lix[lid]] = pct
         cal = D.calibration()["fire"]
         alarm = cal["line_alarm"]
         on = r["energized"]
@@ -148,7 +172,7 @@ class LAState:
             lid = l["id"]
             lv = []
             risk = float(r["line_risk"][0, i]) if on[i] else 0.0
-            loading = float(r["loading"][0, i])
+            loading = float(r["loading"][0, i]) * 100.0 / cap_pct[i]  # % of the operator's cap (= rating if uncapped)
             temp = float(r["line_temp"][0, i])
             clr = float(r["line_clear"][0, i])
             if on[i]:
@@ -161,7 +185,11 @@ class LAState:
                 if clr < 3.0:
                     lv.append(f"Line {lid}: clearance {clr:.1f} m < 3.0 m (wind blowout toward trees)")
                 if loading > 100:
-                    lv.append(f"Line {lid}: loading {loading:.0f}% > 100% ({r['amps'][0, i]:.0f} A of {g.rating[i]:.0f} A)")
+                    if cap_pct[i] < 100:
+                        lv.append(f"Line {lid}: loading {loading:.0f}% of the operator limit ({r['amps'][0, i]:.0f} A of {g.rating[i] * cap_pct[i] / 100:.0f} A, "
+                                  f"capped at {cap_pct[i]:.0f}% of rating)")
+                    else:
+                        lv.append(f"Line {lid}: loading {loading:.0f}% > 100% ({r['amps'][0, i]:.0f} A of {g.rating[i]:.0f} A)")
                 if temp > g.tmax[i]:
                     lv.append(f"Line {lid}: conductor {temp:.0f} C > max {g.tmax[i]:.0f} C")
             viol += lv
@@ -169,7 +197,8 @@ class LAState:
                           "flow_mw": round(float(r["flow_mw"][0, i]), 1), "amps": round(float(r["amps"][0, i]), 0),
                           "loading_pct": round(loading, 1), "temp_c": round(temp, 1), "sag_m": round(float(r["line_sag"][0, i]), 2),
                           "clearance_m": round(min(clr, 99.0), 2), "blowout_m": 0.0, "swing_deg": 0.0, "fire_risk": round(risk, 3),
-                          "gust_ms": round(float(r["line_gust"][0, i]), 1), "violations": lv}
+                          "gust_ms": round(float(r["line_gust"][0, i]), 1), "rh_pct": round(float(r["line_rh"][0, i]), 0),
+                          "cap_pct": float(cap_pct[i]), "violations": lv}
         P, load = g.injections(self.ldwp, self.sce, top, shed, imp)
         _, full = g.injections(self.ldwp, self.sce, g.base_topology())
         _, sourced, _, _ = g.ptdf(top)
@@ -221,6 +250,8 @@ class LAState:
                     self.deenergized.append(a["target"])
                 elif a["type"] == "shed_load":
                     self.shed[a["target"]] = self.shed.get(a["target"], 0.0) + float(a.get("mw", 0))
+                elif a["type"] == "limit_line" and a.get("target") in self.lines:
+                    self.caps[a["target"]] = float(a.get("pct", 100))
                 elif a["type"] == "dispatch_gen":
                     imp_ids = {x["id"]: self.grid.bix[x["bus"]] for x in D.grid()["imports"]}
                     if a["target"] in imp_ids:
@@ -238,3 +269,38 @@ class LAState:
 
     def copy_for_planning(self):
         return copy.copy(self)
+
+    # ------------------------------------------------------------------ Study mode
+    def with_conditions(self, cond: dict | None) -> "LAState":
+        """Copy of this hour with the model INPUTS changed (Study mode what-if); self is never mutated.
+        gust_pct scales gusts and sustained wind, rh_pct scales relative humidity (clipped 1-100%), temp_c adds to air
+        temperature, demand_pct scales both balancing-area demands. Every model and threshold runs unchanged."""
+        c = {k: float((cond or {}).get(k) or 0.0) for k in CONDITION_KEYS}
+        st = copy.copy(self)
+        st.lock = threading.RLock()
+        st.operator_opened, st.deenergized = list(self.operator_opened), list(self.deenergized)
+        st.shed, st.caps = dict(self.shed), dict(self.caps)
+        st.plans, st.plan_status, st.bulletin = {}, {}, None
+        st.conditions = c
+        if any(c.values()):
+            h = self.hour_idx
+            wx = {k: v for k, v in self.wx.items()}
+            wx["time"] = self.wx["time"][h:h + 1]
+            for k in _WX_HOURLY:
+                if k in self.wx:
+                    wx[k] = np.array(self.wx[k][h:h + 1], dtype=float)
+            fw = 1.0 + c["gust_pct"] / 100.0
+            wx["wind_gusts_10m"] = wx["wind_gusts_10m"] * fw
+            wx["wind_speed_10m"] = wx["wind_speed_10m"] * fw
+            wx["relative_humidity_2m"] = np.clip(wx["relative_humidity_2m"] * (1.0 + c["rh_pct"] / 100.0), 1.0, 100.0)
+            wx["temperature_2m"] = wx["temperature_2m"] + c["temp_c"]
+            st.wx, st.hour_idx = wx, 0
+            fd = max(0.0, 1.0 + c["demand_pct"] / 100.0)
+            st.ldwp, st.sce = self.ldwp * fd, self.sce * fd
+            st.buses = {k: {**v, "load_mw": v["load_mw"] * fd} for k, v in self.buses.items()}
+            st.weather = st._zone_weather()
+            parts = [f"{lbl} {c[k]:+g}{u}" for k, lbl, u in (("gust_pct", "wind", "%"), ("rh_pct", "humidity", "%"),
+                                                              ("temp_c", "temperature", " C"), ("demand_pct", "demand", "%")) if c[k]]
+            st.scenario = f"{self.scenario} [STUDY: {', '.join(parts)}]"
+        st.sim = st.simulate([])
+        return st

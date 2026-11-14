@@ -186,10 +186,46 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
     }
 
 
+def high_risk_counts(line_risk, loading=None):
+    """Per hour: overhead lines at or above the calibrated line fire alarm (and lines over 100% of rating)."""
+    cable = np.array([b["cable"] for b in D.grid()["branches"]])
+    hi = ((line_risk >= D.calibration()["fire"]["line_alarm"]) & ~cable[None]).sum(1)
+    over = (loading > 100).sum(1) if loading is not None else None
+    return hi, over
+
+
+def fire_checks(eid: str, d: dict) -> list[dict]:
+    """For each real ignition in this event (V5 cases): when the model first flagged the line nearest the origin, and its
+    V5 rank at the ignition hour. Read from validation/results/v5_ignition.json + the replay file; nothing is refit."""
+    ids = [b["id"] for b in D.grid()["branches"]]
+    alarm = D.calibration()["fire"]["line_alarm"]
+    named = [b for b in D.grid()["buses"] if b["kind"] == "substation" and b["name"] and not b["name"].startswith("Substation")]
+    out = []
+    for c in (_json("v5_ignition") or {}).get("cases", []):
+        if c["event"] != eid or c["nearest_line"] not in ids:
+            continue
+        k = ids.index(c["nearest_line"])
+        ig = pd.Timestamp(c["ignition_utc"])
+        ig_h = np.datetime64(ig.tz_convert("UTC").tz_localize(None).floor("h"), "h")
+        before = d["time"] <= ig_h
+        flagged = np.where(before & (d["line_risk"][:, k] >= alarm))[0]
+        first = pd.Timestamp(d["time"][flagged[0]]).tz_localize("UTC") if len(flagged) else None
+        # the substation feeding the igniting circuit, when the official facility text names one on our grid
+        fac = (c.get("facility") or "").lower()
+        sub = next(({"id": b["id"], "name": b["name"]} for b in named if b["name"].lower() in fac), None)
+        out.append({"facility": c.get("facility"), "substation": sub, "fire": c["fire"], "ignition_utc": ig.isoformat(), "nearest_line": c["nearest_line"], "kv": c["nearest_line_kv"],
+                    "distance_km": round(c["distance_km"], 1), "first_flag_utc": first.isoformat() if first is not None else None,
+                    "hours_before": round((ig - first).total_seconds() / 3600, 1) if first is not None else None,
+                    "top_pct": c["model_top_pct"], "n_lines": c["n_lines"], "split": c["split"], "caveat": c.get("caveat")})
+    return out
+
+
 def series(eid: str) -> dict:
     d = load(eid)
     v4a = (_json("v4a_replay") or {}).get("events", {}).get(eid)
+    hi, over = high_risk_counts(d["line_risk"], d["loading"])
     return {"event": eid, "t_utc": [pd.Timestamp(x).tz_localize("UTC").isoformat() for x in d["time"]],
+            "n_high_risk": hi.tolist(), "n_overloaded": over.tolist(), "fire_checks": fire_checks(eid, d),
             "risk_index": np.round(d["region_index"], 1).tolist(),
             "storm_index": np.round(d["storm_index"], 3).tolist() if "storm_index" in d else None,
             "storm_alarm": (D.calibration().get("storm") or {}).get("alarm"),

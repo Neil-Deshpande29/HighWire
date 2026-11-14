@@ -1,4 +1,4 @@
-import { API, type Job, type Plan } from "../api";
+import { API, type Action, type Job, type Plan } from "../api";
 
 export type LAEvent = {
   id: string; name: string; kind: "wind" | "heat" | "control" | "forecast"; split: "train" | "test" | "none"; fetched_utc?: string;
@@ -58,7 +58,27 @@ export type Series = {
   v4a: { lead_time_h: number | null; first_alarm_utc: string | null; first_spike_utc: string | null; outage_baseline_la: number;
          spearman_la: number; exploratory_lead_to_main_surge_h: number | null } | null;
   fires: Fire[]; source: string; now_utc?: string | null;
+  n_high_risk: number[]; n_overloaded: number[]; fire_checks: FireCheck[];
 };
+/** V5 ignition case + when the model first flagged the line nearest the origin (from the replay file). */
+export type FireCheck = { fire: string; ignition_utc: string; nearest_line: string; kv: number; distance_km: number; first_flag_utc: string | null;
+  hours_before: number | null; top_pct: number; n_lines: number; split: string; caveat: string | null;
+  facility: string | null; substation: { id: string; name: string } | null };
+export type Conditions = { gust_pct: number; rh_pct: number; temp_c: number; demand_pct: number };
+export const NO_CONDITIONS: Conditions = { gust_pct: 0, rh_pct: 0, temp_c: 0, demand_pct: 0 };
+export type TopLine = { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number;
+  downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number } };
+/** POST /la/simulate: physics for one moment + actions (+ Study conditions), never touching the Operate state. */
+export type SimResult = {
+  is_safe: boolean; unserved_mw: number; customers_out: number; critical_on_backup: string[]; hospitals_on_backup: number;
+  critical_names: (string | null)[]; violations: string[]; n_violations: number; watch: string[];
+  lines: { risk: number[]; loading: number[]; energized: boolean[]; gust: number[]; rh: number[]; temp: number[] };
+  buses_out: string[]; bus_load: Record<string, number>;
+  situation: { n_high_risk: number; max_loading: number; n_overloaded: number; load_mw: number; max_gust: number; min_rh: number;
+               max_temp: number; people_downwind: number; hospitals_downwind: number };
+  top_lines: TopLine[]; conditions: Conditions; t_utc: string;
+};
+export type V5Case = { fire: string; event: string; nearest_line: string; n_lines: number; model_top_pct: number; gust_only_top_pct: number; split: string };
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -78,7 +98,16 @@ export const la = {
   hour: (eid: string, i: number) => get<Hour>(`/replay/${eid}?i=${i}`),
   series: (eid: string) => get<Series>(`/la/series/${eid}`),
   validation: () => get<{ cards: Card[]; calibration: unknown }>("/validation"),
-  run: (event: string, t: string) => post<{ job_id: string; state: LAView }>("/la/copilot/run", { event, t }),
+  run: (event: string, t: string, actions: Action[] = [], conditions?: Conditions) =>
+    post<{ job_id: string; state: LAView; study: boolean }>("/la/copilot/run", { event, t, actions, conditions }),
+  simulate: (event: string, t: string, actions: Action[] = [], conditions?: Conditions) =>
+    post<SimResult>("/la/simulate", { event, t, actions, conditions }),
+  // validation JSON is written by Python and may contain NaN, which JSON.parse rejects
+  result: async <T,>(file: string): Promise<T> => {
+    const r = await fetch(`${API}/results/${file}`);
+    if (!r.ok) throw new Error(r.statusText);
+    return JSON.parse((await r.text()).replace(/\bNaN\b/g, "null")) as T;
+  },
   job: (id: string) => get<Job>(`/copilot/${id}`),
   approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
   reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
@@ -86,4 +115,4 @@ export const la = {
   forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
 };
 export const resultUrl = (f: string) => `${API}/results/${f}`;
-export type { Plan };
+export type { Action, Job, Plan };

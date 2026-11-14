@@ -38,7 +38,7 @@ export type GridView = {
 };
 export type Terrain = { n: number; size_m: number; sea_x_m: number; heights: number[][] };
 
-export type Action = { type: string; target: string; mw?: number };
+export type Action = { type: string; target: string; mw?: number; pct?: number; targets?: string[] };
 export type Plan = {
   id: string; title: string; actions: Action[];
   steps: { action: Action; why: string; raised_by: string[] }[];

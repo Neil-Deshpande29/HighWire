@@ -12,7 +12,7 @@ events hour by hour against what actually happened**: outages (EAGLE-I), utility
 Safety Power Shutoff (CPUC), NWS Red Flag Warnings and demand (EIA-930).
 
 - **Results:** [`validation/REPORT.md`](validation/REPORT.md) (generated, with plots, baselines and limitations). The same
-  numbers appear in the app's **Validation** tab. Every number is read from `validation/results/*.json`.
+  numbers appear on the app's **Evidence** page. Every number is read from `validation/results/*.json`.
 - **Choices and guesses:** [`validation/DECISIONS.md`](validation/DECISIONS.md), [`data/processed/grid_report.md`](data/processed/grid_report.md).
 - **Modeled, not utility data:** line ratings, impedances, conductors, tower heights and load allocation are estimated
   from voltage class and Census population. The UI and report say so.
@@ -27,20 +27,61 @@ cd frontend && npm install && cd ..
 ./run.sh          # backend :8000, frontend :5173
 ```
 
-Open http://localhost:5173. There are three tabs:
+Open http://localhost:5173. See **The screen** below.
 
-1. **LA Replay.** Pick an event (E1 Woolsey 2018, E2 Saddleridge 2019, E3 Eaton/Hurst 2025, H1/H2 heat waves,
-   C1-C3 calm weeks; each is tagged train or test). Scrub or play the hours. Lines are colored by fire risk (by
-   loading for heat waves); the **🔥 Fire risk / 💨 Storm damage** toggle switches to the wind agent's per-line
-   chance of being knocked down. The map also shows wind arrows, active Red Flag zones and fire origins at their real
-   ignition times. The chart under the map is **model vs reality**: our risk index against actual LA County customers
-   out, with the lead time marked. **Run Co-Pilot at this hour** runs the agent team on the real grid. Plans follow
-   a utility-style rule: flagged sub-transmission lines get a PSPS-style shutoff, while flagged 220-500 kV import
-   corridors stay on and are listed for patrol. Overloads and blackouts are never allowed, and every plan is
-   physics-checked before approval (see DECISIONS.md, "Co-pilot safety policy").
-2. **Validation.** One card per check (V1-V7) with the headline number, its baseline, the plot, and a plain sentence
-   on what it does and doesn't prove.
-3. **What-if (synthetic).** The Phase-1 demo region (scenario presets, breaker clicks, reports, co-pilot).
+## The screen
+
+One view of the real LA grid at one moment, styled like a light-mode map app. The map fills the window; panels float on top.
+
+- **Top bar.** The **clock** shows the moment on screen, with a badge: *Live forecast · updated <time> · Refresh* (the
+  default, "Now", from the last saved Open-Meteo forecast, so it works offline) or *Recorded weather · <event>*.
+  **Go to** jumps to a past event in plain words (Eaton & Hurst fires · Jan 2025, Woolsey fire · Nov 2018, Saddleridge
+  fire · Oct 2019, two heat waves); **Back to now** returns. **Operate | Study** switches modes; **Evidence** opens the
+  validation page.
+- **Map.** One color layer with three levels (normal / elevated / act now): fire risk on wind days, line loading on heat
+  days, storm damage from the **Layers** menu (which also toggles Red Flag zones, hospitals, faint wind arrows and labels
+  on the ~8 riskiest lines). The camera frames the risk area when the clock jumps. **Hover** a line for a one-line
+  summary; **click** a line for *Turn off / Turn on* and *Limit power* (cap at X% of rating), or a substation for
+  *Shed X MW*.
+- **Your changes tray** (bottom left). In Operate, clicked changes are staged here, not applied, with live physics from
+  `POST /la/simulate`: customers losing power, hospitals on backup, high-risk lines still on, pass/fail. *Compare with
+  Co-Pilot* shows them as a **Your plan** card next to the agents' plans.
+- **Situation card** (right). One plain headline built from the data (no LLM), up to four big numbers (lines at high fire
+  risk, people living downwind of them, hours to the worst hour, customers out now or forecast peak demand), *What's
+  driving this* for the details, and **Get Co-Pilot plans**.
+- **Plans.** One chip per agent while they work (the raw log is in *Agent log*). Each card starts with one sentence
+  saying what the plan does, then the same four numbers: high-risk lines turned off, customers losing power, hospitals
+  on backup, physics check. Steps, reasons, confidence and the patrol list are under *Details*. Clicking a card previews
+  it on the map (lines go dark, areas that lose power dim); Approve/Reject appear on the selected card. Approving shows
+  the outcome and the responder bulletin (*Copy*).
+- **Timeline** (bottom). Play/pause, drag to scrub, one plain curve: power lines at high fire risk each hour (the
+  busiest line's % of rating on heat waves), with a "now" marker for the forecast. On past events, real ignitions stay
+  hidden (no spoilers) until you approve a plan or click **Show what happened**; then the fire start appears on the map
+  and timeline, plus a **Did Highwire get it right?** box. It leads with the substation that fed the circuit that started
+  the fire (read from the official facility record) and whether your approved plan cut its power, then when the line
+  nearest the origin was first flagged, its rank at the ignition hour (V5), the caveats, and the real outage peak.
+- **Study mode** (purple tint). A sandbox on top of the current moment. A **Conditions** panel scales wind, humidity,
+  temperature and demand; line and substation clicks apply immediately. Every change reruns the same physics through
+  `POST /la/simulate`; no model is refit. The co-pilot can plan on the study state. Nothing touches the Operate state:
+  leaving Study discards it, and *Copy to plan* moves the grid changes into Operate's tray.
+- **Evidence page.** Three plain claims with one number each (ignition ranks, forecast warning time, agreement with
+  NWS Red Flag Warnings), *Where we fall short* (including the cases where a simple gust rule beats our storm score),
+  and the full V1-V8 cards and plots behind *Full results*. Every number is read from `validation/results/*.json`.
+
+Backend routes added for the screen: `POST /la/simulate {event, t, actions[], conditions?}` (physics on a copy; the Operate
+state is never touched), a `limit_line {target, pct}` operator-derate action, and optional `actions` / `conditions` on
+`POST /la/copilot/run` (a study run is stored separately from Operate). Tests: `backend/test_study.py`.
+
+**Not finished**
+
+- *Your plan* can be compared but not approved: approving operator-built plans would need a new endpoint beyond the
+  allowed additions. Approve a co-pilot plan to act.
+- Study conditions change the physics (fire risk, loading, temperatures, outages) but not the storm-damage layer, the
+  timeline curve or the "worst hour" number, which come from the precomputed replay for the unmodified weather.
+- In the Eaton/Hurst replay on recorded weather, the first line crosses the fire alarm after both fires started (the
+  honest V4a result), so the replay opens after the ignitions. The forecast-driven V8 test is the one that warned early.
+- The rule-based planner sometimes returns two plans that switch the same lines; the UI shows one.
+- Resident ground reports on the LA grid are still not built (AUDIT.md, "To finish").
 
 ## Rebuild everything from scratch
 

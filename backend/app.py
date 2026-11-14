@@ -205,7 +205,7 @@ from .la import replay as RP  # noqa: E402
 
 _RESULTS = LAD.results_dir()
 app.mount("/results", StaticFiles(directory=str(_RESULTS)), name="results")
-LA: dict = {"state": None, "grid": None}
+LA: dict = {"state": None, "grid": None, "study": None}
 
 
 def _la_grid():
@@ -255,6 +255,8 @@ def la_forecast_refresh():
     def work():
         try:
             FORECAST_JOB["summary"] = FCST.refresh()
+            for k in [k for k in _BASE if k[0] == "FX"]:
+                _BASE.pop(k, None)
             FORECAST_JOB["status"], FORECAST_JOB["error"] = "done", None
         except Exception as e:  # noqa: BLE001
             FORECAST_JOB["status"], FORECAST_JOB["error"] = "error", str(e)[:300]
@@ -283,12 +285,100 @@ def report():
 class LARunIn(BaseModel):
     event: str
     t: str | None = None
+    actions: list[dict] = []  # Study mode: grid changes the agents plan on top of
+    conditions: dict | None = None  # Study mode: {gust_pct, rh_pct, temp_c, demand_pct}
 
 
-def _run_la_job(job_id: str):
+def _is_study(body) -> bool:
+    return bool(body.actions) or any(float(v or 0) for v in (body.conditions or {}).values())
+
+
+# Base LAState per (event, hour), reused by /la/simulate (building one takes ~0.3 s). Never mutated: every request
+# simulates on it or on a with_conditions() copy. Cleared when the live forecast is refreshed.
+_BASE: dict = {}
+
+
+def _base_state(event: str, t: str | None):
+    from .la.state import LAState
+
+    key = (event, t or "")
+    if key not in _BASE:
+        if len(_BASE) > 24:
+            _BASE.pop(next(iter(_BASE)))
+        _BASE[key] = LAState(event, t, grid=_la_grid())
+    return _BASE[key]
+
+
+def _sim_payload(st, actions: list[dict]) -> dict:
+    """Plan-result shape + per-line arrays (branch order) + situation numbers, for the map and the changes tray."""
+    import numpy as np
+
+    from .la import consequence as C
+
+    sim = st.simulate(actions)
+    g = st.grid
+    alarm = LAD.calibration()["fire"]["line_alarm"]
+    L = [sim["lines"][b["id"]] for b in g.branches]
+    hot = sorted([k for k, l in enumerate(L) if l["energized"] and l["fire_risk"] >= alarm and not g.branches[k]["cable"]],
+                 key=lambda k: -L[k]["fire_risk"])
+    wx, h = st.wx, st.hour_idx
+    wdir = wx["wind_direction_10m"][h]
+
+    def wind_from(lat, lon):
+        return float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
+
+    top = []
+    pts = []
+    for k in hot[:25]:
+        b = g.branches[k]
+        lat, lon = np.array(b["geometry"]).mean(0)[:2]
+        wf = wind_from(lat, lon)
+        pts.append((float(lat), float(lon), wf))
+        top.append({"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
+                    "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)})
+    dw = C.downwind_union(pts) if pts else {"people": 0, "hospitals": 0, "water_plants": 0}
+    crit = sim["totals"]["critical_on_backup"]
+    load = {bid: round(st.buses[bid]["load_mw"], 1) for bid in st.buses if st.buses[bid]["load_mw"] > 0.5}
+    return {
+        "is_safe": sim["is_safe"], "unserved_mw": sim["totals"]["unserved_mw"], "customers_out": sim["totals"]["customers_out"],
+        "critical_on_backup": crit, "hospitals_on_backup": int(sum(st.buses[b]["critical_type"] == "hospital" for b in crit)),
+        "critical_names": [st.buses[b]["critical_name"] for b in crit],
+        "violations": sim["violations"][:40], "n_violations": len(sim["violations"]), "watch": sim["watch"], "n1_warnings": [],
+        "lines": {"risk": [l["fire_risk"] for l in L], "loading": [l["loading_pct"] for l in L], "energized": [l["energized"] for l in L],
+                  "gust": [l["gust_ms"] for l in L], "rh": [l["rh_pct"] for l in L], "temp": [l["temp_c"] for l in L]},
+        "buses_out": [bid for bid, b in sim["buses"].items() if b["unserved_mw"] > 0.05],
+        "bus_load": load,
+        "situation": {"n_high_risk": len(hot), "max_loading": round(max(l["loading_pct"] for l in L), 0),
+                      "n_overloaded": int(sum(bool(l["energized"]) and l["loading_pct"] > 100 for l in L)), "load_mw": sim["totals"]["load_mw"],
+                      "max_gust": round(float(np.nanmax(wx["wind_gusts_10m"][h])), 1), "min_rh": round(float(np.nanmin(wx["relative_humidity_2m"][h])), 0),
+                      "max_temp": round(float(np.nanmax(wx["temperature_2m"][h])), 1),
+                      "people_downwind": int(dw["people"]), "hospitals_downwind": int(dw["hospitals"])},
+        "top_lines": top, "conditions": st.conditions, "t_utc": st.t_utc.isoformat(),
+    }
+
+
+class LASimIn(BaseModel):
+    event: str
+    t: str | None = None
+    actions: list[dict] = []
+    conditions: dict | None = None
+
+
+@app.post("/la/simulate")
+def la_simulate(body: LASimIn):
+    """Study mode and the "Your changes" tray: physics for this moment + actions (+ condition overrides), on a copy.
+    The Operate state (LA["state"]) is never touched."""
+    if body.event not in LAD.events() and body.event != "FX":
+        raise HTTPException(404, "unknown event")
+    base = _base_state(body.event, body.t)
+    st = base.with_conditions(body.conditions) if body.conditions else base
+    return _sim_payload(st, body.actions)
+
+
+def _run_la_job(job_id: str, st=None):
     job = JOBS[job_id]
     try:
-        st = LA["state"]
+        st = st or LA["state"]
         out = run_team(st, job["log"])
         with st.lock:
             st.plans = {p["id"]: p for p in out["plans"]}
@@ -307,12 +397,21 @@ def la_copilot_run(body: LARunIn):
 
     if body.event not in LAD.events() and body.event != "FX":
         raise HTTPException(404, "unknown event")
-    LA["state"] = LAState(body.event, body.t, grid=_la_grid())
+    st = LAState(body.event, body.t, grid=_la_grid())
+    study = _is_study(body)
+    if study:  # plan on a study copy; the Operate state (and its plans / approvals) is left alone
+        st = st.with_conditions(body.conditions)
+        if body.actions:
+            st.apply_actions(body.actions)
+            st.scenario = st.scenario if "[STUDY" in st.scenario else f"{st.scenario} [STUDY]"
+        LA["study"] = st
+    else:
+        LA["state"] = st
     job_id = uuid.uuid4().hex[:8]
     JOBS[job_id] = {"status": "running", "log": JobLog(), "output": None, "started": time.time()}
-    JOBS[job_id]["log"]("system", f"replaying {LA['state'].scenario} on the real LA grid ({len(LA['state'].lines)} lines)")
-    threading.Thread(target=_run_la_job, args=(job_id,), daemon=True).start()
-    return {"job_id": job_id, "state": LA["state"].view()}
+    JOBS[job_id]["log"]("system", f"{'study of ' if study else 'replaying '}{st.scenario} on the real LA grid ({len(st.lines)} lines)")
+    threading.Thread(target=_run_la_job, args=(job_id, st), daemon=True).start()
+    return {"job_id": job_id, "state": st.view(), "study": study}
 
 
 def _la_bulletin(st, plan):
