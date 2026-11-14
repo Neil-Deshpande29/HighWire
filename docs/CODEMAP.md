@@ -69,7 +69,7 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 
 **Agents and tools.** `backend/agents/team.py` `run_team(state, log)` is the single entry point. `backend/agents/tools.py` has `make_tools`, `verify_output`, `summarize_result`, `JobLog`. `backend/agents/mock_planner.py` has `run_mock` and `_Planner`. `backend/llm.py` has `enabled`, `model_name`, `chat_model`. Details in section 4.
 
-**API routes.** `backend/app.py`. Module-level state: `LA` (`state`, `grid`, `study`), `JOBS`, `_BASE`, `FORECAST_JOB`, plus the toy region `STATE`. Table in section 3.
+**API routes.** `backend/app.py` only wires the pieces together: `backend/routes_la.py` (the LA grid; holds `LA` (`state`, `grid`, `study`), `_BASE`, `FORECAST_JOB`), `backend/routes_synthetic.py` (the toy region, `STATE`), `backend/jobs.py` (`JOBS` and the one job runner both regions share) and `backend/bulletin.py` (responder bulletins). Table in section 3.
 
 **UI.** `frontend/src`. Details in section 6.
 
@@ -82,9 +82,9 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 | `GET /replay/{event_id}?i=` | `RP.hour`, then `LA["state"].view()` as `copilot` if same event and hour | replay npz |
 | `GET /la/series/{event_id}` | `RP.series`, `RP.fire_checks` | replay npz, `v4a_replay.json`, `v5_ignition.json` |
 | `POST /la/simulate` | `la_simulate` -> `_base_state` -> `with_conditions` -> `_sim_payload` | `_BASE` cache only; never `LA["state"]` |
-| `POST /la/copilot/run` | `la_copilot_run` -> new `LAState` -> thread `_run_la_job` -> `run_team` | sets `LA["state"]` (Operate) or `LA["study"]`; `JOBS` |
-| `GET /copilot/{job_id}` | `copilot_status` | `JOBS` (log, output) |
-| `POST /la/plans/{plan_id}/approve` | `la_approve` -> `apply_actions` -> `_la_bulletin` | `LA["state"]` only; 400 if the plan is not safe |
+| `POST /la/copilot/run` | `la_copilot_run` -> new `LAState` -> `jobs.start` (thread) -> `run_team` | sets `LA["state"]` (Operate) or `LA["study"]`; `JOBS` |
+| `GET /copilot/{job_id}` | `copilot_status` -> `jobs.view` | `JOBS` (log, output) |
+| `POST /la/plans/{plan_id}/approve` | `la_approve` -> `apply_actions` -> `bulletin.la_bulletin` | `LA["state"]` only; 400 if the plan is not safe |
 | `POST /la/plans/{plan_id}/reject` | `la_reject` | `plan_status` |
 | `GET /la/state` | `la_state` | `LA["state"].view()` |
 | `GET /la/site/{line_id}?event=&i=` | `la_site` -> `SA.describe` (may fetch photos and call Gemini) | `data/processed/naip/` |
@@ -142,12 +142,12 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 ## 6. Frontend
 
 - **Shell.** `App.tsx` owns `eid`, `mode` (operate / study), `page` (map / evidence), events and static data. `ui/TopBar.tsx` has the clock, "Go to", mode toggle and Evidence link.
-- **State.** Almost all of it is `useState` in `la/LAApp.tsx`: hour index `i`, `hour`, `series`, Operate job and `view`, `staged` actions, Study actions and `cond`, selected plan and line, popover, layers. `useSim` debounces `/la/simulate`; `usePoll` polls jobs. There is no store.
+- **State.** Almost all of it is `useState` in `la/LAApp.tsx`: hour index `i`, `hour`, `series`, Operate job and `view`, `staged` actions, Study actions and `cond`, selected plan and line, popover, layers. There is no store. The rules for what is shown are pure functions in `la/derive.ts` (`lineColors`, `situationNumbers`, `fireChecks`, `agentChips`, `distinctPlans`, `riskFrame`, `lineHoverText`). `la/hooks.ts` has `useSim` (debounced `/la/simulate`) and `usePoll` (job polling). `ui/SituationDetails.tsx` is the body of the "What's driving this" drawer.
 - **Layout regions (`styles.css`).** `.map-full` (canvas) with `.labels`; `.topbar`; `.map-ui-left` (`Legend`, `LayersMenu`, `ConditionsPanel` in Study); `.bottom-left` (`ChangesTray`, `Timeline`); `aside.side` (`SituationCard`, `PlanList` with `PlanCard`s, footer); floating `.hover-tip` and `.popover` (`LineControls`); `.evidence` (`EvidencePage`).
 - **Map.** `la/LAScene.tsx`: `Terrain`, `LineTier` (3 voltage tiers, click and hover), `WindArrows`, Red Flag outlines, `Points` (substations, hospitals), `Flame` (after reveal), `Label`, `CameraRig`. Colors: `riskColor`, `loadColor`, `damageColor`, `C`.
 - **Helpers.** `ui/format.ts`: `planSentence`, `actionText`, `plainViolation`, `mergeAction`, `offLines`, `headline`, `worstHour`.
 - **Unmounted.** `la/SitePanel.tsx` (props `line`, `eid`, `i`) and `la/BriefPanel.tsx` (prop `brief`) are imported nowhere. Their CSS (`.site-*`, `.brief-*`) is not in `styles.css`. They still type-check.
-- **Dead.** The `api` object and the types `GridView`, `Sim`, `Bus`, `Line`, `Report`, `Terrain` in `frontend/src/api.ts` (toy region). Only `API` and the plan and job types (`Action`, `Plan`, `Job`, `CopilotOutput`, `Brief`) are live.
+- **Removed.** The toy-region client code that used to sit in `frontend/src/api.ts` (it had no screen). The file now holds `API` and the plan and job types (`Action`, `Plan`, `Job`, `CopilotOutput`, `Brief`).
 - **Not shown.** `output.situation`, `disagreements`, `agent_findings`, `brief`, and most of `crew_staging` (only one chip).
 
 ## 7. What the latest commits changed or broke
@@ -173,34 +173,34 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 
 **Vexcel imagery provider (Phase 1).**
 - New `site_agent/vexcel.py` must offer what callers use from `naip.py`: `tiles_for(line_id, points, fetch)`, `tile_for(line_id, n, lat, lon, refresh)`, `cached_tile(line_id, n, lat, lon)`, `CACHE`, and tile dicts with `item`, `img`, `center`, `photo_date`, `gsd_m`, `bbox`, `source`.
-- Route these callers through one provider switch: `agent.describe`, `agent._look_cache`, `brief._site_cache_stamp`, `app.la_site_photo`, `naip.main`, `agent.batch`. Tests patch `naip.CACHE`.
+- Route these callers through one provider switch: `agent.describe`, `agent._look_cache`, `brief._site_cache_stamp`, `routes_la.la_site_photo`, `naip.main`, `agent.batch`. Tests patch `naip.CACHE`.
 - `agent.cache_key` uses only `item` and position: add the provider. Tile files are named `<line>-<n>` with no provider, so give Vexcel its own folder or `cached_tile` will hand back the NAIP tile.
 - `agent.PROMPT` says "USDA NAIP aerial photos, each about 1.2 km across": make source and resolution format fields.
 - `.gitignore` only covers `data/processed/naip/`. `SitePanel.tsx` prints "NAIP {photo_date}". Type `Site` is in `la/api.ts`.
 
 **CoStar buildings (Phase 2).**
 - Loader: add a function to `backend/la/data.py` (copy the mtime pattern of `calibration()` if the table can change while the server runs).
-- Consequence layer: `consequence._points`, `downwind`, `downwind_union`. The returned dict is passed through unchanged by `replay._downwind`, `LAState.fire_lines`, `app._sim_payload`, `facts.line_facts`, `agent.compact`, `brief._build_la` (`line_row`), and a log line in `_Planner.analyze`. TS types: `Downwind`, `TopLine`, `Hour` in `la/api.ts`; `BriefLine`, `Brief` in `frontend/src/api.ts`.
+- Consequence layer: `consequence._points`, `downwind`, `downwind_union`. The returned dict is passed through unchanged by `replay._downwind`, `LAState.fire_lines`, `routes_la._sim_payload`, `facts.line_facts`, `agent.compact`, `brief._build_la` (`line_row`), and a log line in `_Planner.analyze`. TS types: `Downwind`, `TopLine`, `Hour` in `la/api.ts`; `BriefLine`, `Brief` in `frontend/src/api.ts`.
 - Brief: extend `line_row` or add a block in `_build_la`; update the schema docstring, `_headlines`, and the exact-key assertions in `backend/test_brief.py`.
 - Cross-check: add a rule to `agent.cross_check(point, look)`; put the CoStar type on the point in `facts._point` / `line_facts`. Results flow to `describe()["checks"]`, `compact()["disagreements"]`, the brief's `site` rows and the planner log.
 
 **Building triage table (Phase 3).**
 - Offline sweep: model it on `validation/build_replays.py` and add a Makefile target. Tower arrays for building-to-line assignment: `facts._towers()` or `LAGrid.tlat`, `tlon`, `tb`. KD-tree example: `LAGrid._bus_counties`.
 - Line hazard per hour: recorded `RP.load(eid)["line_risk"][i]` (branch order of `D.grid()["branches"]`); live or Study `state.sim["lines"][id]["fire_risk"]`. Fuel at towers: `facts._towers()["recept"]`, `facts.fuel_label`.
-- Outage side: who loses power is `sim["buses"][id]["unserved_mw"]` and `_sim_payload()["buses_out"]`. Tie buildings to the nearest substation, the same rule `build_grid.py` uses for load. Critical sites already carry `bus`.
+- Outage side: who loses power is `sim["buses"][id]["unserved_mw"]` and `routes_la._sim_payload()["buses_out"]`. Tie buildings to the nearest substation, the same rule `build_grid.py` uses for load. Critical sites already carry `bus`.
 - Agent access: add a tool in `make_tools` (`all_tools`) and name it in `LA_SUBAGENTS` / `coord_tools` in `_run_llm`. Store under a git-ignored `data/processed/` folder.
 
 **Per-action warnings (Phase 4).**
 - Candidates: `_Planner.candidates` builds `{action, why, raised_by, label}`; `get_candidate_actions` exposes them.
-- Plan steps: `_Planner.plan_json` (rules) and the coordinator's JSON (LLM) both pass through `verify_output`, which keeps step dicts as they are. Compute and overwrite warnings there, so both paths get them and the model cannot set them. For staged user actions use `app._sim_payload`.
+- Plan steps: `_Planner.plan_json` (rules) and the coordinator's JSON (LLM) both pass through `verify_output`, which keeps step dicts as they are. Compute and overwrite warnings there, so both paths get them and the model cannot set them. For staged user actions use `routes_la._sim_payload`.
 - Lines an action turns off: `open_line.target`, `deenergize_lines.targets` (`offTargets` in `ui/format.ts`).
 - Write-up subagents: follow `team._subagent_specs`; keep them out of the 50 s `run_team` budget; cache like `agent._look_cache`; reuse `agent._clean_text`; test with `FakeChat` from `site_agent/test_site_agent.py`.
 - UI: `Plan` type in `frontend/src/api.ts`; step list in the Details drawer of `ui/PlanCard.tsx` (the card root has `onClick={onSelect}`, so stop propagation); `ui/ChangesTray.tsx` for staged actions.
 
 **Costs and escalation (Phase 6).**
 - Inputs that exist: `totals.unserved_mw`, `totals.customers_out` (`CUSTOMERS_PER_MW` = 500, modeled), `totals.critical_on_backup`, bus `critical_type` and `backup_hours`. No outage duration exists anywhere; it must be an explicit assumption.
-- Where numbers surface: `summarize_result` (plan result), `_sim_payload` (tray and Study), `verify_output` (`do_nothing`), `_la_bulletin`, and the gate in `la_approve`.
-- There is no audit log: `JOBS`, plans and the bulletin are in memory. A persisted log has to be added at `la_approve`, `la_reject` and `_run_la_job`.
+- Where numbers surface: `summarize_result` (plan result), `routes_la._sim_payload` (tray and Study), `verify_output` (`do_nothing`), `bulletin.la_bulletin`, and the gate in `la_approve`.
+- There is no audit log: `JOBS`, plans and the bulletin are in memory. A persisted log has to be added at `la_approve`, `la_reject` and `jobs._run`.
 - Thresholds: `validation/config.yaml` via `D.config()`, or a new file in `config/`. UI: `planNums` and the four tiles in `PlanCard.tsx`; `SituationCard.tsx` shows at most four numbers.
 
 **Map overlay (Phase 7).**
