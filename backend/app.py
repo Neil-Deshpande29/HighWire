@@ -13,7 +13,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import grid_data, reports
+from . import grid_data, llm as LLM, reports
 from .agents.team import run_team
 from .agents.tools import JobLog
 from .state import STATE
@@ -43,7 +43,7 @@ class ReportIn(BaseModel):
 
 def _state_out():
     v = STATE.view()
-    v["mode"] = "llm" if os.environ.get("ANTHROPIC_API_KEY") else "mock"
+    v["mode"] = "llm" if LLM.enabled() else "mock"
     return v
 
 

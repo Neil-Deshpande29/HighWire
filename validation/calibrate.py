@@ -12,7 +12,9 @@ import json
 import numpy as np
 import pandas as pd
 
-from common import D, E, RES, apply_gust, event_hindcast, local_hour_features, outage_baseline, pair_station_grid, pop_weighted_temp, save
+from common import (D, E, RES, apply_gust, auc, event_hindcast, local_hour_features, nudge_loso, outage_baseline,
+                    pair_station_grid, pop_weighted_temp, save, series_storm)
+from backend.la import storm as S
 
 CFG = D.config()
 TRAIN = CFG["split"]["train"]
@@ -53,7 +55,12 @@ def fit_gust():
 
 
 # ------------------------------------------------------------------ 2. load model
-def load_features(idx_utc, T, T24):
+def load_features(idx_utc, T, T24, Tin):
+    """Hour-of-day x weekday/weekend profile + temperature terms.
+    v2 (chosen on an internal 2019-20 fit / summer-2021 holdout, never on H2): air-conditioning load depends on heat
+    MORE in the afternoon than at night, so temperature hinges are interacted with time-of-day blocks, and an inland
+    heat term (90th-percentile grid temperature) is added because SCE load sits inland where the population-weighted
+    mean understates the heat. Internal holdout: SCE top-5 peak error -13.1% -> -4.8%, LDWP -9.1% -> -5.9%."""
     hod, wkend, _ = local_hour_features(idx_utc)
     cols = [np.ones(len(T)), np.maximum(T - 18, 0), np.maximum(T - 26, 0), np.maximum(14 - T, 0),
             np.maximum(T24 - 20, 0), np.maximum(T24 - 26, 0)]
@@ -61,6 +68,11 @@ def load_features(idx_utc, T, T24):
         cols.append((hod == h).astype(float))
     for h in range(24):
         cols.append(((hod == h) & (wkend == 1)).astype(float))
+    for a, b in [(0, 6), (6, 11), (11, 15), (15, 22), (22, 24)]:
+        k = ((hod >= a) & (hod < b)).astype(float)
+        cols += [k * np.maximum(T - 22, 0), k * np.maximum(T24 - 22, 0)]
+    aft = ((hod >= 12) & (hod < 22)).astype(float)
+    cols += [aft * np.maximum(Tin - 28, 0), aft * np.maximum(Tin - 34, 0), np.maximum(Tin - 28, 0)]
     return np.column_stack(cols)
 
 
@@ -69,17 +81,18 @@ def series_temps():
     T = pop_weighted_temp(s)
     idx = pd.DatetimeIndex(s["time"].astype("datetime64[ns]")).tz_localize("UTC")
     T = pd.Series(T, idx)
-    return T, T.rolling(24, min_periods=1).mean()
+    Tin = pd.Series(np.percentile(s["temperature_2m"].reshape(len(idx), -1), 90, axis=1), idx)
+    return T, T.rolling(24, min_periods=1).mean(), Tin
 
 
 def fit_load():
-    T, T24 = series_temps()
+    T, T24, Tin = series_temps()
     dem = D.demand()
     out = {}
     for ba in ["LDWP", "SCE"]:
         y = dem[ba].reindex(T.index)
         fit = T.index.year.isin(CFG["load_model"]["fit_years"]) & y.notna().values
-        X = load_features(T.index[fit], T.values[fit], T24.values[fit])
+        X = load_features(T.index[fit], T.values[fit], T24.values[fit], Tin.values[fit])
         coef, *_ = np.linalg.lstsq(X, y.values[fit], rcond=None)
         pred = X @ coef
         out[ba] = {"coef": coef.tolist(), "train_mape": float(np.mean(np.abs(pred - y.values[fit]) / y.values[fit]) * 100)}
@@ -87,8 +100,8 @@ def fit_load():
 
 
 def predict_load(model, idx_utc):
-    T, T24 = series_temps()
-    X = load_features(idx_utc, T.reindex(idx_utc).values, T24.reindex(idx_utc).values)
+    T, T24, Tin = series_temps()
+    X = load_features(idx_utc, T.reindex(idx_utc).values, T24.reindex(idx_utc).values, Tin.reindex(idx_utc).values)
     return {ba: X @ np.array(m["coef"]) for ba, m in model.items()}
 
 
@@ -174,6 +187,73 @@ def _tower_clearance(grid, eid, cal):
     return TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy[None])
 
 
+# ------------------------------------------------------------------ 4. storm-damage model (wind agent)
+def fit_storm(cal):
+    """Selection protocol, all on 2019-2021 (calibration years) with leave-one-year-out AUC against the top-1% LA
+    County outage hours: (1) damage onset x restoration tau on the wind damage stock alone; (2) add the rain stock
+    only if it raises the leave-one-year-out AUC; (3) refit logistic weights on all three years; alarm = 98th
+    percentile of the index over calibration-year hours that were NOT high-outage hours (<= 2% false alarms)."""
+    df = series_storm(cal)
+    yrs = df.index.year.values
+    cy = CFG["series"]["calibrate_years"]
+    cm = np.isin(yrs, cy)
+    o = D.outages()["06037"].reindex(df.index)
+    y = ((o > o[cm].quantile(CFG["outage"]["high_hour_quantile"])).values & cm).astype(float)
+
+    def loyo(make_score):
+        return [auc(make_score(h)[yrs == h], y[yrs == h]) for h in cy]
+
+    table = []
+    for onset in S.ONSET_GRID:
+        for tau in S.TAU_GRID:
+            sw = S.stock(df[f"H{onset}"].values, tau)
+            sc = loyo(lambda h, sw=sw: sw)
+            table.append({"onset": onset, "tau": tau, "loyo_auc": [round(a, 4) for a in sc], "mean": float(np.mean(sc))})
+    best = max(table, key=lambda r: r["mean"])
+    sw = S.stock(df[f"H{best['onset']}"].values, best["tau"])
+    rain_rows, chosen_rain = [], None
+    for rt in S.RAIN_TAU_GRID:
+        X = np.c_[sw, S.stock(df["Rn"].values, rt)]
+
+        def mk(h, X=X):
+            tr = cm & (yrs != h)
+            return np.c_[np.ones(len(X)), X] @ S.logfit(X[tr], y[tr])
+        sc = loyo(mk)
+        rain_rows.append({"rain_tau": rt, "loyo_auc": [round(a, 4) for a in sc], "mean": float(np.mean(sc))})
+    br = max(rain_rows, key=lambda r: r["mean"])
+    if br["mean"] > best["mean"]:
+        chosen_rain = br["rain_tau"]
+    sr = S.stock(df["Rn"].values, chosen_rain or 6) * (1.0 if chosen_rain else 0.0)
+    w = S.logfit(np.c_[sw, sr][cm], y[cm])
+    if not chosen_rain:
+        w[2] = 0.0
+    P = S.score(sw, sr, w)
+    alarm = float(np.quantile(P[cm & (y == 0)], 0.98))
+    base = [auc(pd.Series(df.max_gust_raw.values).rolling(6, min_periods=1).max().values[yrs == h], y[yrs == h]) for h in cy]
+    st = {"onset": best["onset"], "tau": best["tau"], "rain_tau": chosen_rain or 6, "w": [float(x) for x in w], "alarm": alarm}
+    summary = {"chosen": st, "n_candidates": len(table) + len(rain_rows), "wind_table": sorted(table, key=lambda r: -r["mean"])[:8],
+               "rain_table": rain_rows, "rain_accepted": chosen_rain is not None,
+               "loyo_auc_chosen": br["mean"] if chosen_rain else best["mean"], "loyo_auc_gust_baseline_k6": float(np.mean(base)),
+               "positives_calibration_years": int(y[cm].sum())}
+    return st, summary
+
+
+# ------------------------------------------------------------------ 5. station nudging (wind agent, live obs)
+def fit_nudge():
+    """Pick the residual-spreading length L and shrinkage w0 on TRAINING events, leave-one-station-out."""
+    pairs = [pair_station_grid(e).dropna(subset=["gust_ms", "grid"]) for e in TRAIN]
+    rows = []
+    for L in (10, 20, 40, 80):
+        for w0 in (0.05, 0.2, 0.5, 1.0):
+            o = pd.concat([nudge_loso(m, L, w0) for m in pairs])
+            windy = o.obs >= 8
+            r_all = float(np.sqrt(np.mean((o.nudged - o.obs) ** 2)))
+            r_w = float(np.sqrt(np.mean((o.nudged[windy] - o.obs[windy]) ** 2)))
+            rows.append({"L_km": L, "w0": w0, "rmse_all": r_all, "rmse_windy8": r_w, "objective": r_all + r_w})
+    best = min(rows, key=lambda r: r["objective"])
+    return {"L_km": best["L_km"], "w0": best["w0"]}, {"grid": rows, "chosen": best}
+
+
 def main():
     gust_cal, gust_sum = fit_gust()
     print("gust:", json.dumps(gust_sum["before_windy"]), "->", json.dumps(gust_sum["after_windy"]))
@@ -184,10 +264,14 @@ def main():
     print("fire:", fire, "hit rate", fire_sum["best_hit_rate"], "auc", round(fire_sum["best_auc"], 3), "margin", round(fire_sum["best_margin"], 2))
     for row in fire_sum["top10"][:6]:
         print("   ", row)
-    cal = {"gust": gust_cal, "fire": fire, "load": load_model, "trained_on": TRAIN,
-           "load_fit_years": CFG["load_model"]["fit_years"]}
+    nudge, nudge_sum = fit_nudge()
+    print("nudge:", nudge)
+    storm, storm_sum = fit_storm({"gust": gust_cal, "fire": fire})
+    print("storm:", storm, "LOYO", round(storm_sum["loyo_auc_chosen"], 3), "vs gust", round(storm_sum["loyo_auc_gust_baseline_k6"], 3))
+    cal = {"gust": gust_cal, "fire": fire, "load": load_model, "storm": storm, "nudge": nudge, "trained_on": TRAIN,
+           "load_fit_years": CFG["load_model"]["fit_years"], "storm_fit_years": CFG["series"]["calibrate_years"]}
     (D.P / "calibration.json").write_text(json.dumps(cal, indent=1))
-    save("calibration_summary", {"gust": gust_sum, "fire": fire_sum,
+    save("calibration_summary", {"gust": gust_sum, "fire": fire_sum, "storm": storm_sum, "nudge": nudge_sum,
                                   "load": {k: {"train_mape": v["train_mape"]} for k, v in load_model.items()}})
 
 

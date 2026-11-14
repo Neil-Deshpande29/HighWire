@@ -134,3 +134,60 @@ def first_spike(series_vals, threshold, sustain=3):
         if run >= sustain:
             return i - sustain + 1
     return None
+
+
+def nudge_loso(m: pd.DataFrame, L_km: float, w0: float) -> pd.DataFrame:
+    """Station nudging (what the wind agent does with live ASOS): each hour, the gridded gust at a station is shifted by
+    a distance-weighted mean of the OTHER stations' (obs - grid) residuals, weight exp(-d/L_km), shrunk by w0.
+    Leave-one-station-out by construction (a station never sees its own observation), so it is a fair accuracy test.
+    m = pair_station_grid(...) output. Returns long DataFrame hour, station, obs, grid, nudged."""
+    st = m.groupby("station")[["lat", "lon"]].first()
+    dx = (st.lon.values - st.lon.values[:, None]) * 111.32 * np.cos(np.radians(34))
+    dy = (st.lat.values - st.lat.values[:, None]) * 110.54
+    W = np.exp(-np.hypot(dx, dy) / L_km)
+    np.fill_diagonal(W, 0.0)
+    po = m.pivot_table(index="hour", columns="station", values="gust_ms").reindex(columns=st.index)
+    pg = m.pivot_table(index="hour", columns="station", values="grid").reindex(columns=st.index)
+    R = (po - pg).values
+    ok = np.isfinite(R)
+    corr = (np.nan_to_num(R) @ W.T) / (ok.astype(float) @ W.T + w0)
+    nud = np.maximum(pg.values + corr, 0.0)
+    out = pd.DataFrame({"hour": np.repeat(po.index.values, po.shape[1]), "station": np.tile(st.index.values, po.shape[0]),
+                        "obs": po.values.ravel(), "grid": pg.values.ravel(), "nudged": nud.ravel()})
+    return out.dropna(subset=["obs", "grid"])
+
+
+def series_storm(cal=None) -> pd.DataFrame:
+    """Hourly storm hazards over 2019-2024 on the coarse series grid, for every candidate damage onset (cached)."""
+    from backend.la import storm as S
+
+    cal = cal or D.calibration()
+    cache = RES / f"series_storm_2019_2024_c{cal['fire']['c50']:g}.csv"
+    if cache.exists():
+        return pd.read_csv(cache, index_col=0, parse_dates=True)
+    g = E.LAGrid()
+    s = D.weather("series_2019_2024")
+    pr = np.load(D.P / "weather" / "series_precip_2019_2024.npz")["precipitation"]
+    T = len(s["time"])
+    cols = {f"H{o}": np.zeros(T) for o in S.ONSET_GRID}
+    cols["Rn"] = np.zeros(T)
+    for a in range(0, T, 744):
+        idx = np.arange(a, min(a + 744, T))
+        hz = S.hazards(g, s, idx, pr, onsets=list(S.ONSET_GRID), cal=cal)
+        for o in S.ONSET_GRID:
+            cols[f"H{o}"][idx] = hz["H"][o]
+        cols["Rn"][idx] = hz["Rn"]
+    cols["max_gust_raw"] = s["wind_gusts_10m"].reshape(T, -1).max(1)
+    times = pd.DatetimeIndex(s["time"].astype("datetime64[ns]")).tz_localize("UTC")
+    df = pd.DataFrame(cols, index=times)
+    df.to_csv(cache)
+    return df
+
+
+def auc(score, label):
+    m = np.isfinite(score) & np.isfinite(label)
+    s, y = score[m], label[m].astype(bool)
+    if y.sum() == 0 or (~y).sum() == 0:
+        return np.nan
+    r = pd.Series(s).rank().values
+    return float((r[y].sum() - y.sum() * (y.sum() + 1) / 2) / (y.sum() * (~y).sum()))

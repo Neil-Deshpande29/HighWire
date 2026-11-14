@@ -19,11 +19,14 @@ export default function ModelChart({ series, kind, cursor, onSeek }: { series: S
   const days: number[] = [];
   series.t_utc.forEach((t, i) => { const d = new Date(t); if (d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }) === "0") days.push(i); });
   const thr = kind === "heat" ? 100 : series.region_alarm;
+  const storm = kind !== "heat" ? series.storm_index : null;
+  const ys = (v: number) => pt + (1 - v) * (H - pt - pb);
   return (
     <div className="chart">
       <div className="chart-head">
         <b>Model vs reality</b>
         <span className="key"><i style={{ background: "#ef4444" }} />{kind === "heat" ? "max line loading % (model)" : "risk index: risk-weighted line-km (model)"}</span>
+        {storm && <span className="key"><i style={{ background: "#38bdf8" }} />storm-damage index 0-1 (wind agent)</span>}
         <span className="key"><i style={{ background: "#e5e7eb" }} />LA County customers out (EAGLE-I, actual)</span>
         {v4 && kind !== "heat" && (
           <span className="key lead">
@@ -49,6 +52,13 @@ export default function ModelChart({ series, kind, cursor, onSeek }: { series: S
         <text x={pl + 4} y={yl(thr) - 4} fontSize="10" fill="#fca5a5">{kind === "heat" ? "100% rating" : "calibrated alarm"}</text>
         <path d={path(out, yr)} fill="none" stroke="#e5e7eb" strokeWidth={1.6} />
         <path d={path(left, yl)} fill="none" stroke="#ef4444" strokeWidth={2} />
+        {storm && series.storm_alarm != null && (
+          <>
+            <line x1={pl} x2={W - pr} y1={ys(series.storm_alarm)} y2={ys(series.storm_alarm)} stroke="#38bdf8" strokeDasharray="2 5" opacity={0.7} />
+            <text x={W - pr - 92} y={ys(series.storm_alarm) - 4} fontSize="10" fill="#7dd3fc">storm alarm</text>
+            <path d={path(storm, ys)} fill="none" stroke="#38bdf8" strokeWidth={1.8} />
+          </>
+        )}
         {series.fires.map((f, k) => {
           const i = idxOf(f.ignition_utc);
           return i >= 0 ? (

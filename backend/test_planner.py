@@ -2,6 +2,8 @@
 import os
 
 os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["GOOGLE_API_KEY"] = ""
 os.environ["MOCK_PACE"] = "0"
 
 from fastapi.testclient import TestClient  # noqa: E402

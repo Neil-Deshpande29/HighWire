@@ -2,7 +2,9 @@
 approximated as air temp + 10 C, i.e. no power flow per hour). Positive class: hours in the top 1% of LA County
 customers out (EAGLE-I) within the report years. ROC AUC on 2022-2024 vs baseline = regional max gust alone.
 The only thing fit on 2019-2021 is the look-back window k (rolling max over the previous k hours), chosen
-separately and identically for the index and the baseline."""
+separately and identically for every score.
+v2: adds the STORM index (wind agent: wind + rain damage stock, backend/la/storm.py), whose parameters were fit on
+2019-2021 only (calibrate.py fit_storm). The fire index answers a different question (ignition) and is kept for reference."""
 from __future__ import annotations
 
 import sys as _sys
@@ -17,7 +19,8 @@ import pandas as pd  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from common import D, E, RES, save  # noqa: E402  (adds repo root to sys.path)
+from common import D, E, RES, save, series_storm  # noqa: E402  (adds repo root to sys.path)
+from backend.la import storm as S  # noqa: E402
 from backend import thermal as TH  # noqa: E402
 
 
@@ -70,7 +73,10 @@ def run():
     df = series_index()
     o = D.outages()["06037"].reindex(df.index)
     out = {"check": "V4b"}
-    feats = {"risk_index": df["risk_index"], "baseline_max_gust": df["max_gust_raw"]}
+    st = D.calibration()["storm"]
+    ss = series_storm().reindex(df.index)
+    storm = pd.Series(S.index_from_hazards(ss[f"H{st['onset']}"].values, ss["Rn"].values, st), index=df.index)
+    feats = {"storm_index": storm, "risk_index": df["risk_index"], "baseline_max_gust": df["max_gust_raw"]}
     lab = {}
     for name, years in (("calibrate", cfg["series"]["calibrate_years"]), ("report", cfg["series"]["report_years"])):
         m = df.index.year.isin(years)
@@ -100,10 +106,17 @@ def run():
     fig.savefig(RES / "v4b_discrimination.png", dpi=110)
     plt.close(fig)
     ri, bl = chosen["risk_index"]["auc_report"], chosen["baseline_max_gust"]["auc_report"]
+    sa = chosen["storm_index"]["auc_report"]
+    # per-year AUC (2023 may have no positives under the pooled threshold)
+    per_year = {}
+    for yy in D.config()["series"]["report_years"]:
+        my = m & (df.index.year == yy)
+        per_year[int(yy)] = {k: auc(f.rolling(chosen[k]["k_hours"], min_periods=1).max().values[my], y[my]) for k, f in feats.items()}
+        per_year[int(yy)]["n_positive"] = int(y[my].sum())
+    verdict = "beats" if sa > bl + 0.02 else ("matches" if sa >= bl - 0.02 else "does NOT beat")
     out.update({"features": chosen, "positive_threshold_customers": q, "n_positive_hours": int(y[m].sum()), "n_hours": int(m.sum()),
-                "beats_baseline": bool(ri > bl),
-                "headline": f"2022-2024 high-outage hours: risk index AUC {ri:.2f} vs gust-only baseline {bl:.2f}"
-                            + (" (beats baseline)" if ri > bl else " (does NOT beat the baseline)"),
+                "beats_baseline": bool(sa > bl), "storm_verdict": verdict, "per_year": per_year,
+                "headline": f"2022-2024 high-outage hours: storm index AUC {sa:.2f} (fire index {ri:.2f}) vs gust-only baseline {bl:.2f}: {verdict} the baseline",
                 "baseline": "Regional maximum gridded gust, same look-back window selection",
                 "caveat": "Positives include every cause of high outages (heat, rain, equipment); non-weather causes are not separable in EAGLE-I.",
                 "plot": "v4b_discrimination.png"})

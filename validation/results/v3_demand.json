@@ -6,10 +6,10 @@
   "LDWP": {
    "model": {
     "peak_actual_mw": 6170.0,
-    "peak_pred_mw": 5677.313329912367,
-    "peak_error_pct": -7.985197246152878,
-    "peak_hour_error_h": -48.0,
-    "mape_pct": 7.220215710146766,
+    "peak_pred_mw": 6003.918267118468,
+    "peak_error_pct": -2.69176228333115,
+    "peak_hour_error_h": -47.0,
+    "mape_pct": 7.300421387522552,
     "actual_peak_time_local": "2022-09-06 15:00:00-07:00"
    },
    "baseline_last_week": {
@@ -24,10 +24,10 @@
   "SCE": {
    "model": {
     "peak_actual_mw": 24595.0,
-    "peak_pred_mw": 22037.73313789101,
-    "peak_error_pct": -10.3975070628542,
-    "peak_hour_error_h": -167.0,
-    "mape_pct": 9.268110504009131,
+    "peak_pred_mw": 22533.929918874794,
+    "peak_error_pct": -8.380036922647719,
+    "peak_hour_error_h": -142.0,
+    "mape_pct": 9.642032287363277,
     "actual_peak_time_local": "2022-09-07 16:00:00-07:00"
    },
    "baseline_last_week": {
@@ -40,7 +40,7 @@
    }
   }
  },
- "headline": "H2: predicted the heat-wave peak within 10.4% (SCE) and 8.0% (LDWP) from weather alone",
+ "headline": "H2: predicted the heat-wave peak within 8.4% (SCE) and 2.7% (LDWP) from weather alone",
  "baseline": "Same hour last week",
  "plot": "v3_demand.png"
 }

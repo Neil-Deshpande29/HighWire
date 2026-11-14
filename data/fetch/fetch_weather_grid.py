@@ -2,6 +2,7 @@
 
   python fetch_weather_grid.py events   -> 0.1 deg grid for every event window (+pad) -> data/processed/weather/<EVENT>.npz
   python fetch_weather_grid.py series   -> 0.25 deg grid, 2019-2024, fewer variables -> data/processed/weather/series_2019_2024.npz
+  python fetch_weather_grid.py series_precip -> same grid/years, precipitation only -> data/processed/weather/series_precip_2019_2024.npz
 Units: m/s, C, %, W/m2, hPa, mm. Times are UTC hour starts.
 """
 from __future__ import annotations
@@ -66,6 +67,15 @@ def main(mode):
             t, arrs = fetch(lats, lons, str(s), str(e), EVENT_VARS, RAW / "openmeteo" / f"{ev['id']}.json")
             np.savez_compressed(out, time=t.astype("int64"), lats=lats, lons=lons, **arrs)
             time.sleep(20)  # stay under the per-minute weighted limit
+    elif mode == "series_precip":  # added for the storm-damage (wind agent) model: wet winter storms
+        lats, lons = grid(reg["bbox"], reg["weather_grid_coarse_deg"])
+        out = wdir / "series_precip_2019_2024.npz"
+        if out.exists():
+            L.info("%s exists", out.name)
+            return
+        t, arrs = fetch(lats, lons, "2019-01-01", "2024-12-31", ["precipitation"], RAW / "openmeteo" / "series_precip.json", chunk=1)
+        np.savez_compressed(out, time=t.astype("int64"), lats=lats, lons=lons, **arrs)
+        L.info("precip series saved: %s hours x %s points", len(t), len(lats) * len(lons))
     else:
         lats, lons = grid(reg["bbox"], reg["weather_grid_coarse_deg"])
         out = wdir / "series_2019_2024.npz"

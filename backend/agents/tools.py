@@ -201,7 +201,21 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         log(agent, f"reading event context {event_id} {t}")
         return json.dumps(replay.event_context(event_id, t or None), default=str)
 
+    def get_storm_damage() -> str:
+        """Wind agent tool (LA replays): the calibrated STORM-DAMAGE model for this hour, i.e. how likely wind and rain
+        are to knock lines down and put customers out (different from fire risk). Returns the storm index (0-1) vs its
+        alarm, % of the network under damaging wind / heavy rain, the lines most likely to be damaged, and how well this
+        model matched real outages historically (V4a/V4b). Use it to recommend crew pre-staging and patrols."""
+        from ..la import replay
+
+        log(agent, "reading storm-damage model")
+        h = replay.hour(state.eid, t=state.t_utc.isoformat())
+        val = {c["id"]: {k: c[k] for k in ("headline", "baseline", "status")} for c in replay.validation_summary().get("cards", [])
+               if c["id"] in ("V2", "V4a", "V4b")}
+        return json.dumps({"storm": h.get("storm"), "actual_customers_out": h["outages"], "validation": val}, default=str)
+
     all_tools = {
+        "get_storm_damage": get_storm_damage,
         "get_grid_summary": get_grid_summary,
         "get_weather": get_weather,
         "get_reports": get_reports,

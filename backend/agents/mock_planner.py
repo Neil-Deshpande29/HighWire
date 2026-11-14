@@ -419,16 +419,42 @@ class _Planner:
             out.append("cascade_agent pushed to re-close the operator-opened line; coordinator flagged it for operator confirmation since it reverses a manual switch.")
         return out
 
+    def storm(self) -> tuple[str, dict | None]:
+        """Wind agent (LA replays): read the calibrated storm-damage model; returns a situation sentence + crew staging."""
+        st = self.state
+        if not hasattr(st, "grid"):
+            return "", None
+        from ..la import replay
+
+        sd = replay.hour(st.eid, t=st.t_utc.isoformat()).get("storm")
+        if not sd:
+            return "", None
+        above = sd["alarm"] is not None and sd["index"] >= sd["alarm"]
+        tops = sd["top_lines"][:5]
+        self.say("wind_agent", f"storm-damage index {sd['index']:.2f} vs alarm {sd['alarm']:.2f}; "
+                               f"{sd['wind_hazard_pct']}% of network under damaging wind, {sd['rain_hazard_pct']}% under heavy rain")
+        if tops:
+            self.say("wind_agent", "most likely to be knocked down: " + ", ".join(f"{t['id']} ({t['p_damage']:.2f})" for t in tops[:3]))
+        self.find("wind_agent", "network", "storm damage " + ("ABOVE alarm" if above else "below alarm"),
+                  f"index {sd['index']:.2f} / alarm {sd['alarm']:.2f}", 2 if above else 1)
+        staging = {"storm_index": sd["index"], "alarm": sd["alarm"], "above_alarm": above,
+                   "pre_stage_crews_near": [{"line": t["id"], "name": t["name"], "p_damage": t["p_damage"]} for t in tops]}
+        sent = (f" Storm-damage index {sd['index']:.2f} is ABOVE its alarm ({sd['alarm']:.2f}): pre-stage restoration crews near "
+                + ", ".join(t["id"] for t in tops[:3]) + "." if above and tops else
+                f" Storm-damage index {sd['index']:.2f} (alarm {sd['alarm']:.2f}): no crew pre-staging needed yet.")
+        return sent, staging
+
     def run(self) -> dict:
         st = self.state
         base = self.sim([])
         self.analyze(base)
+        storm_sent, staging = self.storm()
         if base["is_safe"]:
             self.say("coordinator", "do-nothing case passes every physics check; no switching recommended")
             return {
                 "situation": f"{st.scenario}: the grid is within limits. No violations, {base['totals']['unserved_mw']} MW unserved."
-                + (f" Watch item: {base['n1_warnings'][0]}." if base["n1_warnings"] else ""),
-                "plans": [],
+                + (f" Watch item: {base['n1_warnings'][0]}." if base["n1_warnings"] else "") + storm_sent,
+                "plans": [], "crew_staging": staging,
                 "disagreements": [],
                 "agent_findings": self.findings,
             }
@@ -490,16 +516,16 @@ class _Planner:
         sit = f"{st.scenario}: {len(v)} physics violations, starting with {v[0].split(':')[0]} ({v[0].split(': ', 1)[1]})."
         corr = [r for r in st.reports_view() if r["corroborated"]]
         sit += (f" {len(corr)} ground report{'s corroborate' if len(corr) != 1 else ' corroborates'} the physics." if corr else "")
-        sit += f" Best plan leaves {chosen[0][1]['totals']['unserved_mw']:.0f} MW unserved."
+        sit += f" Best plan leaves {chosen[0][1]['totals']['unserved_mw']:.0f} MW unserved." + storm_sent
         return {
-            "situation": sit,
+            "situation": sit, "crew_staging": staging,
             "plans": plans,
             "disagreements": self.disagreements(chosen[0][0]),
             "agent_findings": self.findings,
         }
 
 
-def run_mock(state, log: JobLog, reason: str = "no ANTHROPIC_API_KEY", pace: float | None = None) -> dict:
+def run_mock(state, log: JobLog, reason: str = "no GEMINI_API_KEY", pace: float | None = None) -> dict:
     log("system", f"rule-based planner ({reason})")
     p = _Planner(state, log, PACE_S if pace is None else pace)
     out = p.run()

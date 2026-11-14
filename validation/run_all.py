@@ -54,6 +54,74 @@ def v4a_sentence(v4a):
     return s
 
 
+def v2_card(v2, ts):
+    nd = v2.get("nudged_test")
+    if not nd:
+        return {"id": "V2", "title": "Weather inputs vs ground stations", "status": "weak",
+                "headline": f"Test windy-hour gust bias {ts['gust_windy_before']['bias']:+.1f} m/s (RMSE {ts['gust_windy_before']['rmse']:.1f})",
+                "baseline": f"All test hours: bias {ts['gust_all_before']['bias']:+.1f} m/s; temperature RMSE {ts['temp']['rmse']:.1f} C",
+                "plot": "v2_weather.png", "one_liner": "Reanalysis gusts miss the strongest Santa Ana gusts."}
+    a, ar, w, wr = nd["gust_all"], nd["gust_all_raw"], nd["gust_windy"], nd["gust_windy_raw"]
+    better_all = a["rmse"] < ar["rmse"]
+    better_w = w["rmse"] < wr["rmse"]
+    status = "mixed" if better_all and better_w and abs(w["bias"]) > 2 else ("pass" if better_all and better_w else "weak")
+    return {"id": "V2", "title": "Weather inputs vs ground stations", "status": status,
+            "headline": f"Wind agent (live-station nudging): test gust RMSE {ar['rmse']:.1f} -> {a['rmse']:.1f} m/s, bias {ar['bias']:+.1f} -> {a['bias']:+.1f}",
+            "baseline": f"Raw reanalysis; windy hours (>= 12 m/s) RMSE {wr['rmse']:.1f} -> {w['rmse']:.1f}, bias {wr['bias']:+.1f} -> {w['bias']:+.1f}",
+            "plot": "v2_weather.png",
+            "one_liner": "Spreading live airport-station errors to nearby lines (tested leave-one-station-out, so no station grades itself) removes most of the "
+                         "everyday gust bias; the strongest, very local Santa Ana gusts are still underestimated."}
+
+
+def v3_status(sce, ldwp):
+    m = sce["model"]["mape_pct"] < sce["baseline_last_week"]["mape_pct"] and ldwp["model"]["mape_pct"] < ldwp["baseline_last_week"]["mape_pct"]
+    pk = abs(sce["model"]["peak_error_pct"]) <= abs(sce["baseline_last_week"]["peak_error_pct"]) + 1 and abs(ldwp["model"]["peak_error_pct"]) <= abs(ldwp["baseline_last_week"]["peak_error_pct"]) + 1
+    return "pass" if m and pk else "mixed"
+
+
+def v3_sentence(sce, ldwp):
+    s = "Weather-only demand (heat x time-of-day + inland heat, fit 2019-2021) tracks the record heat wave hour by hour better than persistence"
+    worse = [ba for ba, x in (("SCE", sce), ("LDWP", ldwp)) if abs(x["model"]["peak_error_pct"]) > abs(x["baseline_last_week"]["peak_error_pct"]) + 1]
+    return s + (f"; it still misses the record peak by more than persistence for {', '.join(worse)}." if worse else ", and gets the record peak about as close as persistence.")
+
+
+def v4a_card(e1, e3, c3, v4a):
+    if "storm" not in e1:
+        return {"id": "V4a", "title": "Grid stress vs actual outages (event replay)", "status": "mixed",
+                "headline": f"E1 Spearman {e1['spearman_la']:.2f}, lead {fmt(e1['lead_time_h'], 0)} h; E3 Spearman {e3['spearman_la']:.2f}, lead {fmt(e3['lead_time_h'], 0)} h",
+                "baseline": f"Calm test week C3: alarm on {c3['alarm_hour_fraction'] * 100:.1f}% of hours", "plot": "v4a_replay.png", "one_liner": v4a_sentence(v4a)}
+    s1, s3, sc = e1["storm"], e3["storm"], c3["storm"]
+    early = [k for k, e in (("E1", s1), ("E3", s3)) if e["lead_time_h"] is not None and e["lead_time_h"] > 0]
+    better = [k for k, f, e in (("E1", e1, s1), ("E3", e3, s3)) if e["spearman_la"] > f["spearman_la"]]
+    status = "pass" if len(better) == 2 and len(early) == 2 and sc["alarm_hour_fraction"] < 0.05 else "mixed"
+    one = (f"Inside single test events the fire index co-moves with outages better than the new storm index "
+           f"(E3 Spearman {e3['spearman_la']:.2f} vs {s3['spearman_la']:.2f}; E1 {e1['spearman_la']:.2f} vs {s1['spearman_la']:.2f}), "
+           if not better else f"The storm index co-moves better than the fire index in {', '.join(better)}. ")
+    one += ("and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. "
+            if not early else f"Its alarm fired before outages surged in {', '.join(early)}. ")
+    one += "Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid."
+    return {"id": "V4a", "title": "Grid stress vs actual outages (event replay)", "status": status,
+            "headline": f"Storm index: E1 Spearman {s1['spearman_la']:.2f}, lead {fmt(s1['lead_time_h'], 0)} h; E3 Spearman {s3['spearman_la']:.2f}, lead {fmt(s3['lead_time_h'], 0)} h",
+            "baseline": f"Fire index: E1 {e1['spearman_la']:.2f} / lead {fmt(e1['lead_time_h'], 0)} h, E3 {e3['spearman_la']:.2f} / lead {fmt(e3['lead_time_h'], 0)} h; calm week C3 storm alarm on {sc['alarm_hour_fraction'] * 100:.1f}% of hours",
+            "plot": "v4a_replay.png", "one_liner": one}
+
+
+def v4b_card(v4b):
+    f = v4b["features"]
+    if "storm_index" not in f:
+        return {"id": "V4b", "title": "Discrimination over 2022-2024", "status": "fail", "headline": f"Risk index AUC {f['risk_index']['auc_report']:.2f}",
+                "baseline": f"Max gust alone AUC {f['baseline_max_gust']['auc_report']:.2f}", "plot": "v4b_discrimination.png", "one_liner": ""}
+    sa, ri, bl = f["storm_index"]["auc_report"], f["risk_index"]["auc_report"], f["baseline_max_gust"]["auc_report"]
+    verdict = v4b["storm_verdict"]
+    status = {"beats": "pass", "matches": "mixed"}.get(verdict, "fail")
+    one = (f"The fire index was being graded on the wrong question (AUC {ri:.2f}): most big LA outages are wind and rain damage, not fire weather. "
+           f"The wind agent's storm-damage model raises that to {sa:.2f}, which {verdict} gust-alone ({bl:.2f}) on WHEN outages happen; "
+           "its added value is WHERE: it ranks the individual lines, which a regional gust number cannot.")
+    return {"id": "V4b", "title": "Discrimination over 2022-2024", "status": status,
+            "headline": f"Storm index AUC {sa:.2f} (fire index {ri:.2f})", "baseline": f"Max gust alone AUC {bl:.2f}",
+            "plot": "v4b_discrimination.png", "one_liner": one}
+
+
 def summary_cards():
     v1, v2, v3, v4a, v4b, v5, v6, v7 = (r(n) for n in ("v1_thermal", "v2_weather", "v3_demand", "v4a_replay", "v4b_discrimination",
                                                        "v5_ignition", "v6_psps", "v7_redflag"))
@@ -67,26 +135,14 @@ def summary_cards():
          "baseline": f"linerate IEEE 738; CIGRE TB 601 Ex. B ampacity {v1['a_cigre601_example_b']['linerate']['ampacity_a']:.0f} A vs published 1504 A",
          "plot": "v1_thermal.png",
          "one_liner": "Our heat-balance code matches the reference library and the published worked examples. That shows correct implementation, not real-world accuracy."},
-        {"id": "V2", "title": "Weather inputs vs ground stations", "status": "weak",
-         "headline": f"Test windy-hour gust bias {ts['gust_windy_before']['bias']:+.1f} m/s (RMSE {ts['gust_windy_before']['rmse']:.1f})",
-         "baseline": f"All test hours: bias {ts['gust_all_before']['bias']:+.1f} m/s; temperature RMSE {ts['temp']['rmse']:.1f} C",
-         "plot": "v2_weather.png",
-         "one_liner": "Reanalysis gusts are close on ordinary hours but miss the strongest Santa Ana gusts; the training events did not contain enough of them to correct this."},
-        {"id": "V3", "title": "Demand model vs actual (H2 heat wave)", "status": "mixed",
+        v2_card(v2, ts),
+        {"id": "V3", "title": "Demand model vs actual (H2 heat wave)", "status": v3_status(sce, ldwp),
          "headline": f"Peak within {abs(sce['model']['peak_error_pct']):.1f}% (SCE) / {abs(ldwp['model']['peak_error_pct']):.1f}% (LDWP); MAPE {sce['model']['mape_pct']:.1f}% / {ldwp['model']['mape_pct']:.1f}%",
          "baseline": f"Same hour last week: MAPE {sce['baseline_last_week']['mape_pct']:.1f}% / {ldwp['baseline_last_week']['mape_pct']:.1f}%, peak error {abs(sce['baseline_last_week']['peak_error_pct']):.1f}% / {abs(ldwp['baseline_last_week']['peak_error_pct']):.1f}%",
          "plot": "v3_demand.png",
-         "one_liner": "Weather-only demand tracks the heat wave better hour by hour than persistence, but underpredicts the record peak by more than persistence does."},
-        {"id": "V4a", "title": "Grid stress vs actual outages (event replay)", "status": "mixed",
-         "headline": f"E1 Spearman {e1['spearman_la']:.2f}, lead {fmt(e1['lead_time_h'], 0)} h; E3 Spearman {e3['spearman_la']:.2f}, lead {fmt(e3['lead_time_h'], 0)} h",
-         "baseline": f"Calm test week C3: alarm on {c3['alarm_hour_fraction'] * 100:.1f}% of hours",
-         "plot": "v4a_replay.png",
-         "one_liner": v4a_sentence(v4a)},
-        {"id": "V4b", "title": "Discrimination over 2022-2024", "status": "fail" if not v4b["beats_baseline"] else "pass",
-         "headline": f"Risk index AUC {v4b['features']['risk_index']['auc_report']:.2f}",
-         "baseline": f"Max gust alone AUC {v4b['features']['baseline_max_gust']['auc_report']:.2f}",
-         "plot": "v4b_discrimination.png",
-         "one_liner": "As a general predictor of the worst outage hours, our fire-weather index does NOT beat gust alone: many outage peaks come from wet winter storms that are windy but not fire weather."},
+         "one_liner": v3_sentence(sce, ldwp)},
+        v4a_card(e1, e3, c3, v4a),
+        v4b_card(v4b),
         {"id": "V5", "title": "Ignition hindcast", "status": "small-sample",
          "headline": "; ".join(f"{c['fire']} top {c['model_top_pct']:.0f}%" for c in test5),
          "baseline": "Gust-only: " + "; ".join(f"{c['fire']} top {c['gust_only_top_pct']:.0f}%" for c in test5) + "; random: top 50%",
@@ -142,7 +198,19 @@ def write_report(cards, timings):
       f"Training hit rate {f['best_hit_rate'] * 100:.0f}% on {sum(f['spike_hours'].values())} outage-spike hours, AUC {f['best_auc']:.2f}. "
       "The optimum sits at the low edge of the search grid for g50 and h50 and the objective is flat there: on training data, very dry air "
       "(RH under ~10%) carries most of the signal.")
-    w(f"- **Load model:** training MAPE LDWP {calsum['load']['LDWP']['train_mape']:.1f}%, SCE {calsum['load']['SCE']['train_mape']:.1f}% (2019-2021).")
+    w(f"- **Load model:** training MAPE LDWP {calsum['load']['LDWP']['train_mape']:.1f}%, SCE {calsum['load']['SCE']['train_mape']:.1f}% (2019-2021). "
+      "v2 adds temperature x time-of-day terms and an inland-heat term, chosen on an internal 2019-20 fit / summer-2021 holdout before H2 was looked at.")
+    if "storm" in calsum:
+        sm = calsum["storm"]
+        c = sm["chosen"]
+        w(f"- **Storm-damage model (wind agent), 2019-2021 only:** damage onset {c['onset']} m/s gust, restoration time constant {c['tau']} h, "
+          f"rain stock {'accepted (tau ' + str(c['rain_tau']) + ' h)' if sm['rain_accepted'] else 'rejected'}; alarm {c['alarm']:.3f} (98th pct of non-outage hours). "
+          f"Leave-one-year-out AUC {sm['loyo_auc_chosen']:.3f} vs gust-only {sm['loyo_auc_gust_baseline_k6']:.3f}. "
+          f"{sm['n_candidates']} candidates were compared in that protocol (plus ~60 exploratory variants, also on 2019-2021 only, while designing it), so expect some optimism.")
+    if "nudge" in calsum:
+        nc = calsum["nudge"]["chosen"]
+        w(f"- **Station nudging (wind agent):** residual length {nc['L_km']} km, shrinkage {nc['w0']}, chosen leave-one-station-out on training events. "
+          "Quantile-mapping the reanalysis to 2019-2021 station climatology was also tried and rejected (worse on windy test hours).")
     w("")
 
     def section(cid, title, tested, data, result_lines, baseline, plot, sentence):
@@ -182,6 +250,12 @@ def write_report(cards, timings):
              f"(n={ts['gust_all_before']['n']}); temperature RMSE {ts['temp']['rmse']:.2f} C; sustained wind RMSE {ts['wind']['rmse']:.2f} m/s.",
              f"Test events, windy hours (station gust >= 12 m/s, n={ts['gust_windy_before']['n']}): bias {ts['gust_windy_before']['bias']:+.2f} m/s, "
              f"RMSE {ts['gust_windy_before']['rmse']:.2f} m/s. After correction: identical (no correction was accepted in training)."]
+    if v2.get("nudged_test"):
+        nd = v2["nudged_test"]
+        lines.append(f"Wind agent, live-station nudging (leave-one-station-out): all hours bias {nd['gust_all_raw']['bias']:+.2f} -> {nd['gust_all']['bias']:+.2f} m/s, "
+                     f"RMSE {nd['gust_all_raw']['rmse']:.2f} -> {nd['gust_all']['rmse']:.2f}; windy hours bias {nd['gust_windy_raw']['bias']:+.2f} -> {nd['gust_windy']['bias']:+.2f}, "
+                     f"RMSE {nd['gust_windy_raw']['rmse']:.2f} -> {nd['gust_windy']['rmse']:.2f}; per-station event peak bias {nd['event_peak_raw']['bias']:+.2f} -> {nd['event_peak']['bias']:+.2f}.")
+        lines.append("Note: 'windy hours' are selected on the observed gust, which biases any noisy estimate low (regression to the mean); the all-hours and event-peak numbers are not affected by that.")
     for eid, ev in v2["events"].items():
         lines.append(f"{eid} ({ev['split']}): peak station gust {ev['all']['gust_peak_obs']:.1f} m/s vs peak gridded gust {ev['all']['gust_peak_grid']:.1f} m/s.")
     section("V2", "Weather inputs vs ground stations",
@@ -191,7 +265,9 @@ def write_report(cards, timings):
 
     s, l = v3["by_ba"]["SCE"], v3["by_ba"]["LDWP"]
     section("V3", "Demand model vs actual load (H2, test)",
-            "Hourly demand predicted from population-weighted temperature (piecewise linear cooling/heating terms, 24 h mean) plus hour-of-day x weekend terms, fit 2019-2021, applied to Aug 31 - Sep 9 2022.",
+            "Hourly demand predicted from population-weighted temperature (piecewise linear cooling/heating terms, 24 h mean) plus hour-of-day x weekend terms, "
+            "temperature x time-of-day interactions (air conditioning matters most in the afternoon) and an inland-heat term (90th-percentile grid temperature), "
+            "fit 2019-2021, applied to Aug 31 - Sep 9 2022.",
             f"{SRC['eia930']} (LDWP BA, CAISO SCE sub-BA), {SRC['openmeteo']}.",
             [f"SCE: peak {s['model']['peak_pred_mw']:.0f} MW predicted vs {s['model']['peak_actual_mw']:.0f} MW actual ({s['model']['peak_error_pct']:+.1f}%), "
              f"peak-hour error {s['model']['peak_hour_error_h']:+.0f} h, MAPE {s['model']['mape_pct']:.1f}%.",
@@ -208,6 +284,10 @@ def write_report(cards, timings):
                      f"lead {fmt(e['lead_time_h'], 0)} h (single-hour spike definition: {fmt(e['lead_time_h_single_hour_definition'], 0)} h); "
                      f"alarm on {e['alarm_hour_fraction'] * 100:.1f}% of hours; LA County peak {e['outage_peak_la']:.0f} customers out. "
                      f"_Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, {e['main_surge_utc']}) {fmt(e['exploratory_lead_to_main_surge_h'], 0)} h._")
+        if "storm" in e:
+            sx = e["storm"]
+            lines.append(f"{eid} storm index (wind agent): Spearman {sx['spearman_la']:.2f}; first alarm {sx['first_alarm_utc'] or 'never'}; lead {fmt(sx['lead_time_h'], 0)} h; "
+                         f"alarm on {sx['alarm_hour_fraction'] * 100:.1f}% of hours; peak {sx['peak']:.2f} (alarm {sx['alarm']:.2f}).")
     section("V4a", "Grid stress vs actual outages (event replay)",
             "Hourly region risk index (sum over tower points of fire risk x span km) from a full hindcast (power flow, IEEE 738, sag, blowout, clearance) vs LA County customers out. "
             "Lead time = first hour the index crosses its calibrated alarm to the first of 3 consecutive hours with outages above 2x the 2-day pre-event median "
@@ -220,9 +300,12 @@ def write_report(cards, timings):
             f"Can the hourly risk index separate the top 1% LA County outage hours (> {v4b['positive_threshold_customers']:.0f} customers, "
             f"{v4b['n_positive_hours']} of {v4b['n_hours']} hours) from the rest? Look-back window chosen on 2019-2021 for both scores.",
             f"{SRC['eaglei']}, {SRC['openmeteo']} (0.25 deg grid, 2019-2024).",
-            [f"Risk index: AUC {fb['risk_index']['auc_report']:.3f} (look-back {fb['risk_index']['k_hours']} h; calibration-years AUC {fb['risk_index']['auc_calibrate']:.3f}).",
+            ([f"Storm index (wind agent): AUC {fb['storm_index']['auc_report']:.3f} (look-back {fb['storm_index']['k_hours']} h; calibration-years AUC {fb['storm_index']['auc_calibrate']:.3f}). "
+              + "Per year: " + "; ".join(f"{yy}: storm {fmt(d.get('storm_index'), 3)}, gust {fmt(d.get('baseline_max_gust'), 3)} ({d['n_positive']} positives)" for yy, d in v4b.get('per_year', {}).items())]
+             if "storm_index" in fb else []) +
+            [f"Fire risk index: AUC {fb['risk_index']['auc_report']:.3f} (look-back {fb['risk_index']['k_hours']} h; calibration-years AUC {fb['risk_index']['auc_calibrate']:.3f}).",
              f"Gust-only baseline: AUC {fb['baseline_max_gust']['auc_report']:.3f} (look-back {fb['baseline_max_gust']['k_hours']} h).",
-             f"Beats baseline: {'yes' if v4b['beats_baseline'] else 'NO'}. {v4b['caveat']}"],
+             f"Storm index vs baseline: {v4b.get('storm_verdict', 'n/a')} (+/-0.02 counts as a match). {v4b['caveat']}"],
             "Regional maximum gridded gust.", v4b["plot"], cards[4]["one_liner"])
 
     lines = []
@@ -260,8 +343,13 @@ def write_report(cards, timings):
         f"Ratings on {sum('thermal_scale' in b for b in D.grid()['branches'])} of {len(D.grid()['branches'])} branches were raised so the simplified network carries the 2019-2021 peak (see grid_report.md).",
         "**Simplified topology.** OSM lines >= 66 kV snapped to OSM substations; no transformers, no distribution (where many ignitions start, e.g. Woolsey's 16 kV circuit), "
         "imports split evenly over boundary buses, in-basin plants dispatched pro rata to 45% of load.",
-        "**Reanalysis gust bias.** V2 shows the gridded gusts miss the strongest Santa Ana gusts in the test events; training events did not contain enough extreme gusts to correct it, "
-        "which delays our alarms in E3.",
+        "**Reanalysis gust bias.** The gridded gusts miss the strongest Santa Ana gusts. Live-station nudging (V2) fixes most of the everyday bias but not the "
+        "very local canyon gusts; only 8 ASOS stations are in the bbox. Nudging is reported in V2 but not fed into the fire/storm replays, which use calibrated reanalysis.",
+        "**Storm model scope.** The storm index predicts WHEN the region has its worst outage hours and WHICH modeled lines are most exposed; "
+        "it cannot see distribution-level damage, and per-line damage probabilities are not validated against utility outage records (not public).",
+        "**Storm model grid mismatch.** The storm model is fit on the 0.25 deg 2019-2021 series grid (the only multi-year weather we fetched) but replays use the "
+        "0.1 deg event grid, whose gusts are distributed differently; inside single events it tracks outages worse than the fire index (V4a). Fetching 0.1 deg "
+        "weather for 2019-2021 and refitting is the next step.",
         "**Vegetation.** Canopy is a constant per terrain zone (NLCD not fetched), so clearance contributes little; fire risk is mostly gust x dryness x fuel zone.",
         "**Small ignition sample.** V5 has 3 test ignitions and 1 training ignition. Report individual cases only.",
         "**EAGLE-I gaps.** Missing 15-min runs stay missing; implausible LA County readings (> 1 M customers, Jan 8 2025) were dropped; non-weather outage causes cannot be separated.",

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from common import D, E, RES, event_hindcast
+from backend.la import storm as S
 
 COUNTIES = ["06037", "06111", "06059", "06071"]
 
@@ -16,6 +17,7 @@ def build(eid, grid):
     ld, sc = E.event_demand(np.asarray(times.tz_localize(None), dtype="datetime64[h]"))
     wx = D.weather(eid)
     hi = E.hours_for(wx, D.events()[eid]["start_utc"], D.events()[eid]["end_utc"])
+    st = S.event_storm(grid, eid)  # wind agent: storm-damage index + per-line damage probability
     np.savez_compressed(
         RES / f"replay_{eid}.npz",
         time=np.asarray(times.tz_localize(None), dtype="datetime64[h]").astype("int64"),
@@ -27,7 +29,10 @@ def build(eid, grid):
         outages=o[COUNTIES].values.astype(np.float32),
         wx_gust=wx["wind_gusts_10m"][hi].astype(np.float32), wx_rh=wx["relative_humidity_2m"][hi].astype(np.float32),
         wx_temp=wx["temperature_2m"][hi].astype(np.float32), wx_dir=wx["wind_direction_10m"][hi].astype(np.float32),
-        wx_lats=wx["lats"], wx_lons=wx["lons"])
+        wx_lats=wx["lats"], wx_lons=wx["lons"],
+        storm_index=st["storm_index"].astype(np.float32), storm_hazard=st["storm_hazard"].astype(np.float32),
+        rain_hazard=st["rain_hazard"].astype(np.float32), line_damage=st["line_damage"].astype(np.float32),
+        wx_precip=np.nan_to_num(wx["precipitation"][hi]).astype(np.float32))
     return len(times)
 
 

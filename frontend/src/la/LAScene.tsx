@@ -33,6 +33,13 @@ export function riskColor(r: number, alarm: number): string {
   if (k >= 0.35) return "#eab308";
   return "#22c55e";
 }
+/** Storm-damage probability (wind agent): blue scale so it reads differently from fire risk. */
+export function damageColor(p: number): string {
+  if (p >= 0.75) return "#e879f9";
+  if (p >= 0.5) return "#a78bfa";
+  if (p >= 0.25) return "#38bdf8";
+  return "#1e3a5f";
+}
 export function loadColor(p: number): string {
   if (p > 100) return "#ef4444";
   if (p >= 70) return "#eab308";
@@ -187,8 +194,8 @@ function ringPoints(ring: [number, number][], proj: Proj, height: (la: number, l
 }
 
 // ---------------------------------------------------------------- main scene
-export default function LAScene({ s, hour, kind, view, preview, selected, onSelect, overlay }: {
-  s: LAStatic; hour: Hour | null; kind: string; view: LAView | null; preview: Set<string> | null;
+export default function LAScene({ s, hour, kind, layer = "fire", view, preview, selected, onSelect, overlay }: {
+  s: LAStatic; hour: Hour | null; kind: string; layer?: "fire" | "storm"; view: LAView | null; preview: Set<string> | null;
   selected: string | null; onSelect: (id: string) => void; overlay: RefObject<HTMLDivElement | null>;
 }) {
   const proj = useMemo(() => makeProj(s), [s]);
@@ -200,8 +207,10 @@ export default function LAScene({ s, hour, kind, view, preview, selected, onSele
     if (view?.opened.includes(b.id)) return "#334155";
     if (!hour) return "#94a3b8";
     if (b.cable) return "#64748b";
-    return kind === "heat" ? loadColor(hour.lines.loading[bi]) : riskColor(hour.lines.risk[bi], hour.line_alarm);
-  }), [s, hour, kind, view, preview]);
+    if (kind === "heat") return loadColor(hour.lines.loading[bi]);
+    if (layer === "storm" && hour.line_damage) return damageColor(hour.line_damage[bi]);
+    return riskColor(hour.lines.risk[bi], hour.line_alarm);
+  }), [s, hour, kind, layer, view, preview]);
   const fireEvent = hour?.event;
   const t = hour ? new Date(hour.t_utc).getTime() : 0;
   const ext = { x: proj.x(s.bbox.lon_max) - proj.x(s.bbox.lon_min), z: proj.z(s.bbox.lat_min) - proj.z(s.bbox.lat_max) };
@@ -266,6 +275,7 @@ export default function LAScene({ s, hour, kind, view, preview, selected, onSele
                 <b>{b.id}</b> <span className="muted">{Math.round(b.kv)} kV · {b.zone} · {b.length_km} km{b.cable ? " · cable" : ""}</span>
                 {b.name && <div className="muted">{b.name}</div>}
                 <div>Fire risk {L.risk[i].toFixed(2)} (alarm {hour.line_alarm.toFixed(2)}) · gust {L.gust[i]} m/s · RH {L.rh[i]}%</div>
+                {hour.line_damage && !b.cable && <div>Storm-damage probability {hour.line_damage[i].toFixed(2)} (wind agent)</div>}
                 <div>Flow {L.flow[i]} MW · loading {L.loading[i]}% · conductor {L.temp[i]} °C</div>
                 <div>Clearance to vegetation {L.clear[i]} m</div>
                 <div className="muted">modeled ratings/impedance · click to pin</div>

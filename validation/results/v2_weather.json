@@ -2400,6 +2400,43 @@
   }
  },
  "plot": "v2_weather.png",
+ "nudged_test": {
+  "params": {
+   "L_km": 20,
+   "w0": 1.0
+  },
+  "gust_all": {
+   "n": 6869,
+   "bias": 0.7360637886201843,
+   "rmse": 2.5163490144328904
+  },
+  "gust_all_raw": {
+   "n": 6869,
+   "bias": 2.0608202216503364,
+   "rmse": 3.4297769599767647
+  },
+  "gust_windy": {
+   "n": 280,
+   "bias": -3.301799924182578,
+   "rmse": 5.26996115640083
+  },
+  "gust_windy_raw": {
+   "n": 280,
+   "bias": -3.665578186129294,
+   "rmse": 5.869799540221346
+  },
+  "event_peak": {
+   "n": 31,
+   "bias": -2.0043437680504557,
+   "rmse": 4.323074666504082
+  },
+  "event_peak_raw": {
+   "n": 31,
+   "bias": -1.359900802437599,
+   "rmse": 4.897222270397166
+  },
+  "method": "leave-one-station-out: each station is predicted from the other stations' live residuals"
+ },
  "headline": "Test events: gridded gust bias +2.1 m/s (RMSE 3.4); on windy hours (obs >= 12 m/s) bias -3.7 m/s",
  "baseline": "Raw Open-Meteo reanalysis (before correction)"
 }

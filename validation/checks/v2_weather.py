@@ -15,7 +15,7 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from common import D, RES, apply_gust, pair_station_grid, save  # noqa: E402
+from common import D, RES, apply_gust, nudge_loso, pair_station_grid, save  # noqa: E402
 
 
 def err(p, o):
@@ -77,6 +77,17 @@ def run():
                             "temp": err(tw.grid_t.values, tw.tmpc.values), "wind": err(tw.grid_w.values, tw.wind_ms.values)},
            "gust_correction_applied": cal["gust"], "plot": "v2_weather.png"}
     ts = res["test_summary"]
+    # wind agent: live station nudging, leave-one-station-out (params fit on training events in calibrate.py)
+    nd = cal.get("nudge")
+    if nd:
+        no = pd.concat([nudge_loso(f.dropna(subset=["gust_ms", "grid"]), nd["L_km"], nd["w0"]).assign(event=f.event.iloc[0])
+                        for f in frames if f.event.iloc[0] in test])
+        w12 = no.obs >= 12
+        pk = no.groupby(["event", "station"]).agg(o=("obs", "max"), g=("grid", "max"), n=("nudged", "max"))
+        res["nudged_test"] = {"params": nd, "gust_all": err(no.nudged.values, no.obs.values), "gust_all_raw": err(no.grid.values, no.obs.values),
+                              "gust_windy": err(no.nudged.values[w12], no.obs.values[w12]), "gust_windy_raw": err(no.grid.values[w12], no.obs.values[w12]),
+                              "event_peak": err(pk.n.values, pk.o.values), "event_peak_raw": err(pk.g.values, pk.o.values),
+                              "method": "leave-one-station-out: each station is predicted from the other stations' live residuals"}
     res["headline"] = (f"Test events: gridded gust bias {ts['gust_all_before']['bias']:+.1f} m/s (RMSE {ts['gust_all_before']['rmse']:.1f}); "
                        f"on windy hours (obs >= 12 m/s) bias {ts['gust_windy_before']['bias']:+.1f} m/s")
     res["baseline"] = "Raw Open-Meteo reanalysis (before correction)"

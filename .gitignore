@@ -18,3 +18,4 @@ __pycache__/
 # stray root npm files (accidental `npm install all`); the real app lives in frontend/
 /package.json
 /package-lock.json
+validation/results/series_storm_2019_2024_*.csv

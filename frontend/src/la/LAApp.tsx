@@ -21,6 +21,7 @@ export default function LAApp() {
   const [preview, setPreview] = useState<Set<string> | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [layer, setLayer] = useState<"fire" | "storm">("fire");
   const overlay = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const poll = useRef<number | null>(null);
@@ -84,6 +85,7 @@ export default function LAApp() {
     } else {
       lines.push(`Gusts up to ${hour.weather.max_gust} m/s, humidity down to ${hour.weather.min_rh}%.`);
       lines.push(`${hour.n_over_alarm} line${hour.n_over_alarm === 1 ? "" : "s"} above the calibrated fire alarm; region risk index ${Math.round(hour.region_index)} vs alarm ${Math.round(hour.region_alarm)}.`);
+      if (hour.storm) lines.push(`Storm-damage index ${hour.storm.index.toFixed(2)} (alarm ${hour.storm.alarm.toFixed(2)}): ${hour.storm.wind_hazard_pct}% of the network under damaging wind${hour.storm.rain_hazard_pct > 0.5 ? `, ${hour.storm.rain_hazard_pct}% under heavy rain` : ""}.`);
       if (hour.redflag_active.length) lines.push(`NWS Red Flag Warning active in ${hour.redflag_active.length} fire-weather zones.`);
     }
     if (lit.length) lines.push(`Burning: ${lit.map((f) => `${f.name} (${f.hours_since_ignition} h)`).join(", ")}.`);
@@ -96,7 +98,7 @@ export default function LAApp() {
     <div className="app">
       <div className="scene la">
         <div className="scene3d">
-          <LAScene s={s} hour={hour} kind={kind} view={view} preview={preview} selected={selected} onSelect={setSelected} overlay={overlay} />
+          <LAScene s={s} hour={hour} kind={kind} layer={layer} view={view} preview={preview} selected={selected} onSelect={setSelected} overlay={overlay} />
           <div className="labels" ref={overlay} />
           {ev && hour && (
             <div className={`banner-map ${hour.n_over_alarm > 0 || hour.n_overloaded > 0 ? "alert" : "calm"}`}>
@@ -108,6 +110,10 @@ export default function LAApp() {
           <div className="legend">
             {kind === "heat" ? (<>
               <span><i style={{ background: "#22c55e" }} />&lt;70% rating</span><span><i style={{ background: "#eab308" }} />70–100%</span><span><i style={{ background: "#ef4444" }} />&gt;100%</span>
+            </>) : layer === "storm" ? (<>
+              <span><i style={{ background: "#1e3a5f" }} />low damage chance</span><span><i style={{ background: "#38bdf8" }} />25%+</span>
+              <span><i style={{ background: "#a78bfa" }} />50%+</span><span><i style={{ background: "#e879f9" }} />75%+ (wind agent)</span>
+              <span>➤ wind (gust-scaled)</span>
             </>) : (<>
               <span><i style={{ background: "#22c55e" }} />low fire risk</span><span><i style={{ background: "#eab308" }} />elevated</span>
               <span><i style={{ background: "#f97316" }} />near alarm</span><span><i style={{ background: "#ef4444" }} />above calibrated alarm</span>
@@ -115,6 +121,12 @@ export default function LAApp() {
             </>)}
             <span><i style={{ background: "#64748b" }} />underground cable</span><span><i style={{ background: "#334155" }} />de-energized</span><span><i style={{ background: "#f87171" }} />hospital</span>
             <span className="muted">Line ratings/impedances are modeled from voltage class</span>
+            {kind !== "heat" && hour?.line_damage && (
+              <span className="layer-toggle">
+                <button className={layer === "fire" ? "active" : ""} onClick={() => setLayer("fire")}>🔥 Fire risk</button>
+                <button className={layer === "storm" ? "active" : ""} onClick={() => setLayer("storm")}>💨 Storm damage</button>
+              </span>
+            )}
           </div>
         </div>
         {series && <ModelChart series={series} kind={kind} cursor={i} onSeek={(k) => setI(Math.max(0, Math.min(series.t_utc.length - 1, k)))} />}
@@ -152,6 +164,7 @@ export default function LAApp() {
             </>) : (<>
               <div className={hour.region_index >= hour.region_alarm ? "bad" : "ok"}><b>{Math.round(hour.region_index)}</b><span>risk index (alarm {Math.round(hour.region_alarm)})</span></div>
               <div className={hour.n_over_alarm ? "bad" : "ok"}><b>{hour.n_over_alarm}</b><span>lines over alarm</span></div>
+              {hour.storm && <div className={hour.storm.index >= hour.storm.alarm ? "bad" : "ok"}><b>{hour.storm.index.toFixed(2)}</b><span>storm index (alarm {hour.storm.alarm.toFixed(2)})</span></div>}
             </>)}
             <div><b>{(hour.outages["Los Angeles"] ?? 0).toLocaleString()}</b><span>LA customers out (actual)</span></div>
             <div><b>{hour.weather.max_gust}</b><span>max gust m/s</span></div>
@@ -174,6 +187,19 @@ export default function LAApp() {
           </section>
         )}
 
+        {kind !== "heat" && hour?.storm && hour.storm.top_lines.length > 0 && (
+          <section>
+            <h3>💨 Wind agent: lines most likely to be knocked down</h3>
+            <div className="toplines">
+              {hour.storm.top_lines.slice(0, 6).map((l) => (
+                <div key={l.id} className={"tl" + (selected === l.id ? " sel" : "")} onClick={() => { setSelected(l.id); setLayer("storm"); }}>
+                  <b>{l.id}</b> {Math.round(l.kv)} kV {l.zone} <span style={{ color: "#c4b5fd" }}>{Math.round(l.p_damage * 100)}%</span> <span className="muted">gust {l.gust} m/s</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section>
           <button className="run" disabled={busy || job?.status === "running" || !hour} onClick={runCopilot}>
             {job?.status === "running" ? "Co-Pilot running…" : "▶ Run Co-Pilot at this hour"}
@@ -187,6 +213,14 @@ export default function LAApp() {
         {out && (
           <section>
             <h2>Situation</h2><p>{out.situation}</p>
+            {out.crew_staging && (
+              <div className={out.crew_staging.above_alarm ? "staging alert" : "staging"}>
+                <b>💨 Crew pre-staging (wind agent):</b> storm index {out.crew_staging.storm_index.toFixed(2)} vs alarm {out.crew_staging.alarm.toFixed(2)}.{" "}
+                {out.crew_staging.above_alarm && out.crew_staging.pre_stage_crews_near.length
+                  ? <>Stage restoration crews near {out.crew_staging.pre_stage_crews_near.slice(0, 3).map((c) => `${c.line} (${Math.round(c.p_damage * 100)}%)`).join(", ")}.</>
+                  : <>No pre-staging needed yet.</>}
+              </div>
+            )}
             {out.no_safe_option && <div className="error">No safe option within 3 actions at this hour. The least-bad plan is shown and cannot be approved; this is where a wider PSPS decision sits with the operator.</div>}
             {out.disagreements.length > 0 && (<><h3>Agent disagreements</h3><ul className="dis">{out.disagreements.map((d) => <li key={d}>{d}</li>)}</ul></>)}
             {out.plans.map((p) => (

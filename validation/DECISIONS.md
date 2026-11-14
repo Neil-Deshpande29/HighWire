@@ -100,3 +100,28 @@ first run are marked **(post-hoc, disclosed)**.
 ## Product
 - The LA replay runs alongside the Phase-1 synthetic "what-if" scenarios (kept as-is). The LA view uses a 3x vertical exaggeration.
 - Project renamed Highwire (folder `highwire/`).
+
+## v2 improvements (wind agent, demand model, Gemini)
+- **Why V4b failed before.** The fire index answers "will a line ignite?" (needs dry air); V4b's positives are the worst outage
+  hours from any cause, mostly wind and wet-storm damage. We kept the fire index (it is right for PSPS/ignition, V5/V7) and
+  added a separate **storm-damage model** (`backend/la/storm.py`) for the outage question.
+- **Storm model form (physics first, 4 fitted numbers).** Per tower span: damage chance = sigmoid((gust - onset)/2) x
+  vegetation-clearance factor; network hazard = span-weighted share; outages follow a **damage stock** that decays with a
+  restoration time constant tau (customers stay out until crews fix the line); a rain stock is added only if it helps.
+  Logistic weights map the two stocks to "chance this is a top-1% outage hour".
+- **What was searched, and where.** Design exploration (~60 variants: wind-only exposure, vegetation, 24/72 h wetness,
+  rain, heat, combinations, with/without damage stock) used 2019-2021 only, scored leave-one-year-out. Heat terms hurt and were
+  dropped. The final protocol in `calibrate.py fit_storm` searches onset {10..18} x tau {6,12,24,48} then rain tau {6,12,24}.
+  2022-2024 and the test events were not looked at until the choice was locked. The gust-only baseline gets the same
+  look-back window selection as before.
+- **New data.** Open-Meteo hourly precipitation on the 0.25 deg series grid (2019-2024) and Open-Meteo point series at the 9
+  ASOS stations (2018-2025). Both are keyless, cached in data/raw, processed into data/processed/weather/.
+- **Gust correction, second attempt.** Quantile mapping fit on 2019-2021 station climatology (far more Santa Ana hours than the
+  training events) improved all-hours error but made windy test hours worse (RMSE 5.9 -> 8.0): rejected. Live **station
+  nudging** (spread other stations' current residuals with weight exp(-d/L)) is evaluated leave-one-station-out; L and
+  shrinkage are fit on training events. It is reported in V2; it is NOT fed into the replays (the fire calibration was fit
+  on un-nudged gusts and refitting it would need new training data).
+- **Demand model.** Added temperature x time-of-day interactions and an inland-heat term; chosen on an internal
+  2019-20 fit / summer-2021 holdout (SCE top-5 peak error -13.1% -> -4.8%) before H2 was evaluated.
+- **LLM provider.** Switched from Anthropic to Google Gemini (`langchain-google-genai`), single factory in `backend/llm.py`.
+  Model id is configurable (`GEMINI_MODEL`); the LLM never produces a number shown in the UI.

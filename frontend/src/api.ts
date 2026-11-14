@@ -47,6 +47,7 @@ export type Plan = {
 };
 export type CopilotOutput = {
   situation: string; mode: string; no_safe_option: boolean; plans: Plan[]; disagreements: string[];
+  crew_staging?: { storm_index: number; alarm: number; above_alarm: boolean; pre_stage_crews_near: { line: string; name: string | null; p_damage: number }[] } | null;
   do_nothing: { violations: string[]; unserved_mw: number; customers_out: number; critical_on_backup: string[]; n1_warnings: string[] };
 };
 export type LogEntry = { t: number; agent: string; team: string; message: string };

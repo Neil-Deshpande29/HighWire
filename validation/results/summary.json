@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-14T13:35:36.487605+00:00",
+ "generated_utc": "2026-11-14T15:05:50.120669+00:00",
  "cards": [
   {
    "id": "V1",
@@ -13,38 +13,38 @@
   {
    "id": "V2",
    "title": "Weather inputs vs ground stations",
-   "status": "weak",
-   "headline": "Test windy-hour gust bias -3.7 m/s (RMSE 5.9)",
-   "baseline": "All test hours: bias +2.1 m/s; temperature RMSE 2.1 C",
+   "status": "mixed",
+   "headline": "Wind agent (live-station nudging): test gust RMSE 3.4 -> 2.5 m/s, bias +2.1 -> +0.7",
+   "baseline": "Raw reanalysis; windy hours (>= 12 m/s) RMSE 5.9 -> 5.3, bias -3.7 -> -3.3",
    "plot": "v2_weather.png",
-   "one_liner": "Reanalysis gusts are close on ordinary hours but miss the strongest Santa Ana gusts; the training events did not contain enough of them to correct this."
+   "one_liner": "Spreading live airport-station errors to nearby lines (tested leave-one-station-out, so no station grades itself) removes most of the everyday gust bias; the strongest, very local Santa Ana gusts are still underestimated."
   },
   {
    "id": "V3",
    "title": "Demand model vs actual (H2 heat wave)",
    "status": "mixed",
-   "headline": "Peak within 10.4% (SCE) / 8.0% (LDWP); MAPE 9.3% / 7.2%",
+   "headline": "Peak within 8.4% (SCE) / 2.7% (LDWP); MAPE 9.6% / 7.3%",
    "baseline": "Same hour last week: MAPE 13.8% / 19.3%, peak error 2.7% / 5.2%",
    "plot": "v3_demand.png",
-   "one_liner": "Weather-only demand tracks the heat wave better hour by hour than persistence, but underpredicts the record peak by more than persistence does."
+   "one_liner": "Weather-only demand (heat x time-of-day + inland heat, fit 2019-2021) tracks the record heat wave hour by hour better than persistence; it still misses the record peak by more than persistence for SCE."
   },
   {
    "id": "V4a",
    "title": "Grid stress vs actual outages (event replay)",
    "status": "mixed",
-   "headline": "E1 Spearman 0.13, lead -10 h; E3 Spearman 0.78, lead -49 h",
-   "baseline": "Calm test week C3: alarm on 10.7% of hours",
+   "headline": "Storm index: E1 Spearman 0.04, lead -21 h; E3 Spearman 0.43, lead -31 h",
+   "baseline": "Fire index: E1 0.13 / lead -10 h, E3 0.78 / lead -49 h; calm week C3 storm alarm on 0.0% of hours",
    "plot": "v4a_replay.png",
-   "one_liner": "The risk index co-moves with outages most in E3 (Spearman 0.78). In every test wind event (E1, E3) outages began rising before our alarm, so this is not yet an early warning."
+   "one_liner": "Inside single test events the fire index co-moves with outages better than the new storm index (E3 Spearman 0.78 vs 0.43; E1 0.13 vs 0.04), and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid."
   },
   {
    "id": "V4b",
    "title": "Discrimination over 2022-2024",
-   "status": "fail",
-   "headline": "Risk index AUC 0.62",
+   "status": "mixed",
+   "headline": "Storm index AUC 0.81 (fire index 0.62)",
    "baseline": "Max gust alone AUC 0.82",
    "plot": "v4b_discrimination.png",
-   "one_liner": "As a general predictor of the worst outage hours, our fire-weather index does NOT beat gust alone: many outage peaks come from wet winter storms that are windy but not fire weather."
+   "one_liner": "The fire index was being graded on the wrong question (AUC 0.62): most big LA outages are wind and rain damage, not fire weather. The wind agent's storm-damage model raises that to 0.81, which matches gust-alone (0.82) on WHEN outages happen; its added value is WHERE: it ranks the individual lines, which a regional gust number cannot."
   },
   {
    "id": "V5",

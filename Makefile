@@ -9,6 +9,8 @@ data:
 	$(FETCH) fetch_osm.py
 	$(FETCH) fetch_weather_grid.py events
 	$(FETCH) fetch_weather_grid.py series
+	$(FETCH) fetch_weather_grid.py series_precip
+	$(FETCH) fetch_station_points.py
 	$(FETCH) fetch_asos.py
 	$(FETCH) fetch_eia930.py
 	$(FETCH) fetch_eaglei.py
@@ -24,7 +26,7 @@ grid:
 	$(PY) data/sanity_grid.py
 	$(PY) -c "import sys; sys.path.insert(0,'.'); from backend.la import data as D; import os; f=D.P/'outages_la_hourly.csv.gz'; f.unlink(missing_ok=True); D.outages()"
 
-# 3. Fit gust correction, load model, fire thresholds on TRAINING events only.
+# 3. Fit gust correction, load model, fire thresholds (TRAINING events), storm-damage model (2019-2021), station nudging.
 calibrate:
 	cd validation && ../$(PY) calibrate.py
 

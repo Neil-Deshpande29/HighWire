@@ -90,7 +90,7 @@ def static() -> dict:
         "critical_sites": g["critical_sites"],
         "redflag_zones": zones,
         "fires": fires,
-        "calibration": {"fire": D.calibration()["fire"]},
+        "calibration": {"fire": D.calibration()["fire"], "storm": D.calibration().get("storm")},
     }
 
 
@@ -122,6 +122,17 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
             fires.append({"id": f["id"], "name": f["name"], "ignited": bool(tt >= ig.floor("h")),
                           "hours_since_ignition": round((tt - ig).total_seconds() / 3600, 1)})
     out = d["outages"][h]
+    storm = None
+    if "storm_index" in d:  # wind agent: storm-damage model (backend/la/storm.py)
+        st_cal = D.calibration().get("storm") or {}
+        dmg = d["line_damage"][h]
+        top = [int(k) for k in np.argsort(-dmg)[:10] if dmg[k] >= 0.2]
+        storm = {"index": _r(d["storm_index"][h], 3), "alarm": _r(st_cal.get("alarm"), 3),
+                 "wind_hazard_pct": _r(100 * d["storm_hazard"][h], 1), "rain_hazard_pct": _r(100 * d["rain_hazard"][h], 1),
+                 "n_lines_damage_likely": int((dmg >= 0.5).sum()),
+                 "top_lines": [{"id": g["branches"][k]["id"], "name": g["branches"][k]["name"], "kv": g["branches"][k]["kv"],
+                                "zone": g["branches"][k]["zone"], "p_damage": _r(dmg[k], 2), "gust": _r(d["line_gust"][h][k], 1)} for k in top],
+                 "max_precip_mm_h": _r(float(d["wx_precip"][h].max()), 1)}
     return {
         "event": eid, "i": h, "n": len(d["time"]), "t_utc": tt.isoformat(), "t_local": tt.tz_convert("America/Los_Angeles").isoformat(),
         "lines": {"risk": np.round(risk, 3).tolist(), "loading": np.round(d["loading"][h], 1).tolist(),
@@ -141,7 +152,8 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
                     "rh": np.round(d["wx_rh"][h], 0).tolist(), "temp": np.round(d["wx_temp"][h], 1).tolist(),
                     "dir": np.round(d["wx_dir"][h], 0).tolist(), "max_gust": _r(d["wx_gust"][h].max(), 1),
                     "min_rh": _r(d["wx_rh"][h].min(), 0), "max_temp": _r(d["wx_temp"][h].max(), 1)},
-        "redflag_active": active, "fires": fires,
+        "redflag_active": active, "fires": fires, "storm": storm,
+        "line_damage": np.round(d["line_damage"][h], 2).tolist() if "line_damage" in d else None,
         "source": f"validation/results/replay_{eid}.npz",
     }
 
@@ -151,6 +163,8 @@ def series(eid: str) -> dict:
     v4a = (_json("v4a_replay") or {}).get("events", {}).get(eid)
     return {"event": eid, "t_utc": [pd.Timestamp(x).tz_localize("UTC").isoformat() for x in d["time"]],
             "risk_index": np.round(d["region_index"], 1).tolist(),
+            "storm_index": np.round(d["storm_index"], 3).tolist() if "storm_index" in d else None,
+            "storm_alarm": (D.calibration().get("storm") or {}).get("alarm"),
             "la_out": [None if not np.isfinite(x) else float(x) for x in d["outages"][:, 0]],
             "four_county_out": [None if not np.isfinite(x) else float(x) for x in np.nansum(d["outages"], 1)],
             "load_mw": np.round(d["load_mw"], 0).tolist(),
@@ -177,4 +191,5 @@ def event_context(eid: str, t: str | None = None) -> dict:
             "region_alarm": h["region_alarm"], "lines_over_alarm": h["n_over_alarm"], "top_lines": h["over_alarm"][:8],
             "actual_customers_out": h["outages"], "weather": {k: h["weather"][k] for k in ("max_gust", "min_rh", "max_temp")},
             "redflag_zones_active": h["redflag_active"], "fires": h["fires"],
+            "storm_damage": h["storm"],
             "validation_for_event": {"v4a": v4a, "v5_cases": v5}, "sources": [h["source"], "validation/results/v4a_replay.json"]}

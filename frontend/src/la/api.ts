@@ -23,7 +23,8 @@ export type LAStatic = {
   critical_sites: { name: string; type: string; lat: number; lon: number; bus: string }[];
   redflag_zones: Record<string, [number, number][][]>;
   fires: Fire[];
-  calibration: { fire: { g50: number; h50: number; c50: number; line_alarm: number; region_alarm: number } };
+  calibration: { fire: { g50: number; h50: number; c50: number; line_alarm: number; region_alarm: number };
+                 storm: { onset: number; tau: number; rain_tau: number; alarm: number } | null };
 };
 export type Hour = {
   event: string; i: number; n: number; t_utc: string; t_local: string;
@@ -34,9 +35,15 @@ export type Hour = {
   n_over_alarm: number; max_loading: number; n_overloaded: number;
   weather: { lats: number[]; lons: number[]; gust: number[][]; rh: number[][]; temp: number[][]; dir: number[][]; max_gust: number; min_rh: number; max_temp: number };
   redflag_active: string[]; fires: { id: string; name: string; ignited: boolean; hours_since_ignition: number }[];
+  storm: Storm | null; line_damage: number[] | null;
   source: string;
   copilot: LAView | null;
 };
+export type Storm = {
+  index: number; alarm: number; wind_hazard_pct: number; rain_hazard_pct: number; n_lines_damage_likely: number; max_precip_mm_h: number;
+  top_lines: { id: string; name: string | null; kv: number; zone: string; p_damage: number; gust: number }[];
+};
+export type CrewStaging = { storm_index: number; alarm: number; above_alarm: boolean; pre_stage_crews_near: { line: string; name: string | null; p_damage: number }[] };
 export type LAView = {
   event: string; t_utc: string; scenario: string; opened: string[]; deenergized: string[];
   totals: { unserved_mw: number; customers_out: number; critical_on_backup: string[]; violation_count: number; load_mw: number };
@@ -45,7 +52,7 @@ export type LAView = {
   plan_status: Record<string, string>; bulletin: { text: string } | null;
 };
 export type Series = {
-  event: string; t_utc: string[]; risk_index: number[]; la_out: (number | null)[]; four_county_out: (number | null)[];
+  event: string; t_utc: string[]; risk_index: number[]; storm_index: number[] | null; storm_alarm: number | null; la_out: (number | null)[]; four_county_out: (number | null)[];
   load_mw: number[]; max_loading: number[]; region_alarm: number;
   v4a: { lead_time_h: number | null; first_alarm_utc: string | null; first_spike_utc: string | null; outage_baseline_la: number;
          spearman_la: number; exploratory_lead_to_main_surge_h: number | null } | null;

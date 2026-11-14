@@ -1,6 +1,6 @@
 # Highwire: historical validation report (Greater Los Angeles)
 
-_Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._
+_Generated 2026-11-14 15:05 UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._
 
 **Split (written before any run, `validation/config.yaml`):** train E2, H1, C1, C2; test E1, E3, H2, C3. Multi-year series: calibrate 2019-2021, report 2022-2024.
 
@@ -11,10 +11,10 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 | Check | Result | Baseline | Status |
 |---|---|---|---|
 | V1 Thermal model vs reference | Max abs. error 0.00 C over 600 cases | linerate IEEE 738; CIGRE TB 601 Ex. B ampacity 1505 A vs published 1504 A | pass |
-| V2 Weather inputs vs ground stations | Test windy-hour gust bias -3.7 m/s (RMSE 5.9) | All test hours: bias +2.1 m/s; temperature RMSE 2.1 C | weak |
-| V3 Demand model vs actual (H2 heat wave) | Peak within 10.4% (SCE) / 8.0% (LDWP); MAPE 9.3% / 7.2% | Same hour last week: MAPE 13.8% / 19.3%, peak error 2.7% / 5.2% | mixed |
-| V4a Grid stress vs actual outages (event replay) | E1 Spearman 0.13, lead -10 h; E3 Spearman 0.78, lead -49 h | Calm test week C3: alarm on 10.7% of hours | mixed |
-| V4b Discrimination over 2022-2024 | Risk index AUC 0.62 | Max gust alone AUC 0.82 | fail |
+| V2 Weather inputs vs ground stations | Wind agent (live-station nudging): test gust RMSE 3.4 -> 2.5 m/s, bias +2.1 -> +0.7 | Raw reanalysis; windy hours (>= 12 m/s) RMSE 5.9 -> 5.3, bias -3.7 -> -3.3 | mixed |
+| V3 Demand model vs actual (H2 heat wave) | Peak within 8.4% (SCE) / 2.7% (LDWP); MAPE 9.6% / 7.3% | Same hour last week: MAPE 13.8% / 19.3%, peak error 2.7% / 5.2% | mixed |
+| V4a Grid stress vs actual outages (event replay) | Storm index: E1 Spearman 0.04, lead -21 h; E3 Spearman 0.43, lead -31 h | Fire index: E1 0.13 / lead -10 h, E3 0.78 / lead -49 h; calm week C3 storm alarm on 0.0% of hours | mixed |
+| V4b Discrimination over 2022-2024 | Storm index AUC 0.81 (fire index 0.62) | Max gust alone AUC 0.82 | mixed |
 | V5 Ignition hindcast | Woolsey Fire top 1%; Eaton Fire top 10%; Hurst Fire top 5% | Gust-only: Woolsey Fire top 4%; Eaton Fire top 1%; Hurst Fire top 29%; random: top 50% | small-sample |
 | V6 De-energization vs SCE PSPS (E3, county level) | County overlap 3/4 (Jaccard 0.75) | No meaningful baseline at county level | weak |
 | V7 Red Flag consistency | 95% of high-risk line-hours inside a Red Flag Warning | 28% of Red Flag zone-hours contain a high-risk line | pass |
@@ -22,8 +22,10 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 ## Calibration (training data only)
 
 - **Gust correction:** candidate per-zone linear maps were fit on windy training hours, but none lowered training windy-hour RMSE (identity 3.69 m/s vs candidate 5.88 m/s in the valley), so no correction is applied: a = {'coast': 0.0, 'basin': 0.0, 'valley': 0.0, 'mountain': 0.0}, b = {'coast': 1.0, 'basin': 1.0, 'valley': 1.0, 'mountain': 1.0}.
-- **Fire thresholds:** g50 = 6 m/s, h50 = 10% RH, c50 = 5 m; region alarm = 268 risk-weighted line-km (98th pct of training control weeks); line alarm = 0.30. Training hit rate 93% on 43 outage-spike hours, AUC 0.94. The optimum sits at the low edge of the search grid for g50 and h50 and the objective is flat there: on training data, very dry air (RH under ~10%) carries most of the signal.
-- **Load model:** training MAPE LDWP 6.5%, SCE 6.8% (2019-2021).
+- **Fire thresholds:** g50 = 6 m/s, h50 = 10% RH, c50 = 5 m; region alarm = 268 risk-weighted line-km (98th pct of training control weeks); line alarm = 0.30. Training hit rate 91% on 43 outage-spike hours, AUC 0.95. The optimum sits at the low edge of the search grid for g50 and h50 and the objective is flat there: on training data, very dry air (RH under ~10%) carries most of the signal.
+- **Load model:** training MAPE LDWP 6.1%, SCE 5.9% (2019-2021). v2 adds temperature x time-of-day terms and an inland-heat term, chosen on an internal 2019-20 fit / summer-2021 holdout before H2 was looked at.
+- **Storm-damage model (wind agent), 2019-2021 only:** damage onset 10 m/s gust, restoration time constant 6 h, rain stock accepted (tau 6 h); alarm 0.052 (98th pct of non-outage hours). Leave-one-year-out AUC 0.795 vs gust-only 0.776. 23 candidates were compared in that protocol (plus ~60 exploratory variants, also on 2019-2021 only, while designing it), so expect some optimism.
+- **Station nudging (wind agent):** residual length 20 km, shrinkage 1.0, chosen leave-one-station-out on training events. Quantile-mapping the reanalysis to 2019-2021 station climatology was also tried and rejected (worse on windy test hours).
 
 ## V1. Thermal model vs reference implementation
 
@@ -54,6 +56,8 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 
 - Test events, all hours: gust bias +2.06 m/s, RMSE 3.43 m/s (n=6869); temperature RMSE 2.08 C; sustained wind RMSE 2.00 m/s.
 - Test events, windy hours (station gust >= 12 m/s, n=280): bias -3.67 m/s, RMSE 5.87 m/s. After correction: identical (no correction was accepted in training).
+- Wind agent, live-station nudging (leave-one-station-out): all hours bias +2.06 -> +0.74 m/s, RMSE 3.43 -> 2.52; windy hours bias -3.67 -> -3.30, RMSE 5.87 -> 5.27; per-station event peak bias -1.36 -> -2.00.
+- Note: 'windy hours' are selected on the observed gust, which biases any noisy estimate low (regression to the mean); the all-hours and event-peak numbers are not affected by that.
 - E1 (test): peak station gust 15.9 m/s vs peak gridded gust 22.2 m/s.
 - E2 (train): peak station gust 14.9 m/s vs peak gridded gust 16.0 m/s.
 - E3 (test): peak station gust 37.0 m/s vs peak gridded gust 26.1 m/s.
@@ -67,24 +71,24 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 
 ![V2](results/v2_weather.png)
 
-**What it does and doesn't prove.** Reanalysis gusts are close on ordinary hours but miss the strongest Santa Ana gusts; the training events did not contain enough of them to correct this.
+**What it does and doesn't prove.** Spreading live airport-station errors to nearby lines (tested leave-one-station-out, so no station grades itself) removes most of the everyday gust bias; the strongest, very local Santa Ana gusts are still underestimated.
 
 ## V3. Demand model vs actual load (H2, test)
 
-**What we tested.** Hourly demand predicted from population-weighted temperature (piecewise linear cooling/heating terms, 24 h mean) plus hour-of-day x weekend terms, fit 2019-2021, applied to Aug 31 - Sep 9 2022.
+**What we tested.** Hourly demand predicted from population-weighted temperature (piecewise linear cooling/heating terms, 24 h mean) plus hour-of-day x weekend terms, temperature x time-of-day interactions (air conditioning matters most in the afternoon) and an inland-heat term (90th-percentile grid temperature), fit 2019-2021, applied to Aug 31 - Sep 9 2022.
 
 **Data.** [EIA-930](https://www.eia.gov/electricity/gridmonitor/about) (LDWP BA, CAISO SCE sub-BA), [Open-Meteo Historical Weather](https://open-meteo.com/en/docs/historical-weather-api).
 
 **Result.**
 
-- SCE: peak 22038 MW predicted vs 24595 MW actual (-10.4%), peak-hour error -167 h, MAPE 9.3%.
-- LDWP: peak 5677 vs 6170 MW (-8.0%), peak-hour error -48 h, MAPE 7.2%.
+- SCE: peak 22534 MW predicted vs 24595 MW actual (-8.4%), peak-hour error -142 h, MAPE 9.6%.
+- LDWP: peak 6004 vs 6170 MW (-2.7%), peak-hour error -47 h, MAPE 7.3%.
 
 **Baseline.** Same hour last week: SCE MAPE 13.8% / peak -2.7%; LDWP MAPE 19.3% / peak -5.2%.
 
 ![V3](results/v3_demand.png)
 
-**What it does and doesn't prove.** Weather-only demand tracks the heat wave better hour by hour than persistence, but underpredicts the record peak by more than persistence does.
+**What it does and doesn't prove.** Weather-only demand (heat x time-of-day + inland heat, fit 2019-2021) tracks the record heat wave hour by hour better than persistence; it still misses the record peak by more than persistence for SCE.
 
 ## V4a. Grid stress vs actual outages (event replay)
 
@@ -95,17 +99,23 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 **Result.**
 
 - E1 (test, wind): Spearman 0.13 (4 counties 0.13); first alarm 2018-11-08 18:00:00+00:00; first sustained outage spike 2018-11-08 08:00:00+00:00; lead -10 h (single-hour spike definition: -10 h); alarm on 77.5% of hours; LA County peak 27534 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2018-11-09 14:00:00+00:00) 20 h._
+- E1 storm index (wind agent): Spearman 0.04; first alarm 2018-11-09 05:00:00+00:00; lead -21 h; alarm on 19.2% of hours; peak 0.10 (alarm 0.05).
 - E2 (train, wind): Spearman 0.75 (4 counties 0.64); first alarm 2019-10-10 17:00:00+00:00; first sustained outage spike 2019-10-10 18:00:00+00:00; lead 1 h (single-hour spike definition: -10 h); alarm on 68.1% of hours; LA County peak 6896 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2019-10-12 18:00:00+00:00) 49 h._
+- E2 storm index (wind agent): Spearman 0.49; first alarm 2019-10-11 13:00:00+00:00; lead -19 h; alarm on 18.1% of hours; peak 0.10 (alarm 0.05).
 - E3 (test, wind): Spearman 0.78 (4 counties 0.82); first alarm 2025-01-08 18:00:00+00:00; first sustained outage spike 2025-01-06 17:00:00+00:00; lead -49 h (single-hour spike definition: -49 h); alarm on 25.0% of hours; LA County peak 362313 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2025-01-08 19:00:00+00:00) 1 h._
+- E3 storm index (wind agent): Spearman 0.43; first alarm 2025-01-08 00:00:00+00:00; lead -31 h; alarm on 21.7% of hours; peak 0.10 (alarm 0.05).
 - C1 (train, control): Spearman 0.35 (4 counties 0.13); first alarm never; first sustained outage spike 2020-01-27 18:00:00+00:00; lead n/a h (single-hour spike definition: n/a h); alarm on 0.0% of hours; LA County peak 4926 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2020-01-27 18:00:00+00:00) n/a h._
+- C1 storm index (wind agent): Spearman 0.34; first alarm never; lead n/a h; alarm on 0.0% of hours; peak 0.04 (alarm 0.05).
 - C2 (train, control): Spearman 0.03 (4 counties 0.22); first alarm 2021-11-29 20:00:00+00:00; first sustained outage spike 2021-11-29 17:00:00+00:00; lead -3 h (single-hour spike definition: -3 h); alarm on 4.2% of hours; LA County peak 4516 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2021-11-30 17:00:00+00:00) 21 h._
+- C2 storm index (wind agent): Spearman 0.02; first alarm never; lead n/a h; alarm on 0.0% of hours; peak 0.01 (alarm 0.05).
 - C3 (test, control): Spearman 0.25 (4 counties 0.30); first alarm 2022-02-02 18:00:00+00:00; first sustained outage spike 2022-01-31 08:00:00+00:00; lead -58 h (single-hour spike definition: -58 h); alarm on 10.7% of hours; LA County peak 9498 customers out. _Exploratory (post-hoc): lead to the main surge (first hour >= 50% of peak, 2022-01-31 20:00:00+00:00) -46 h._
+- C3 storm index (wind agent): Spearman 0.21; first alarm never; lead n/a h; alarm on 0.0% of hours; peak 0.05 (alarm 0.05).
 
 **Baseline.** Calm control weeks give the false-alarm side; V4b gives the gust-only baseline.
 
 ![V4a](results/v4a_replay.png)
 
-**What it does and doesn't prove.** The risk index co-moves with outages most in E3 (Spearman 0.78). In every test wind event (E1, E3) outages began rising before our alarm, so this is not yet an early warning.
+**What it does and doesn't prove.** Inside single test events the fire index co-moves with outages better than the new storm index (E3 Spearman 0.78 vs 0.43; E1 0.13 vs 0.04), and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid.
 
 ## V4b. Discrimination over years (2022-2024)
 
@@ -115,15 +125,16 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 
 **Result.**
 
-- Risk index: AUC 0.619 (look-back 24 h; calibration-years AUC 0.627).
+- Storm index (wind agent): AUC 0.807 (look-back 1 h; calibration-years AUC 0.763). Per year: 2022: storm 0.818, gust 0.839 (105 positives); 2023: storm nan, gust nan (0 positives); 2024: storm 0.787, gust 0.788 (71 positives)
+- Fire risk index: AUC 0.619 (look-back 24 h; calibration-years AUC 0.627).
 - Gust-only baseline: AUC 0.820 (look-back 6 h).
-- Beats baseline: NO. Positives include every cause of high outages (heat, rain, equipment); non-weather causes are not separable in EAGLE-I.
+- Storm index vs baseline: matches (+/-0.02 counts as a match). Positives include every cause of high outages (heat, rain, equipment); non-weather causes are not separable in EAGLE-I.
 
 **Baseline.** Regional maximum gridded gust.
 
 ![V4b](results/v4b_discrimination.png)
 
-**What it does and doesn't prove.** As a general predictor of the worst outage hours, our fire-weather index does NOT beat gust alone: many outage peaks come from wet winter storms that are windy but not fire weather.
+**What it does and doesn't prove.** The fire index was being graded on the wrong question (AUC 0.62): most big LA outages are wind and rain damage, not fire weather. The wind agent's storm-damage model raises that to 0.81, which matches gust-alone (0.82) on WHEN outages happen; its added value is WHERE: it ranks the individual lines, which a regional gust number cannot.
 
 ## V5. Ignition hindcast
 
@@ -179,11 +190,13 @@ _Generated 2026-11-14 13:35 UTC by `validation/run_all.py`. Every number below i
 
 - **Modeled electrical values.** Conductors, ratings, impedances, tower heights, sag and right-of-way widths come from voltage class, not utility records. Ratings on 252 of 864 branches were raised so the simplified network carries the 2019-2021 peak (see grid_report.md).
 - **Simplified topology.** OSM lines >= 66 kV snapped to OSM substations; no transformers, no distribution (where many ignitions start, e.g. Woolsey's 16 kV circuit), imports split evenly over boundary buses, in-basin plants dispatched pro rata to 45% of load.
-- **Reanalysis gust bias.** V2 shows the gridded gusts miss the strongest Santa Ana gusts in the test events; training events did not contain enough extreme gusts to correct it, which delays our alarms in E3.
+- **Reanalysis gust bias.** The gridded gusts miss the strongest Santa Ana gusts. Live-station nudging (V2) fixes most of the everyday bias but not the very local canyon gusts; only 8 ASOS stations are in the bbox. Nudging is reported in V2 but not fed into the fire/storm replays, which use calibrated reanalysis.
+- **Storm model scope.** The storm index predicts WHEN the region has its worst outage hours and WHICH modeled lines are most exposed; it cannot see distribution-level damage, and per-line damage probabilities are not validated against utility outage records (not public).
+- **Storm model grid mismatch.** The storm model is fit on the 0.25 deg 2019-2021 series grid (the only multi-year weather we fetched) but replays use the 0.1 deg event grid, whose gusts are distributed differently; inside single events it tracks outages worse than the fire index (V4a). Fetching 0.1 deg weather for 2019-2021 and refitting is the next step.
 - **Vegetation.** Canopy is a constant per terrain zone (NLCD not fetched), so clearance contributes little; fire risk is mostly gust x dryness x fuel zone.
 - **Small ignition sample.** V5 has 3 test ignitions and 1 training ignition. Report individual cases only.
 - **EAGLE-I gaps.** Missing 15-min runs stay missing; implausible LA County readings (> 1 M customers, Jan 8 2025) were dropped; non-weather outage causes cannot be separated.
 - **Definition changes disclosed.** The outage-spike definition was changed after the first run from 1 hour to 3 consecutive hours above 2x baseline; both lead times are reported. The 'lead to main surge' metric was added after seeing the plots and is labeled exploratory; it is not used in the scorecard.
 - **Retrospective only.** Hindcasts use reanalysis weather, not the forecasts an operator would have had at decision time.
 
-_Run time: V1 2s, V2 4s, V3 0s, V4a 80s, V4b 127s, V5 14s, V6 6s, V7 57s._
+_Run time: ._

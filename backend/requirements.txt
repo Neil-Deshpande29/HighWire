@@ -3,7 +3,7 @@ uvicorn[standard]>=0.29
 numpy>=1.26
 pydantic>=2.6
 deepagents>=0.7.38
-langchain-anthropic>=1.0
+langchain-google-genai>=4.0
 httpx>=0.27
 pytest>=8
 # Phase 2: real data + validation

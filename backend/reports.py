@@ -63,10 +63,11 @@ def parse_rules(text: str) -> dict:
 
 
 def parse_llm(text: str) -> dict | None:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    from . import llm as LLM
+
+    if not LLM.enabled():
         return None
     try:
-        from langchain_anthropic import ChatAnthropic
         from pydantic import BaseModel, Field
         from typing import Literal
 
@@ -75,7 +76,7 @@ def parse_llm(text: str) -> dict | None:
             location_hint: str = Field(description="place words from the text, e.g. 'Summit ridge road'")
             severity: int = Field(ge=1, le=3, description="3 = immediate danger to life")
 
-        llm = ChatAnthropic(model=os.environ.get("MODEL", "claude-sonnet-5-5"), timeout=10, max_retries=0)
+        llm = LLM.chat_model(timeout=10, max_retries=0, max_tokens=512)
         out = llm.with_structured_output(Report).invoke(
             "Extract a structured field report from this storm call. Place names in this region: "
             + ", ".join(n[0] for n in _BUS_ALIASES.values())

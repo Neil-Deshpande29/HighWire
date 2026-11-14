@@ -2,7 +2,8 @@
 
 Checked against deepagents 0.7.38: create_deep_agent(model, tools, *, system_prompt, subagents, ...).
 Subagent dicts use keys name, description, system_prompt, tools, model.
-Falls back to the rule-based planner when there is no ANTHROPIC_API_KEY, on any error, or after a timeout.
+LLM: Google Gemini through langchain-google-genai (see backend/llm.py).
+Falls back to the rule-based planner when there is no GEMINI_API_KEY, on any error, or after a timeout.
 """
 from __future__ import annotations
 
@@ -11,10 +12,10 @@ import os
 import re
 import threading
 
+from .. import llm as LLM
 from .mock_planner import run_mock
 from .tools import JobLog, make_tools, verify_output
 
-DEFAULT_MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = float(os.environ.get("AGENT_TIMEOUT_S", "60"))
 
 SUBAGENTS = {
@@ -114,15 +115,15 @@ LA_GRID_TEXT = """   Grid: the REAL Greater Los Angeles transmission network (OS
    with risk >= the line alarm is a violation. You may also use {"type":"deenergize_lines","target":"label","targets":["L12","L40"]}
    to shut off a group of lines as ONE action (PSPS style). Avoid de-energizing >= 220 kV import corridors unless
    unavoidable: they feed the basin. Call get_event_context(event_id) and get_validation_summary() and cite what the
-   historical validation says about trusting this signal (numbers only from those tools)."""
+   historical validation says about trusting this signal (numbers only from those tools). Fire risk drives de-energization;
+   the wind_agent's storm-damage index drives crew pre-staging and patrols (put those in "assumptions"/"tradeoffs", they
+   are not grid actions)."""
 
 
 def _run_llm(state, log) -> dict:
     from deepagents import create_deep_agent
-    from langchain_anthropic import ChatAnthropic
-
-    model_name = os.environ.get("MODEL", DEFAULT_MODEL).removeprefix("anthropic:")
-    model = ChatAnthropic(model=model_name, max_tokens=4096, default_request_timeout=45, max_retries=1)
+    model_name = LLM.model_name()
+    model = LLM.chat_model(timeout=45, max_retries=1, max_tokens=4096)
     subagents = []
     for name, (focus, tool_names) in SUBAGENTS.items():
         subagents.append(
@@ -134,6 +135,13 @@ def _run_llm(state, log) -> dict:
             }
         )
     la = hasattr(state, "grid")
+    if la:  # LA replay: the wind agent reads the calibrated storm-damage model
+        for sa in subagents:
+            if sa["name"] == "wind_agent":
+                sa["description"] = ("Storm damage: calibrated wind+rain damage model (which lines are likely to be knocked down, "
+                                     "storm index vs alarm, historical accuracy). Recommends crew pre-staging and patrols.")
+                sa["system_prompt"] = SUB_PROMPT.format(name="wind_agent", focus=sa["description"])
+                sa["tools"] = make_tools(state, log, "wind_agent", ["get_storm_damage", "get_grid_summary"])
     prompt = COORDINATOR_PROMPT
     coord_tools = ["get_grid_summary", "get_critical_sites", "simulate_plan"]
     if la:
@@ -158,8 +166,8 @@ def _run_llm(state, log) -> dict:
 
 def run_team(state, log: JobLog) -> dict:
     """Entry point used by the API. Always returns physics-verified output."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return run_mock(state, log, "mock mode: no ANTHROPIC_API_KEY")
+    if not LLM.enabled():
+        return run_mock(state, log, "mock mode: no GEMINI_API_KEY")
 
     gate = {"open": True}
 
@@ -187,4 +195,11 @@ def run_team(state, log: JobLog) -> dict:
     out = box["out"]
     out["mode"] = "llm"
     log("coordinator", "LLM plans received; backend re-running physics on each plan")
-    return verify_output(state, out, log)
+    out = verify_output(state, out, log)
+    try:  # crew staging numbers always come from the calibrated storm model, never from the LLM
+        from .mock_planner import _Planner
+
+        out["crew_staging"] = _Planner(state, lambda *a, **k: None, 0).storm()[1]
+    except Exception:  # noqa: BLE001
+        pass
+    return out
