@@ -10,7 +10,7 @@ import json
 import time
 
 from ..physics import simulate as _phys_simulate
-from .brief import brief_text, build_brief
+from .brief import TRUST_CHECKS, brief_text, build_brief
 
 
 def simulate(state, actions=None):
@@ -194,33 +194,36 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         return json.dumps(r)
 
     def get_validation_summary() -> str:
-        """Headline numbers of the historical validation (V1-V7) with their baselines, read from validation/results.
+        """Headline numbers of the historical validation checks that say how far to trust the fire and storm signals
+        (the same checks as the situation brief), with their baselines, read from validation/results.
         Cite these when explaining how much to trust the model. You do not compute them."""
-        from ..la import replay
-
         log(agent, "reading validation summary")
-        return json.dumps(replay.validation_summary().get("cards", []))
+        return json.dumps(_trusted_cards())
 
-    def get_event_context(event_id: str, t: str = "") -> str:
-        """Facts for a historical replay hour: region risk index vs alarm, lines over the fire alarm, actual customers
-        out (EAGLE-I), active Red Flag zones, fires, and this event's validation results. event_id like 'E1'."""
+    def get_event_context(event_id: str = "", t: str = "") -> str:
+        """What an operator can observe at THIS run's hour: region fire index vs its alarm, lines over the line alarm,
+        Red Flag zones in force, worst weather, the storm-damage model, and customers out this hour where recorded
+        (EAGLE-I). Always this run's event and hour: the arguments are ignored and nothing after this hour is shown."""
         from ..la import replay
 
-        log(agent, f"reading event context {event_id} {t}")
-        return json.dumps(replay.event_context(event_id, t or None), default=str)
+        log(agent, f"reading this hour's context ({state.eid} {state.t_utc:%Y-%m-%d %H:%M} UTC)")
+        ctx = replay.hour_context(state.eid, state.t_utc.isoformat())
+        if state.is_modified():
+            ctx["note"] = "As recorded for this hour; Study conditions and operator switching are in the situation brief."
+        return json.dumps(ctx, default=str)
 
     def get_storm_damage() -> str:
         """Wind agent tool (LA replays): the calibrated STORM-DAMAGE model for this hour, i.e. how likely wind and rain
         are to knock lines down and put customers out (different from fire risk). Returns the storm index (0-1) vs its
-        alarm, % of the network under damaging wind / heavy rain, the lines most likely to be damaged, and how well this
-        model matched real outages historically (V4a/V4b). Use it to recommend crew pre-staging and patrols."""
+        alarm, % of the network under damaging wind / heavy rain, the lines most likely to be damaged, customers out this
+        hour where recorded, and how well the model separated outage hours over other years (the brief's trust checks).
+        Use it to recommend crew pre-staging and patrols."""
         from ..la import replay
 
         log(agent, "reading storm-damage model")
         h = replay.hour(state.eid, t=state.t_utc.isoformat())
-        val = {c["id"]: {k: c[k] for k in ("headline", "baseline", "status")} for c in replay.validation_summary().get("cards", [])
-               if c["id"] in ("V2", "V4a", "V4b")}
-        return json.dumps({"storm": h.get("storm"), "actual_customers_out": h["outages"], "validation": val}, default=str)
+        val = {c["id"]: {k: c[k] for k in ("headline", "baseline", "status")} for c in _trusted_cards()}
+        return json.dumps({"storm": h.get("storm"), "customers_out_this_hour": h["outages"], "validation": val}, default=str)
 
     def get_candidate_actions() -> str:
         """The valid switching actions for this grid state (real line, bus and import IDs), pre-screened by the
@@ -269,6 +272,14 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         "get_event_context": get_event_context,
     }
     return [all_tools[n] for n in (names or all_tools)]
+
+
+def _trusted_cards() -> list[dict]:
+    """Validation cards an agent may read: the brief's TRUST_CHECKS only. The other cards name the replayed fires or say
+    how the replayed events turned out, which an agent working inside one of those hours must not learn."""
+    from ..la import replay
+
+    return [c for c in replay.validation_summary().get("cards", []) if c.get("id") in TRUST_CHECKS]
 
 
 def _action_label(a: dict) -> str:
