@@ -1,0 +1,122 @@
+{
+ "check": "V8",
+ "event_test": {
+  "event": "E3",
+  "first_outage_spike_utc": "2025-01-06 17:00:00+00:00",
+  "exploratory_main_surge_utc": "2025-01-08 19:00:00+00:00",
+  "outage_baseline_la": 132.0,
+  "spike_note": "the 2-day pre-event EAGLE-I window is mostly missing, so the baseline is tiny and a ~1,000-customer blip on Jan 6 counts as the 'first sustained spike'; the main surge (>= 50% of peak) is reported as an exploratory metric",
+  "by_lead": {
+   "lead_0d": {
+    "weather": "recorded (reanalysis)",
+    "fire_first_alarm_utc": "2025-01-08 18:00:00+00:00",
+    "fire_alarm_vs_spike_h": -49.0,
+    "fire_warning_time_h": -49.0,
+    "storm_first_alarm_utc": "2025-01-08 00:00:00+00:00",
+    "storm_alarm_vs_spike_h": -31.0,
+    "storm_warning_time_h": -31.0,
+    "exploratory_fire_warning_to_main_surge_h": 1.0,
+    "exploratory_storm_warning_to_main_surge_h": 19.0,
+    "fire_spearman_la": 0.7844694864025172,
+    "storm_spearman_la": 0.42695388157200015,
+    "peak_forecast_gust_ms": 35.5,
+    "ignitions": [
+     {
+      "fire": "Eaton Fire",
+      "line": "L29",
+      "model_top_pct": 10.373944511459591,
+      "gust_only_top_pct": 0.7237635705669482,
+      "line_risk": 0.08413705194645606,
+      "above_line_alarm": false
+     },
+     {
+      "fire": "Hurst Fire",
+      "line": "L172",
+      "model_top_pct": 5.307599517490953,
+      "gust_only_top_pct": 29.071170084439085,
+      "line_risk": 0.05851072988839755,
+      "above_line_alarm": false
+     }
+    ]
+   },
+   "lead_1d": {
+    "weather": "forecast issued ~24 h ahead",
+    "fire_first_alarm_utc": "2025-01-07 22:00:00+00:00",
+    "fire_alarm_vs_spike_h": -29.0,
+    "fire_warning_time_h": -5.0,
+    "storm_first_alarm_utc": "2025-01-07 23:00:00+00:00",
+    "storm_alarm_vs_spike_h": -30.0,
+    "storm_warning_time_h": -6.0,
+    "exploratory_fire_warning_to_main_surge_h": 45.0,
+    "exploratory_storm_warning_to_main_surge_h": 44.0,
+    "fire_spearman_la": 0.7002572041499417,
+    "storm_spearman_la": 0.5040338853019793,
+    "peak_forecast_gust_ms": 39.29999923706055,
+    "ignitions": [
+     {
+      "fire": "Eaton Fire",
+      "line": "L29",
+      "model_top_pct": 5.790108564535585,
+      "gust_only_top_pct": 2.0506634499396865,
+      "line_risk": 0.15682274356371703,
+      "above_line_alarm": false
+     },
+     {
+      "fire": "Hurst Fire",
+      "line": "L172",
+      "model_top_pct": 3.3775633293124248,
+      "gust_only_top_pct": 10.373944511459591,
+      "line_risk": 0.1710252798198514,
+      "above_line_alarm": false
+     }
+    ]
+   },
+   "lead_2d": {
+    "weather": "forecast issued ~48 h ahead",
+    "fire_first_alarm_utc": "2025-01-07 22:00:00+00:00",
+    "fire_alarm_vs_spike_h": -29.0,
+    "fire_warning_time_h": 19.0,
+    "storm_first_alarm_utc": "2025-01-08 00:00:00+00:00",
+    "storm_alarm_vs_spike_h": -31.0,
+    "storm_warning_time_h": 17.0,
+    "exploratory_fire_warning_to_main_surge_h": 69.0,
+    "exploratory_storm_warning_to_main_surge_h": 67.0,
+    "fire_spearman_la": 0.5662181568962709,
+    "storm_spearman_la": 0.35957143226813,
+    "peak_forecast_gust_ms": 24.299999237060547,
+    "ignitions": [
+     {
+      "fire": "Eaton Fire",
+      "line": "L29",
+      "model_top_pct": 10.97708082026538,
+      "gust_only_top_pct": 0.7237635705669482,
+      "line_risk": 0.10308012274413197,
+      "above_line_alarm": false
+     },
+     {
+      "fire": "Hurst Fire",
+      "line": "L172",
+      "model_top_pct": 86.97225572979494,
+      "gust_only_top_pct": 50.06031363088058,
+      "line_risk": 0.02898437041846284,
+      "above_line_alarm": false
+     }
+    ]
+   }
+  }
+ },
+ "year_2024": {
+  "period": "2024-01-20..2024-12-31",
+  "n_hours": 8247,
+  "n_positive_hours": 67,
+  "positive_threshold_customers": 13482.825000000017,
+  "auc_storm_day_ahead": 0.8046947414516659,
+  "auc_gust_day_ahead": 0.8574800204357187,
+  "auc_storm_reanalysis_same_hours": 0.7680071525015509,
+  "hit_rate_storm_alarm": 0.23880597014925373,
+  "false_alarm_hour_share": 0.00843520782396088
+ },
+ "headline": "Day-ahead forecasts: 2024 storm index AUC 0.80 vs forecast gust 0.86; E3 ignitions from the day-1 forecast: Eaton Fire top 6%; Hurst Fire top 3%",
+ "baseline": "Same day-ahead forecast, regional max gust (6 h look-back); reanalysis-driven index shown as the perfect-weather bound",
+ "caveat": "Forecast archive starts 2024-01-20, so only E3 and 2024 can be tested; one event and one year."
+}

@@ -27,7 +27,9 @@ export default function ModelChart({ series, kind, cursor, onSeek }: { series: S
         <b>Model vs reality</b>
         <span className="key"><i style={{ background: "#ef4444" }} />{kind === "heat" ? "max line loading % (model)" : "risk index: risk-weighted line-km (model)"}</span>
         {storm && <span className="key"><i style={{ background: "#38bdf8" }} />storm-damage index 0-1 (wind agent)</span>}
-        <span className="key"><i style={{ background: "#e5e7eb" }} />LA County customers out (EAGLE-I, actual)</span>
+        {kind === "forecast"
+          ? <span className="key muted">future hours: no outage data yet, this is a prediction</span>
+          : <span className="key"><i style={{ background: "#e5e7eb" }} />LA County customers out (EAGLE-I, actual)</span>}
         {v4 && kind !== "heat" && (
           <span className="key lead">
             lead {v4.lead_time_h == null ? "n/a" : `${v4.lead_time_h > 0 ? "+" : ""}${v4.lead_time_h} h`} · Spearman {v4.spearman_la.toFixed(2)}
@@ -74,6 +76,9 @@ export default function ModelChart({ series, kind, cursor, onSeek }: { series: S
           <line x1={x(ia)} x2={x(is)} y1={H - pb - 6} y2={H - pb - 6} stroke="#60a5fa" strokeWidth={2} markerEnd="url(#arr)" />
         )}
         <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#60a5fa" /></marker></defs>
+        {series.now_utc && (() => { const k = idxOf(series.now_utc); return k >= 0 ? (
+          <g><line x1={x(k)} x2={x(k)} y1={pt} y2={H - pb} stroke="#a78bfa" strokeDasharray="3 3" />
+            <text x={x(k) + 3} y={pt + 22} fontSize="10" fill="#c4b5fd">now · forecast →</text></g>) : null; })()}
         <line x1={x(cursor)} x2={x(cursor)} y1={pt - 6} y2={H - pb} stroke="#60a5fa" strokeWidth={2} />
         <text x={4} y={pt + 4} fontSize="10" fill="#fca5a5">{Math.round(lmax)}</text>
         <text x={W - pr + 4} y={pt + 4} fontSize="10" fill="#e5e7eb">{Math.round(omax).toLocaleString()}</text>

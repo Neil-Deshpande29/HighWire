@@ -3,7 +3,7 @@
 
 # big / regenerable data
 data/raw/
-validation/results/series_risk_2019_2024.csv
+validation/results/series_risk_2019_2024*.csv
 
 # environments and builds
 .venv/

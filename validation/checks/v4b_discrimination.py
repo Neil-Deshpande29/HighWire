@@ -25,7 +25,8 @@ from backend import thermal as TH  # noqa: E402
 
 
 def series_index():
-    cache = RES / "series_risk_2019_2024.csv"
+    fc0 = D.calibration()["fire"]
+    cache = RES / f"series_risk_2019_2024_{fc0.get('model', 'legacy')}.csv"
     if cache.exists():
         return pd.read_csv(cache, index_col=0, parse_dates=True)
     cal = D.calibration()
@@ -42,8 +43,14 @@ def series_index():
         sag = TH.sag(W["temp"] + 10.0, g.tspan_m[None], g.tsagref[None])
         theta = TH.blowout_angle(W["gust"] * np.sin(phi), g.tcond["D"][None], g.tcond["w_N_m"][None])
         clr = TH.clearance(sag, theta, g.tattach[None], g.trow[None], g.tcanopy[None])
-        risk = (E.sigmoid((W["gust"] - fc["g50"]) / 2) * E.sigmoid((fc["h50"] - W["rh"]) / 5)
-                * (0.5 + 0.5 * E.sigmoid((fc["c50"] - clr) / 1)) * g.tfuel[None])
+        if fc.get("model") == "two_step":
+            st = cal["storm"]
+            risk = (E.damage_prob(W["gust"], clr, st["onset"], st.get("c50", 5.0)) * E.sigmoid((fc["h50"] - W["rh"]) / 5)
+                    * g.tfuel_ign[None])
+        else:
+            clr_z = TH.clearance(sag, theta, g.tattach[None], g.trow[None], g.tcanopy_zone[None])
+            risk = (E.sigmoid((W["gust"] - fc["g50"]) / 2) * E.sigmoid((fc["h50"] - W["rh"]) / 5)
+                    * (0.5 + 0.5 * E.sigmoid((fc["c50"] - clr_z) / 1)) * g.tfuel[None])
         ri[idx] = (risk * g.tspan_km[None]).sum(1)
         gmax[idx] = s["wind_gusts_10m"][idx].reshape(len(idx), -1).max(1)
     times = pd.DatetimeIndex(s["time"].astype("datetime64[ns]")).tz_localize("UTC")

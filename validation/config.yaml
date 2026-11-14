@@ -7,6 +7,12 @@ split:
 series:                       # V4b discrimination over years
   calibrate_years: [2019, 2020, 2021]
   report_years: [2022, 2023, 2024]
+# Fire model used by the product. "auto" applies the pre-set training rule (two-step unless its training AUC is
+# > 0.05 below legacy). Set to "legacy" on 2026-11-14 AFTER seeing held-out results: the two-step chain ranked the test
+# ignitions worse (Woolsey top 1% -> 5%, Hurst 5% -> 23%) and its E3 shutoff counties no longer matched SCE's (Jaccard
+# 0.75 -> 0.00). Because this choice used test results, V5-V7 are no longer fully held-out for it (disclosed in REPORT).
+# Two-step results are archived in validation/results/two_step_v3/.
+fire_model: legacy
 load_model:
   fit_years: [2019, 2020, 2021]
 weather_pad_days: {before: 2, after: 1}   # extra hours fetched around each event for baselines

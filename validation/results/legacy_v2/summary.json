@@ -1,0 +1,77 @@
+{
+ "generated_utc": "2026-11-14T15:05:50.120669+00:00",
+ "cards": [
+  {
+   "id": "V1",
+   "title": "Thermal model vs reference",
+   "status": "pass",
+   "headline": "Max abs. error 0.00 C over 600 cases",
+   "baseline": "linerate IEEE 738; CIGRE TB 601 Ex. B ampacity 1505 A vs published 1504 A",
+   "plot": "v1_thermal.png",
+   "one_liner": "Our heat-balance code matches the reference library and the published worked examples. That shows correct implementation, not real-world accuracy."
+  },
+  {
+   "id": "V2",
+   "title": "Weather inputs vs ground stations",
+   "status": "mixed",
+   "headline": "Wind agent (live-station nudging): test gust RMSE 3.4 -> 2.5 m/s, bias +2.1 -> +0.7",
+   "baseline": "Raw reanalysis; windy hours (>= 12 m/s) RMSE 5.9 -> 5.3, bias -3.7 -> -3.3",
+   "plot": "v2_weather.png",
+   "one_liner": "Spreading live airport-station errors to nearby lines (tested leave-one-station-out, so no station grades itself) removes most of the everyday gust bias; the strongest, very local Santa Ana gusts are still underestimated."
+  },
+  {
+   "id": "V3",
+   "title": "Demand model vs actual (H2 heat wave)",
+   "status": "mixed",
+   "headline": "Peak within 8.4% (SCE) / 2.7% (LDWP); MAPE 9.6% / 7.3%",
+   "baseline": "Same hour last week: MAPE 13.8% / 19.3%, peak error 2.7% / 5.2%",
+   "plot": "v3_demand.png",
+   "one_liner": "Weather-only demand (heat x time-of-day + inland heat, fit 2019-2021) tracks the record heat wave hour by hour better than persistence; it still misses the record peak by more than persistence for SCE."
+  },
+  {
+   "id": "V4a",
+   "title": "Grid stress vs actual outages (event replay)",
+   "status": "mixed",
+   "headline": "Storm index: E1 Spearman 0.04, lead -21 h; E3 Spearman 0.43, lead -31 h",
+   "baseline": "Fire index: E1 0.13 / lead -10 h, E3 0.78 / lead -49 h; calm week C3 storm alarm on 0.0% of hours",
+   "plot": "v4a_replay.png",
+   "one_liner": "Inside single test events the fire index co-moves with outages better than the new storm index (E3 Spearman 0.78 vs 0.43; E1 0.13 vs 0.04), and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid."
+  },
+  {
+   "id": "V4b",
+   "title": "Discrimination over 2022-2024",
+   "status": "mixed",
+   "headline": "Storm index AUC 0.81 (fire index 0.62)",
+   "baseline": "Max gust alone AUC 0.82",
+   "plot": "v4b_discrimination.png",
+   "one_liner": "The fire index was being graded on the wrong question (AUC 0.62): most big LA outages are wind and rain damage, not fire weather. The wind agent's storm-damage model raises that to 0.81, which matches gust-alone (0.82) on WHEN outages happen; its added value is WHERE: it ranks the individual lines, which a regional gust number cannot."
+  },
+  {
+   "id": "V5",
+   "title": "Ignition hindcast",
+   "status": "small-sample",
+   "headline": "Woolsey Fire top 1%; Eaton Fire top 10%; Hurst Fire top 5%",
+   "baseline": "Gust-only: Woolsey Fire top 4%; Eaton Fire top 1%; Hurst Fire top 29%; random: top 50%",
+   "plot": null,
+   "one_liner": "The line nearest each test ignition ranked in the top 10% of 829 lines at ignition time; 3 cases is far too few for a rate."
+  },
+  {
+   "id": "V6",
+   "title": "De-energization vs SCE PSPS (E3, county level)",
+   "status": "weak",
+   "headline": "County overlap 3/4 (Jaccard 0.75)",
+   "baseline": "No meaningful baseline at county level",
+   "plot": null,
+   "one_liner": "Our de-energization counties match most of SCE's at county level, which is too coarse to show we would have chosen the same circuits."
+  },
+  {
+   "id": "V7",
+   "title": "Red Flag consistency",
+   "status": "pass",
+   "headline": "95% of high-risk line-hours inside a Red Flag Warning",
+   "baseline": "28% of Red Flag zone-hours contain a high-risk line",
+   "plot": null,
+   "one_liner": "When we flag a line, NWS forecasters had almost always flagged that area too; we flag far less than they do (conservative)."
+  }
+ ]
+}

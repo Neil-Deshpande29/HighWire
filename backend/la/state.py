@@ -31,16 +31,28 @@ class LAState:
         self.grid = grid or E.LAGrid()
         self.eid = eid
         self.wx = D.weather(eid)
-        ev = D.events()[eid]
+        if eid == "FX":  # live forecast
+            from .forecast import live_event
+
+            ev = live_event()
+        else:
+            ev = D.events()[eid]
         hrs = E.hours_for(self.wx, ev["start_utc"], ev["end_utc"])
         times = pd.DatetimeIndex(self.wx["time"][hrs].astype("datetime64[ns]")).tz_localize("UTC")
+        t = t or None  # empty string from a client means "first hour"
         k = 0 if t is None else int(np.clip(np.searchsorted(times, pd.Timestamp(t).tz_convert("UTC")), 0, len(times) - 1))
         self.hour_idx = int(hrs[k])
         self.t_utc = times[k]
-        ld, sc = E.event_demand(self.wx["time"][[self.hour_idx]])
+        if eid == "FX":  # future hours have no metered demand: use the calibrated demand model on the forecast
+            from .load_model import predict_from_weather
+
+            dem = predict_from_weather(self.wx)
+            ld, sc = dem["LDWP"][[self.hour_idx]], dem["SCE"][[self.hour_idx]]
+        else:
+            ld, sc = E.event_demand(self.wx["time"][[self.hour_idx]])
         self.ldwp, self.sce = float(ld[0]), float(sc[0])
         g = self.grid
-        self.scenario = f"LA replay {eid} @ {self.t_utc.tz_convert('America/Los_Angeles'):%Y-%m-%d %H:%M}"
+        self.scenario = (f"LA {'FORECAST' if eid == 'FX' else 'replay ' + eid} @ {self.t_utc.tz_convert('America/Los_Angeles'):%Y-%m-%d %H:%M}")
         self.load_multiplier = 1.0
         self.operator_opened: list[str] = []
         self.deenergized: list[str] = []
@@ -122,13 +134,11 @@ class LAState:
                 top.bus_on[g.bix[bid]] = False
             else:
                 errors.append(f"Invalid action: unknown bus {bid}")
-        self._last_imp = imp
-        return top, shed, errors, opened, deen
+        return top, shed, errors, opened, deen, imp
 
     def simulate(self, actions=None) -> dict:
         g = self.grid
-        top, shed, errors, opened, deen = self._topology(actions)
-        imp = self._last_imp
+        top, shed, errors, opened, deen, imp = self._topology(actions)
         r = E.hindcast(g, self.wx, np.array([self.hour_idx]), self.ldwp, self.sce, top=top, shed=shed, imp_override=imp)
         cal = D.calibration()["fire"]
         alarm = cal["line_alarm"]

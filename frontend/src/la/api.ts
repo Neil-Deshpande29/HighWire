@@ -1,7 +1,7 @@
 import { API, type Job, type Plan } from "../api";
 
 export type LAEvent = {
-  id: string; name: string; kind: "wind" | "heat" | "control"; split: "train" | "test" | "none";
+  id: string; name: string; kind: "wind" | "heat" | "control" | "forecast"; split: "train" | "test" | "none"; fetched_utc?: string;
   start: string; end: string; has_replay: boolean; fires: string[];
   v4a: { lead_time_h: number | null; spearman_la: number; first_alarm_utc: string | null; first_spike_utc: string | null } | null;
 };
@@ -31,7 +31,8 @@ export type Hour = {
   lines: { risk: number[]; loading: number[]; temp: number[]; clear: number[]; gust: number[]; rh: number[]; flow: number[] };
   region_index: number; region_alarm: number; line_alarm: number; load_mw: number;
   demand: { LDWP: number; SCE: number }; outages: Record<string, number | null>;
-  over_alarm: { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number }[];
+  over_alarm: { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number;
+                downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number } }[];
   n_over_alarm: number; max_loading: number; n_overloaded: number;
   weather: { lats: number[]; lons: number[]; gust: number[][]; rh: number[][]; temp: number[][]; dir: number[][]; max_gust: number; min_rh: number; max_temp: number };
   redflag_active: string[]; fires: { id: string; name: string; ignited: boolean; hours_since_ignition: number }[];
@@ -56,7 +57,7 @@ export type Series = {
   load_mw: number[]; max_loading: number[]; region_alarm: number;
   v4a: { lead_time_h: number | null; first_alarm_utc: string | null; first_spike_utc: string | null; outage_baseline_la: number;
          spearman_la: number; exploratory_lead_to_main_surge_h: number | null } | null;
-  fires: Fire[]; source: string;
+  fires: Fire[]; source: string; now_utc?: string | null;
 };
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
@@ -81,6 +82,8 @@ export const la = {
   job: (id: string) => get<Job>(`/copilot/${id}`),
   approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
   reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
+  refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
+  forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
 };
 export const resultUrl = (f: string) => `${API}/results/${f}`;
 export type { Plan };

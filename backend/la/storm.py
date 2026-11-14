@@ -35,15 +35,16 @@ def _clearance(grid, W, c_temp_offset=10.0):
     return TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy[None])
 
 
-def tower_damage(gust, clr, onset, c50):
-    return E.sigmoid((gust - onset) / 2.0) * (0.5 + 0.5 * E.sigmoid((c50 - clr) / 1.0))
+FAULT_C50 = 5.0  # m clearance half-point, inherited from the v1 fire calibration; not refit
+
+tower_damage = E.damage_prob
 
 
 def hazards(grid, wx, hours_idx, precip, onsets=None, cal=None, want_lines=False):
     """Hourly network hazards for the given hours. precip: (T, nlat, nlon) mm/h on wx's grid (or None).
     Returns dict: H[onset] (n,), Rn (n,), and if want_lines: line_damage (n, nl) for cal's onset."""
     cal = cal or D.calibration()
-    c50 = cal["fire"]["c50"]
+    c50 = FAULT_C50
     onsets = onsets or [cal["storm"]["onset"]]
     hours_idx = np.atleast_1d(hours_idx)
     span = grid.tspan_km.astype(np.float32)
@@ -81,13 +82,13 @@ def index_from_hazards(H, Rn, st):
     return score(stock(H, st["tau"]), stock(Rn, st["rain_tau"]), st["w"])
 
 
-def event_storm(grid, eid, cal=None):
+def event_storm(grid, eid, cal=None, wx=None, ev=None):
     """Storm index + per-line damage probability over an event's core hours. The damage stock is spun up over the
     pre-event weather pad so the first replay hour is not artificially calm."""
     cal = cal or D.calibration()
     st = cal["storm"]
-    ev = D.events()[eid]
-    wx = D.weather(eid)
+    ev = ev or D.events()[eid]
+    wx = wx if wx is not None else D.weather(eid)
     core = E.hours_for(wx, ev["start_utc"], ev["end_utc"])
     allh = np.arange(0, int(core[-1]) + 1)
     hz = hazards(grid, wx, allh, wx.get("precipitation"), cal=cal, want_lines=True)

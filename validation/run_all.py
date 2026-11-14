@@ -11,11 +11,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from checks import v1_thermal, v2_weather, v3_demand, v4a_replay, v4b_discrimination, v5_ignition, v6_psps, v7_redflag  # noqa: E402
+from checks import v1_thermal, v2_weather, v3_demand, v4a_replay, v4b_discrimination, v5_ignition, v6_psps, v7_redflag, v8_forecast  # noqa: E402
 from common import D, RES  # noqa: E402
 
 CHECKS = [("V1", v1_thermal), ("V2", v2_weather), ("V3", v3_demand), ("V4a", v4a_replay), ("V4b", v4b_discrimination),
-          ("V5", v5_ignition), ("V6", v6_psps), ("V7", v7_redflag)]
+          ("V5", v5_ignition), ("V6", v6_psps), ("V7", v7_redflag), ("V8", v8_forecast)]
 
 SRC = {
     "openmeteo": "[Open-Meteo Historical Weather](https://open-meteo.com/en/docs/historical-weather-api)",
@@ -99,7 +99,8 @@ def v4a_card(e1, e3, c3, v4a):
            if not better else f"The storm index co-moves better than the fire index in {', '.join(better)}. ")
     one += ("and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. "
             if not early else f"Its alarm fired before outages surged in {', '.join(early)}. ")
-    one += "Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid."
+    one += ("The storm model is tuned to rank hours across years (V4b), not to follow the shape of one storm; grid resolution is not the cause "
+            "(checked on training event E2: Spearman 0.49 on the event grid vs 0.51 on the multi-year grid).")
     return {"id": "V4a", "title": "Grid stress vs actual outages (event replay)", "status": status,
             "headline": f"Storm index: E1 Spearman {s1['spearman_la']:.2f}, lead {fmt(s1['lead_time_h'], 0)} h; E3 Spearman {s3['spearman_la']:.2f}, lead {fmt(s3['lead_time_h'], 0)} h",
             "baseline": f"Fire index: E1 {e1['spearman_la']:.2f} / lead {fmt(e1['lead_time_h'], 0)} h, E3 {e3['spearman_la']:.2f} / lead {fmt(e3['lead_time_h'], 0)} h; calm week C3 storm alarm on {sc['alarm_hour_fraction'] * 100:.1f}% of hours",
@@ -158,7 +159,33 @@ def summary_cards():
          "plot": None,
          "one_liner": "When we flag a line, NWS forecasters had almost always flagged that area too; we flag far less than they do (conservative)."},
     ]
+    if (RES / "v8_forecast.json").exists():
+        cards.append(v8_card(r("v8_forecast")))
     return cards
+
+
+def v8_card(v8):
+    y = v8["year_2024"]
+    by = v8["event_test"]["by_lead"]
+    l1, l2 = by.get("lead_1d", {}), by.get("lead_2d", {})
+    beats = y["auc_storm_day_ahead"] > y["auc_gust_day_ahead"] + 0.02
+    ties = abs(y["auc_storm_day_ahead"] - y["auc_gust_day_ahead"]) <= 0.02
+    ign = "; ".join(f"{x['fire']} top {x['model_top_pct']:.0f}% (gust-only {x['gust_only_top_pct']:.0f}%)" for x in l1.get("ignitions", []))
+    warn = l1.get("fire_warning_time_h")
+    warn2 = l2.get("fire_warning_time_h")
+    one = (f"Using only forecasts an operator had in advance: over 2024 the day-ahead storm index separates the worst outage hours with AUC "
+           f"{y['auc_storm_day_ahead']:.2f} (forecast gust alone {y['auc_gust_day_ahead']:.2f}; same index on recorded weather "
+           f"{y['auc_storm_reanalysis_same_hours']:.2f}). ")
+    ws1, ws2 = l1.get("exploratory_fire_warning_to_main_surge_h"), l2.get("exploratory_fire_warning_to_main_surge_h")
+    if ws1 is not None:
+        one += (f"For the Jan 2025 Eaton/Hurst storm, the fire alarm was knowable {ws1:.0f} h before LA County outages hit half their peak "
+                f"from the day-1 forecast" + (f" and {ws2:.0f} h before from the day-2 forecast" if ws2 is not None else "")
+                + " (exploratory metric; the pre-set 'first spike' metric is distorted by missing outage data before the event). ")
+    one += "One event and one year: promising, not proof."
+    return {"id": "V8", "title": "Prediction from archived forecasts (no hindsight)",
+            "status": "pass" if beats and (warn or 0) > 0 else "mixed",
+            "headline": f"2024 day-ahead storm AUC {y['auc_storm_day_ahead']:.2f}; E3 day-1 ignitions: {ign}",
+            "baseline": f"Day-ahead forecast gust alone AUC {y['auc_gust_day_ahead']:.2f}", "plot": None, "one_liner": one}
 
 
 def write_report(cards, timings):
@@ -193,11 +220,27 @@ def write_report(cards, timings):
       f"(identity {g['zones']['valley']['windy_rmse_identity']:.2f} m/s vs candidate {g['zones']['valley']['windy_rmse_candidate']:.2f} m/s in the valley), "
       f"so no correction is applied: a = {cal['gust']['a']}, b = {cal['gust']['b']}.")
     f = calsum["fire"]
-    w(f"- **Fire thresholds:** g50 = {cal['fire']['g50']} m/s, h50 = {cal['fire']['h50']}% RH, c50 = {cal['fire']['c50']} m; region alarm = "
+    if cal["fire"].get("model") == "two_step":
+        lg, ts2 = f["legacy"], f["two_step"]
+        w(f"- **Fire model (v3, two-step):** P(fault | wind, vegetation) from the storm model x P(ignition | RH, LANDFIRE fuel). Fit on training events: "
+          f"RH half-point {cal['fire']['h50']}%, region alarm {cal['fire']['region_alarm']:.0f}, line alarm {cal['fire']['line_alarm']:.2f}. "
+          f"Training hit rate {ts2['best_hit_rate'] * 100:.0f}% / AUC {ts2['best_auc']:.3f} vs the legacy blended score {lg['best_hit_rate'] * 100:.0f}% / {lg['best_auc']:.3f}; "
+          "pre-set rule: keep two-step unless its training AUC is > 0.05 lower. Legacy v2 results are archived in `validation/results/legacy_v2/`.")
+    else:
+      w(f"- **Fire thresholds:** g50 = {cal['fire']['g50']} m/s, h50 = {cal['fire']['h50']}% RH, c50 = {cal['fire']['c50']} m; region alarm = "
       f"{cal['fire']['region_alarm']:.0f} risk-weighted line-km (98th pct of training control weeks); line alarm = {cal['fire']['line_alarm']:.2f}. "
       f"Training hit rate {f['best_hit_rate'] * 100:.0f}% on {sum(f['spike_hours'].values())} outage-spike hours, AUC {f['best_auc']:.2f}. "
       "The optimum sits at the low edge of the search grid for g50 and h50 and the objective is flat there: on training data, very dry air "
       "(RH under ~10%) carries most of the signal.")
+    ts_dir = RES / "two_step_v3"
+    if cal["fire"].get("model") != "two_step" and (ts_dir / "summary.json").exists():
+        tsum = json.loads((ts_dir / "summary.json").read_text())["cards"]
+        tc = {c["id"]: c for c in tsum}
+        w(f"- **Two-step fire model (tested, not used):** P(fault) from the storm model x P(ignition | RH, LANDFIRE fuel). It passed the pre-set "
+          f"training rule (training AUC {f['two_step']['best_auc']:.3f} vs legacy {f['legacy']['best_auc']:.3f}), but on held-out data it did worse: "
+          f"V5 {tc['V5']['headline']}; V6 {tc['V6']['headline']}; V7 {tc['V7']['headline']} (recall {tc['V7']['baseline']}). "
+          "The product therefore keeps the legacy fire score (`validation/config.yaml: fire_model: legacy`). **This choice was made after seeing test "
+          "results, so V5-V7 are no longer fully held-out for the fire-model choice.** Full two-step results: `validation/results/two_step_v3/`.")
     w(f"- **Load model:** training MAPE LDWP {calsum['load']['LDWP']['train_mape']:.1f}%, SCE {calsum['load']['SCE']['train_mape']:.1f}% (2019-2021). "
       "v2 adds temperature x time-of-day terms and an inland-heat term, chosen on an internal 2019-20 fit / summer-2021 holdout before H2 was looked at.")
     if "storm" in calsum:
@@ -336,6 +379,27 @@ def write_report(cards, timings):
              "Per event: " + "; ".join(f"{k} {v['inside_red_flag']}/{v['high_risk_line_hours']}" for k, v in v7["events"].items() if v["high_risk_line_hours"])],
             "NWS Red Flag Warnings.", None, cards[7]["one_liner"])
 
+    if (RES / "v8_forecast.json").exists():
+        v8 = r("v8_forecast")
+        y = v8["year_2024"]
+        lines = [f"2024 ({y['period']}, {y['n_hours']} hours, {y['n_positive_hours']} high-outage hours): day-ahead storm index AUC "
+                 f"{y['auc_storm_day_ahead']:.3f}; day-ahead max gust AUC {y['auc_gust_day_ahead']:.3f}; storm index on recorded weather, same hours, "
+                 f"{y['auc_storm_reanalysis_same_hours']:.3f}. Day-ahead storm alarm caught {fmt((y['hit_rate_storm_alarm'] or 0) * 100, 0)}% of high-outage hours "
+                 f"with alarms on {y['false_alarm_hour_share'] * 100:.1f}% of normal hours."]
+        for k, v in v8["event_test"]["by_lead"].items():
+            lines.append(f"E3 with {v['weather']}: fire alarm first {v['fire_first_alarm_utc'] or 'never'} "
+                         f"(warning vs first spike {fmt(v['fire_warning_time_h'], 0)} h; _exploratory, vs main surge {fmt(v.get('exploratory_fire_warning_to_main_surge_h'), 0)} h_); "
+                         f"storm alarm first {v['storm_first_alarm_utc'] or 'never'} (vs first spike {fmt(v['storm_warning_time_h'], 0)} h; "
+                         f"_vs main surge {fmt(v.get('exploratory_storm_warning_to_main_surge_h'), 0)} h_); peak forecast gust {v['peak_forecast_gust_ms']:.1f} m/s; "
+                         + "; ".join(f"{x['fire']} nearest line {x['line']} top {x['model_top_pct']:.1f}% (gust-only {x['gust_only_top_pct']:.1f}%)" for x in v["ignitions"]) + ".")
+        lines.append("Note: " + v8["event_test"].get("spike_note", ""))
+        section("V8", "Prediction from archived forecasts (no hindsight)",
+                "The calibrated models (no refitting) driven by what the weather forecast said 1 and 2 days ahead (Open-Meteo Previous Runs API), "
+                "instead of the recorded weather. Warning time = hours from when the alarm was knowable (alarm hour minus the forecast lead) to the first "
+                "sustained LA County outage spike.",
+                "[Open-Meteo Previous Runs API](https://open-meteo.com/en/docs/previous-runs-api) (archive starts 2024-01-20), " + SRC["eaglei"] + ".",
+                lines, v8["baseline"], None, cards[-1]["one_liner"] if cards[-1]["id"] == "V8" else v8["caveat"])
+
     w("## Limitations")
     w("")
     for x in [
@@ -347,10 +411,13 @@ def write_report(cards, timings):
         "very local canyon gusts; only 8 ASOS stations are in the bbox. Nudging is reported in V2 but not fed into the fire/storm replays, which use calibrated reanalysis.",
         "**Storm model scope.** The storm index predicts WHEN the region has its worst outage hours and WHICH modeled lines are most exposed; "
         "it cannot see distribution-level damage, and per-line damage probabilities are not validated against utility outage records (not public).",
-        "**Storm model grid mismatch.** The storm model is fit on the 0.25 deg 2019-2021 series grid (the only multi-year weather we fetched) but replays use the "
-        "0.1 deg event grid, whose gusts are distributed differently; inside single events it tracks outages worse than the fire index (V4a). Fetching 0.1 deg "
-        "weather for 2019-2021 and refitting is the next step.",
-        "**Vegetation.** Canopy is a constant per terrain zone (NLCD not fetched), so clearance contributes little; fire risk is mostly gust x dryness x fuel zone.",
+        "**Storm model within one event.** It ranks hours well across years (V4b, V8) but follows the shape of a single storm worse than the fire index (V4a). "
+        "Grid resolution was checked and ruled out (training event E2: 0.49 vs 0.51).",
+        "**Vegetation.** Canopy height and fuel type come from LANDFIRE 2016 (30 m) sampled at each tower and 45 m either side; fuel receptivity weights per "
+        "fuel group are judgment values, not fitted. Explicit tree fall-in geometry is not modeled (30 m pixels cannot place a tree relative to the conductor).",
+        "**Fire model structure (v3).** Fire risk = P(fault) x P(ignition): the fault step is the storm model fit on 2019-2021 outages; the ignition step is "
+        "humidity x LANDFIRE fuel. Only the humidity half-point is fit (training events); it sits at the dry edge of its search grid (5% RH).",
+        "**Forecast test size.** The forecast archive starts 2024-01-20: V8 covers one test event (E3) and one year.",
         "**Small ignition sample.** V5 has 3 test ignitions and 1 training ignition. Report individual cases only.",
         "**EAGLE-I gaps.** Missing 15-min runs stay missing; implausible LA County readings (> 1 M customers, Jan 8 2025) were dropped; non-weather outage causes cannot be separated.",
         "**Definition changes disclosed.** The outage-spike definition was changed after the first run from 1 hour to 3 consecutive hours above 2x baseline; both lead times are reported. "

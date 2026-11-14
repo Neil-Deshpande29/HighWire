@@ -21,7 +21,7 @@ try:
 except Exception:  # noqa: BLE001
     D = None
 
-PACE_S = float(os.environ.get("MOCK_PACE", "0.35"))
+PACE_S = float(os.environ.get("MOCK_PACE", "0.12"))
 MAX_SIMS = 500
 
 ASSUMPTIONS = {
@@ -36,7 +36,7 @@ class _Planner:
     def __init__(self, state, log: JobLog, pace: float):
         self.state, self.log, self.pace = state, log, pace
         self.sims = 0
-        self.max_sims = 60 if hasattr(state, "grid") else MAX_SIMS  # LA sims re-solve a 675-bus network
+        self.max_sims = 150 if hasattr(state, "grid") else MAX_SIMS  # LA sim ~0.07 s (profiled), so 3-action combos fit
         self.findings: dict[str, list] = {}
 
     def say(self, agent, msg):
@@ -126,6 +126,19 @@ class _Planner:
             self.find("fire_agent", l, "ignition risk", f"fire index {L[l]['fire_risk']}, clearance {L[l]['clearance_m']} m", 3 if L[l]["fire_risk"] >= 0.7 else 2)
         if fiery:
             self.say("fire_agent", "ignition risk on " + ", ".join(f"{l} ({L[l]['fire_risk']:.2f})" for l in fiery[:4]))
+            if hasattr(st, "grid"):  # consequence layer (context only): what is downwind of the riskiest line
+                try:
+                    from ..la import replay
+
+                    ov = replay.hour(st.eid, t=st.t_utc.isoformat())["over_alarm"]
+                    top = next((x for x in ov if x["id"] == fiery[0]), ov[0] if ov else None)
+                    if top and top.get("downwind"):
+                        dw = top["downwind"]
+                        self.say("fire_agent", f"if {top['id']} sparks, the wind carries fire toward ~{dw['people']:,} people"
+                                               + (f", {dw['hospitals']} hospital(s)" if dw["hospitals"] else "")
+                                               + (f", {dw['water_plants']} water plant(s)" if dw["water_plants"] else "") + " within 10 km")
+                except Exception:  # noqa: BLE001
+                    pass
         else:
             self.say("fire_agent", "fire weather not present (humidity or wind too low)")
         # cascade

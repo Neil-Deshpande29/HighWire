@@ -130,9 +130,16 @@ DEFAULT_CAL = {
 }
 
 
+@lru_cache(maxsize=4)
+def _calibration(mtime: float) -> dict:
+    return json.loads((P / "calibration.json").read_text())
+
+
 def calibration() -> dict:
+    """Cached; re-read only when calibration.json changes on disk (audit: it was re-parsed several times per simulation).
+    Callers must not mutate the returned dict."""
     f = P / "calibration.json"
-    return json.loads(f.read_text()) if f.exists() else DEFAULT_CAL
+    return _calibration(f.stat().st_mtime) if f.exists() else DEFAULT_CAL
 
 
 def results_dir() -> Path:

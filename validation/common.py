@@ -86,11 +86,12 @@ def la_outages():
     return D.outages()["06037"]
 
 
-def event_hindcast(eid, cal=None, grid=None, thermal=True):
-    """Hindcast an event's core window (no pad). Returns (times UTC DatetimeIndex, result dict)."""
+def event_hindcast(eid, cal=None, grid=None, thermal=True, wx=None):
+    """Hindcast an event's core window (no pad). Returns (times UTC DatetimeIndex, result dict).
+    wx: optional weather override on the same grid/hours (e.g. an archived day-ahead forecast, V8)."""
     grid = grid or E.LAGrid()
     ev = D.events()[eid]
-    wx = D.weather(eid)
+    wx = wx if wx is not None else D.weather(eid)
     hrs = E.hours_for(wx, ev["start_utc"], ev["end_utc"])
     ld, sc = E.event_demand(wx["time"][hrs])
     r = E.hindcast(grid, wx, hrs, ld, sc, cal=cal, thermal=thermal)
@@ -107,22 +108,7 @@ def outage_baseline(eid, county="06037"):
     return float(o[(o.index >= s - pd.Timedelta(days=days)) & (o.index < s)].median())
 
 
-def local_hour_features(idx_utc: pd.DatetimeIndex):
-    loc = idx_utc.tz_convert(TZ)
-    return loc.hour.values, (loc.dayofweek.values >= 5).astype(int), loc
-
-
-def pop_weighted_temp(wx_series, hours_idx=None):
-    """Population-weighted 2 m temperature over the region from the coarse series grid."""
-    pop = D.population()
-    lats, lons = wx_series["lats"], wx_series["lons"]
-    j = np.clip(np.round((pop.lat.values - lats[0]) / (lats[1] - lats[0])).astype(int), 0, len(lats) - 1)
-    i = np.clip(np.round((pop.lon.values - lons[0]) / (lons[1] - lons[0])).astype(int), 0, len(lons) - 1)
-    w = np.zeros((len(lats), len(lons)))
-    np.add.at(w, (j, i), pop["pop"].values)
-    w /= w.sum()
-    T = wx_series["temperature_2m"] if hours_idx is None else wx_series["temperature_2m"][hours_idx]
-    return (T * w[None]).sum((1, 2))
+from backend.la.load_model import local_hour_features, pop_weighted_temp  # noqa: E402,F401  (moved to backend)
 
 
 def first_spike(series_vals, threshold, sustain=3):
@@ -157,12 +143,16 @@ def nudge_loso(m: pd.DataFrame, L_km: float, w0: float) -> pd.DataFrame:
     return out.dropna(subset=["obs", "grid"])
 
 
+def g_landfire() -> bool:
+    return (D.P / "landfire_towers.npz").exists()
+
+
 def series_storm(cal=None) -> pd.DataFrame:
     """Hourly storm hazards over 2019-2024 on the coarse series grid, for every candidate damage onset (cached)."""
     from backend.la import storm as S
 
     cal = cal or D.calibration()
-    cache = RES / f"series_storm_2019_2024_c{cal['fire']['c50']:g}.csv"
+    cache = RES / f"series_storm_2019_2024_{'lf' if g_landfire() else 'zone'}.csv"
     if cache.exists():
         return pd.read_csv(cache, index_col=0, parse_dates=True)
     g = E.LAGrid()

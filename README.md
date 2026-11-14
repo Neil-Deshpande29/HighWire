@@ -152,7 +152,7 @@ voltage tier.
 | V2 gust error, windy hours | bias -3.7, RMSE 5.9 | bias -3.3, RMSE 5.3 | small improvement; local canyon gusts still missed |
 | V3 heat-wave peak (LDWP / SCE) | -8.0% / -10.4% | -2.7% / -8.4% | LDWP now beats persistence; SCE still does not |
 | V4b worst-outage-hour AUC 2022-24 | fire index 0.62 vs gust 0.82 (fail) | storm index 0.81 vs gust 0.82 | from fail to match; does not beat gust-alone |
-| V4a co-movement inside test events | fire E1 0.13, E3 0.78 | storm E1 0.04, E3 0.43 | worse inside single events (grid-resolution mismatch, see REPORT) |
+| V4a co-movement inside test events | fire E1 0.13, E3 0.78 | storm E1 0.04, E3 0.43 | worse inside single events (not a grid-resolution issue; checked) |
 | V1, V5, V6, V7 | unchanged | unchanged | fire model was not retuned |
 
 Pitch framing that holds up: *fire risk tells you which lines to shut off (V5 ignitions ranked top 1-10%, V7 95%
@@ -160,8 +160,22 @@ inside Red Flag zones); storm damage tells you when the big outage hours come (m
 three years) and which lines to send crews to. We publish where we lose.* Full details: `validation/REPORT.md`,
 `validation/DECISIONS.md` ("v2 improvements").
 
+### v3: prediction mode and audit (see [`AUDIT.md`](AUDIT.md))
+
+- **🔮 Live forecast** (top of the event list): pulls the current Open-Meteo forecast and runs every calibrated model over
+  the next ~3 days (fire risk, storm damage, demand, line loading). Refresh button in the UI, or `make forecast`.
+- **V8, prediction from archived forecasts:** the same models fed only what the forecast said 1-2 days ahead. For the Jan
+  2025 Eaton/Hurst storm, the fire alarm was knowable 45 h (day-1 forecast) to 69 h (day-2) before LA outages reached half
+  their peak (exploratory metric), and the lines nearest the Eaton and Hurst ignitions ranked top 6% and 3% from the
+  day-1 forecast. Over 2024 the day-ahead storm index scores AUC 0.80, below the forecast's own max gust (0.86).
+- **Downwind consequence:** each line over the fire alarm shows the people, hospitals and water plants within 10 km
+  downwind.
+- **Real vegetation:** LANDFIRE canopy heights replace guessed constants in the clearance physics; the two-step
+  fault x ignition fire chain was tested and not adopted (worse on held-out ignitions).
+- **Agents:** LA runs a 4-agent team in one wave, picks actions from a validated candidate list, and the rule-based planner
+  runs in parallel as an instant fallback.
+
 ### Next steps that would most improve the numbers
 
-1. Fetch 0.1 deg weather for 2019-2021 and refit the storm model on the same grid the replays use (fixes the V4a mismatch).
-2. Feed nudged gusts into the replays, after refitting the fire thresholds on nudged training data.
+2. Ground reports on the real LA grid and the responder loop (AUDIT.md, "To finish").
 3. More stations (RAWS fire-weather stations in the canyons) for the nudging.

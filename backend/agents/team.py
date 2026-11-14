@@ -16,7 +16,7 @@ from .. import llm as LLM
 from .mock_planner import run_mock
 from .tools import JobLog, make_tools, verify_output
 
-TIMEOUT_S = float(os.environ.get("AGENT_TIMEOUT_S", "60"))
+TIMEOUT_S = float(os.environ.get("AGENT_TIMEOUT_S", "50"))
 
 SUBAGENTS = {
     "heat_agent": ("Conductor heating: temperature vs the 75 C limit, thermal sag, heat-driven loss of tree clearance.", ["get_grid_summary", "get_weather"]),
@@ -110,53 +110,61 @@ def _make_callback(log):
     return TaskLogger()
 
 
-LA_GRID_TEXT = """   Grid: the REAL Greater Los Angeles transmission network (OSM lines >= 66 kV, ids L1..L867, buses B1..B675).
-   Electrical values are MODELED from voltage class. Fire risk per line comes from the calibrated physics; a line
-   with risk >= the line alarm is a violation. You may also use {"type":"deenergize_lines","target":"label","targets":["L12","L40"]}
-   to shut off a group of lines as ONE action (PSPS style). Avoid de-energizing >= 220 kV import corridors unless
-   unavoidable: they feed the basin. Call get_event_context(event_id) and get_validation_summary() and cite what the
-   historical validation says about trusting this signal (numbers only from those tools). Fire risk drives de-energization;
-   the wind_agent's storm-damage index drives crew pre-staging and patrols (put those in "assumptions"/"tradeoffs", they
-   are not grid actions)."""
+LA_SUBAGENTS = {
+    "fire_agent": ("Ignition risk on the real LA grid: lines over the calibrated fire alarm (P(fault) x P(ignition | humidity, "
+                   "LANDFIRE fuel)), which ones are sub-transmission (shut off) vs 220-500 kV corridors (patrol).",
+                   ["get_grid_summary", "get_event_context"]),
+    "wind_agent": ("Storm damage: calibrated wind+rain damage model (which lines are likely to be knocked down, storm index vs "
+                   "alarm, historical accuracy). Recommends crew pre-staging and patrols.", ["get_storm_damage", "get_grid_summary"]),
+    "heat_agent": ("Heat and load: demand, overloaded lines, conductor temperature vs limit.", ["get_grid_summary", "get_weather"]),
+    "brownout_agent": ("Who loses power if lines are switched off: unserved MW, hospitals and water plants on backup.",
+                       ["get_grid_summary", "get_critical_sites"]),
+}
+
+LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operator on the REAL Greater Los Angeles transmission grid
+(OSM lines >= 66 kV, ids L1..L867; electrical values are modeled). You never act on the grid: you propose plans and the
+human operator approves or rejects them. The whole run has a 45 second budget, so be brief.
+
+Workflow:
+1. In ONE message call the `task` tool 4 times in parallel: fire_agent, wind_agent, heat_agent, brownout_agent.
+   Description: "Assess current conditions and return your findings JSON."
+2. Call get_candidate_actions() once. Build up to 3 plans of at most 3 actions each, using ONLY actions from that list
+   (do not invent line or bus ids). deenergize_lines shuts a group of lines off as ONE action (PSPS style).
+3. Call simulate_plan for every plan (parallel calls are fine). It is the ONLY way to judge a plan. If is_safe is false,
+   read the violations and revise, at most 2 attempts per plan.
+4. Call get_event_context(event_id) and get_validation_summary() once and cite what the history says about trusting the
+   signal (numbers only from those tools). Fire risk drives de-energization; the wind_agent's storm index drives crew
+   pre-staging and patrols (mention those in "tradeoffs", they are not grid actions).
+5. Reply with ONLY this JSON (no prose, no code fences):
+{"situation":"2 plain-language sentences",
+ "plans":[{"id":"P1","title":"short","steps":[{"action":{...},"why":"plain language","raised_by":["fire_agent"]}],
+   "tradeoffs":"...","confidence":0.8,"assumptions":["..."],"attempts":1}],
+ "disagreements":["fire_agent wanted X; brownout_agent objected because Y; resolved by Z"]}
+If the grid is already safe with no action, return "plans": []. Do not invent numbers: the backend re-simulates every plan."""
+
+
+def _subagent_specs(state, log, table):
+    return [{"name": n, "description": f, "system_prompt": SUB_PROMPT.format(name=n, focus=f), "tools": make_tools(state, log, n, t)}
+            for n, (f, t) in table.items()]
 
 
 def _run_llm(state, log) -> dict:
     from deepagents import create_deep_agent
+
     model_name = LLM.model_name()
-    model = LLM.chat_model(timeout=45, max_retries=1, max_tokens=4096)
-    subagents = []
-    for name, (focus, tool_names) in SUBAGENTS.items():
-        subagents.append(
-            {
-                "name": name,
-                "description": focus,
-                "system_prompt": SUB_PROMPT.format(name=name, focus=focus),
-                "tools": make_tools(state, log, name, tool_names),
-            }
-        )
+    model = LLM.chat_model(timeout=40, max_retries=1, max_tokens=4096)
     la = hasattr(state, "grid")
-    if la:  # LA replay: the wind agent reads the calibrated storm-damage model
-        for sa in subagents:
-            if sa["name"] == "wind_agent":
-                sa["description"] = ("Storm damage: calibrated wind+rain damage model (which lines are likely to be knocked down, "
-                                     "storm index vs alarm, historical accuracy). Recommends crew pre-staging and patrols.")
-                sa["system_prompt"] = SUB_PROMPT.format(name="wind_agent", focus=sa["description"])
-                sa["tools"] = make_tools(state, log, "wind_agent", ["get_storm_damage", "get_grid_summary"])
-    prompt = COORDINATOR_PROMPT
-    coord_tools = ["get_grid_summary", "get_critical_sites", "simulate_plan"]
-    if la:
-        start = prompt.index("   Grid: lines R1-R4")
-        end = prompt.index("4. Call simulate_plan")
-        prompt = prompt[:start] + LA_GRID_TEXT + "\n" + prompt[end:]
-        prompt += f"\nThis run replays event {state.eid} at {state.scenario}."
-        coord_tools += ["get_event_context", "get_validation_summary"]
-    agent = create_deep_agent(
-        model=model,
-        tools=make_tools(state, log, "coordinator", coord_tools),
-        system_prompt=prompt,
-        subagents=subagents,
-    )
-    log("coordinator", f"model {model_name}: planning with 9 specialist agents")
+    if la:  # LA: only agents that have real data to read, one parallel wave (audit: 5 of 9 were no-ops on LA)
+        subagents = _subagent_specs(state, log, LA_SUBAGENTS)
+        prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}."
+        coord_tools = ["get_candidate_actions", "simulate_plan", "get_event_context", "get_validation_summary", "get_critical_sites"]
+    else:
+        subagents = _subagent_specs(state, log, SUBAGENTS)
+        prompt = COORDINATOR_PROMPT
+        coord_tools = ["get_grid_summary", "get_critical_sites", "simulate_plan"]
+    agent = create_deep_agent(model=model, tools=make_tools(state, log, "coordinator", coord_tools), system_prompt=prompt,
+                              subagents=subagents)
+    log("coordinator", f"model {model_name}: planning with {len(subagents)} specialist agents")
     result = agent.invoke(
         {"messages": [{"role": "user", "content": f"Scenario: {state.scenario}. Assess the grid and propose plans."}]},
         config={"callbacks": [_make_callback(log)], "recursion_limit": 120},
@@ -165,7 +173,8 @@ def _run_llm(state, log) -> dict:
 
 
 def run_team(state, log: JobLog) -> dict:
-    """Entry point used by the API. Always returns physics-verified output."""
+    """Entry point used by the API. Always returns physics-verified output.
+    The rule-based planner runs IN PARALLEL with the LLM team (silently), so a timeout or error falls back instantly."""
     if not LLM.enabled():
         return run_mock(state, log, "mock mode: no GEMINI_API_KEY")
 
@@ -176,6 +185,7 @@ def run_team(state, log: JobLog) -> dict:
             log(agent, message)
 
     box: dict = {}
+    backup: dict = {"lines": []}
 
     def worker():
         try:
@@ -183,14 +193,29 @@ def run_team(state, log: JobLog) -> dict:
         except Exception as e:  # noqa: BLE001
             box["err"] = e
 
+    def backup_worker():
+        try:
+            backup["out"] = run_mock(state, lambda a, m: backup["lines"].append((a, m)), "parallel backup", pace=0)
+        except Exception as e:  # noqa: BLE001
+            backup["err"] = e
+
     th = threading.Thread(target=worker, daemon=True)
+    bk = threading.Thread(target=backup_worker, daemon=True)
     th.start()
+    bk.start()
     th.join(TIMEOUT_S)
     if th.is_alive() or "err" in box or not isinstance(box.get("out"), dict):
         gate["open"] = False
         why = f"agent run timed out after {TIMEOUT_S:.0f}s" if th.is_alive() else f"agent run failed: {str(box.get('err'))[:120]}"
-        log("system", why + "; falling back")
-        return run_mock(state, log, why, pace=0.1)
+        log("system", why + "; using the rule-based plan computed in parallel")
+        bk.join(30)
+        if "out" in backup:
+            for a, m in backup["lines"]:
+                log(a, m)
+            out = backup["out"]
+            out["fallback_reason"] = why
+            return out
+        return run_mock(state, log, why, pace=0.05)
 
     out = box["out"]
     out["mode"] = "llm"

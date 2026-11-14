@@ -228,7 +228,7 @@ def la_static():
 
 @app.get("/replay/{event_id}")
 def replay(event_id: str, t: str | None = None, i: int | None = None):
-    if event_id not in LAD.events():
+    if event_id not in LAD.events() and event_id != "FX":
         raise HTTPException(404, f"unknown event {event_id}")
     h = RP.hour(event_id, t, i)
     st = LA["state"]
@@ -239,6 +239,34 @@ def replay(event_id: str, t: str | None = None, i: int | None = None):
 @app.get("/la/series/{event_id}")
 def la_series(event_id: str):
     return RP.series(event_id)
+
+
+FORECAST_JOB: dict = {"status": "idle", "error": None, "summary": None}
+
+
+@app.post("/la/forecast/refresh")
+def la_forecast_refresh():
+    """Fetch the current Open-Meteo forecast and rebuild the live FX replay in the background (~1 min)."""
+    from .la import forecast as FCST
+
+    if FORECAST_JOB["status"] == "running":
+        return FORECAST_JOB
+
+    def work():
+        try:
+            FORECAST_JOB["summary"] = FCST.refresh()
+            FORECAST_JOB["status"], FORECAST_JOB["error"] = "done", None
+        except Exception as e:  # noqa: BLE001
+            FORECAST_JOB["status"], FORECAST_JOB["error"] = "error", str(e)[:300]
+
+    FORECAST_JOB.update(status="running", error=None)
+    threading.Thread(target=work, daemon=True).start()
+    return FORECAST_JOB
+
+
+@app.get("/la/forecast/status")
+def la_forecast_status():
+    return FORECAST_JOB
 
 
 @app.get("/validation")
@@ -277,7 +305,7 @@ def _run_la_job(job_id: str):
 def la_copilot_run(body: LARunIn):
     from .la.state import LAState
 
-    if body.event not in LAD.events():
+    if body.event not in LAD.events() and body.event != "FX":
         raise HTTPException(404, "unknown event")
     LA["state"] = LAState(body.event, body.t, grid=_la_grid())
     job_id = uuid.uuid4().hex[:8]
@@ -291,7 +319,7 @@ def _la_bulletin(st, plan):
     g = st.grid
     sim = st.sim
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"HIGHWIRE RESPONDER BULLETIN  {ts}", f"Replay: {st.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
+    lines = [f"HIGHWIRE RESPONDER BULLETIN  {ts}", f"{'Forecast' if st.eid == 'FX' else 'Replay'}: {st.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
     lines.append("LINES SWITCHED OFF BY OPERATOR:")
     off = [st.lines[l] for l in st.operator_opened if l in st.lines]
     lines += [f"  - {l['id']} {l['kv']:.0f} kV {l['zone']}{(' (' + l['name'] + ')') if l['name'] else ''}" for l in off[:40]] or ["  - none"]

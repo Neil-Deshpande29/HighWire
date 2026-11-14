@@ -10,8 +10,10 @@ import numpy as np
 import pandas as pd
 
 from . import data as D
+from . import forecast as FC
 
 COUNTIES = ["06037", "06111", "06059", "06071"]
+DRY_RAIN = float(1 / (1 + np.exp(1.0)))  # rain hazard with zero rain (sigmoid floor); shown as 0% heavy rain
 COUNTY_NAMES = {"06037": "Los Angeles", "06111": "Ventura", "06059": "Orange", "06071": "San Bernardino"}
 
 
@@ -21,6 +23,8 @@ def _r(x, nd=2):
 
 @lru_cache
 def load(eid: str) -> dict:
+    if eid == "FX":  # live forecast file is rebuilt in place: never cache it across refreshes
+        load.cache_clear()
     z = np.load(D.results_dir() / f"replay_{eid}.npz")
     d = {k: z[k] for k in z.files}
     d["time"] = d["time"].astype("datetime64[h]")
@@ -34,7 +38,15 @@ def events_list():
         rp = D.results_dir() / f"replay_{eid}.npz"
         out.append({"id": eid, "name": e["name"], "kind": e["kind"], "split": e["split"], "start": e["start"], "end": e["end"],
                     "has_replay": rp.exists(), "fires": e.get("fires", []), "v4a": (v4a or {}).get("events", {}).get(eid)})
+    lv = FC.live_event()
+    if lv and (D.results_dir() / "replay_FX.npz").exists():
+        out.insert(0, {"id": "FX", "name": lv["name"], "kind": "forecast", "split": "none", "start": lv["start"], "end": lv["end"],
+                       "has_replay": True, "fires": [], "v4a": None, "fetched_utc": lv["fetched_utc"]})
     return out
+
+
+def event_meta(eid: str) -> dict:
+    return FC.live_event() if eid == "FX" else D.events()[eid]
 
 
 def _json(name):
@@ -94,6 +106,23 @@ def static() -> dict:
     }
 
 
+def _downwind(d, h, k):
+    """People / critical sites in the 10 km downwind cone of line k at hour h (consequence layer, context only)."""
+    from . import consequence as C
+
+    br = D.grid()["branches"][k]
+    lat, lon = np.array(br["geometry"]).mean(0)[:2]
+    j = int(np.abs(d["wx_lats"] - lat).argmin())
+    i = int(np.abs(d["wx_lons"] - lon).argmin())
+    return C.downwind(float(lat), float(lon), float(d["wx_dir"][h][j, i]))
+
+
+@lru_cache
+def _redflag_windows():
+    """Red Flag warnings parsed once (audit: timestamps were re-parsed with pandas on every request)."""
+    return [(w["ugc"], pd.Timestamp(w["issue"]), pd.Timestamp(w["expire"])) for w in D.redflag()["events"]]
+
+
 def _hour_index(d, t: str | None, i: int | None):
     n = len(d["time"])
     if i is not None:
@@ -113,8 +142,7 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
     g = D.grid()
     order = np.argsort(-risk)
     over = [int(k) for k in order if risk[k] >= cal["line_alarm"]]
-    rf = D.redflag()
-    active = sorted({w["ugc"] for w in rf["events"] if pd.Timestamp(w["issue"]) <= tt < pd.Timestamp(w["expire"])})
+    active = sorted({u for u, a, b in _redflag_windows() if a <= tt < b})
     fires = []
     for f in static()["fires"]:
         if f["event"] == eid:
@@ -128,7 +156,7 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
         dmg = d["line_damage"][h]
         top = [int(k) for k in np.argsort(-dmg)[:10] if dmg[k] >= 0.2]
         storm = {"index": _r(d["storm_index"][h], 3), "alarm": _r(st_cal.get("alarm"), 3),
-                 "wind_hazard_pct": _r(100 * d["storm_hazard"][h], 1), "rain_hazard_pct": _r(100 * d["rain_hazard"][h], 1),
+                 "wind_hazard_pct": _r(100 * d["storm_hazard"][h], 1), "rain_hazard_pct": _r(100 * max(0.0, (float(d["rain_hazard"][h]) - DRY_RAIN) / (1 - DRY_RAIN)), 1),
                  "n_lines_damage_likely": int((dmg >= 0.5).sum()),
                  "top_lines": [{"id": g["branches"][k]["id"], "name": g["branches"][k]["name"], "kv": g["branches"][k]["kv"],
                                 "zone": g["branches"][k]["zone"], "p_damage": _r(dmg[k], 2), "gust": _r(d["line_gust"][h][k], 1)} for k in top],
@@ -144,7 +172,7 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
         "outages": {COUNTY_NAMES[c]: _r(out[k], 0) for k, c in enumerate(COUNTIES)},
         "over_alarm": [{"id": g["branches"][k]["id"], "name": g["branches"][k]["name"], "kv": g["branches"][k]["kv"],
                         "zone": g["branches"][k]["zone"], "risk": _r(risk[k], 2), "gust": _r(d["line_gust"][h][k], 1),
-                        "rh": _r(d["line_rh"][h][k], 0)} for k in over[:25]],
+                        "rh": _r(d["line_rh"][h][k], 0), "downwind": _downwind(d, h, k)} for k in over[:25]],
         "n_over_alarm": len(over),
         "max_loading": _r(float(np.nanmax(d["loading"][h])), 0),
         "n_overloaded": int((d["loading"][h] > 100).sum()),
@@ -171,6 +199,7 @@ def series(eid: str) -> dict:
             "max_loading": np.round(np.nanmax(d["loading"], 1), 1).tolist(),
             "region_alarm": D.calibration()["fire"]["region_alarm"], "v4a": v4a,
             "fires": [f for f in static()["fires"] if f["event"] == eid],
+            "now_utc": (FC.live_event() or {}).get("fetched_utc") if eid == "FX" else None,
             "source": f"validation/results/replay_{eid}.npz, validation/results/v4a_replay.json"}
 
 
@@ -184,7 +213,7 @@ def validation_summary() -> dict:
 def event_context(eid: str, t: str | None = None) -> dict:
     """Compact facts for the agents (no arrays): what the replay and validation files say about this hour/event."""
     h = hour(eid, t)
-    ev = D.events()[eid]
+    ev = event_meta(eid)
     v4a = (_json("v4a_replay") or {}).get("events", {}).get(eid)
     v5 = [c for c in (_json("v5_ignition") or {}).get("cases", []) if c["event"] == eid]
     return {"event": eid, "name": ev["name"], "split": ev["split"], "t_local": h["t_local"], "region_index": h["region_index"],

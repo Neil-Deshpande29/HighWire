@@ -55,25 +55,7 @@ def fit_gust():
 
 
 # ------------------------------------------------------------------ 2. load model
-def load_features(idx_utc, T, T24, Tin):
-    """Hour-of-day x weekday/weekend profile + temperature terms.
-    v2 (chosen on an internal 2019-20 fit / summer-2021 holdout, never on H2): air-conditioning load depends on heat
-    MORE in the afternoon than at night, so temperature hinges are interacted with time-of-day blocks, and an inland
-    heat term (90th-percentile grid temperature) is added because SCE load sits inland where the population-weighted
-    mean understates the heat. Internal holdout: SCE top-5 peak error -13.1% -> -4.8%, LDWP -9.1% -> -5.9%."""
-    hod, wkend, _ = local_hour_features(idx_utc)
-    cols = [np.ones(len(T)), np.maximum(T - 18, 0), np.maximum(T - 26, 0), np.maximum(14 - T, 0),
-            np.maximum(T24 - 20, 0), np.maximum(T24 - 26, 0)]
-    for h in range(1, 24):
-        cols.append((hod == h).astype(float))
-    for h in range(24):
-        cols.append(((hod == h) & (wkend == 1)).astype(float))
-    for a, b in [(0, 6), (6, 11), (11, 15), (15, 22), (22, 24)]:
-        k = ((hod >= a) & (hod < b)).astype(float)
-        cols += [k * np.maximum(T - 22, 0), k * np.maximum(T24 - 22, 0)]
-    aft = ((hod >= 12) & (hod < 22)).astype(float)
-    cols += [aft * np.maximum(Tin - 28, 0), aft * np.maximum(Tin - 34, 0), np.maximum(Tin - 28, 0)]
-    return np.column_stack(cols)
+from backend.la.load_model import load_features  # noqa: E402  (moved to backend so the live forecast can use it)
 
 
 def series_temps():
@@ -107,65 +89,96 @@ def predict_load(model, idx_utc):
 
 # ------------------------------------------------------------------ 3. fire thresholds
 def risk_from(r, grid, g50, h50, c50):
+    """Legacy (v1/v2) blended score with per-zone fuel and per-zone canopy."""
     return (E.sigmoid((r["tower_gust"] - g50) / 2.0) * E.sigmoid((h50 - r["tower_rh"]) / 5.0)
-            * (0.5 + 0.5 * E.sigmoid((c50 - r["_clear"]) / 1.0)) * grid.tfuel[None] * r["energized"][grid.tb][None])
+            * (0.5 + 0.5 * E.sigmoid((c50 - r["_clear_zone"]) / 1.0)) * grid.tfuel[None] * r["energized"][grid.tb][None])
 
 
-def fit_fire(gust_cal):
-    grid = E.LAGrid()
-    cal = {"gust": gust_cal, "fire": D.DEFAULT_CAL["fire"]}
+def risk_two_step(r, grid, h50, storm):
+    """v3: P(fault | wind, vegetation; storm model fit on outages) x P(ignition | RH, LANDFIRE fuel)."""
+    p_fault = E.damage_prob(r["tower_gust"], r["_clear"], storm["onset"], storm.get("c50", 5.0))
+    return p_fault * E.sigmoid((h50 - r["tower_rh"]) / 5.0) * grid.tfuel_ign[None] * r["energized"][grid.tb][None]
+
+
+def _fire_runs(grid, cal):
     runs = {}
     for eid in TRAIN:
         if D.events()[eid]["kind"] == "heat":
             continue
         times, r = event_hindcast(eid, cal=cal, grid=grid)
-        # recover tower clearance (independent of fire params) from the hindcast internals
-        r["_clear"] = _tower_clearance(grid, eid, cal)
+        r["_clear"] = _tower_clearance(grid, eid, cal)                       # LANDFIRE canopy (if fetched)
+        r["_clear_zone"] = _tower_clearance(grid, eid, cal, grid.tcanopy_zone)  # legacy per-zone canopy
         runs[eid] = (times, r)
+    return runs
+
+
+def _search(runs, grid, risk_fn, configs):
+    """Shared objective: max hit rate on training wind-event outage-spike hours, alarm = 98th pct of training
+    control-week index; tie-break AUC (spike hours vs control hours), then peak/alarm margin."""
     wind_ev = [e for e in runs if D.events()[e]["kind"] == "wind"]
     ctrl = [e for e in runs if D.events()[e]["kind"] == "control"]
     o = D.outages()["06037"]
-    spikes = {}
-    for e in wind_ev:
-        base = outage_baseline(e)
-        times = runs[e][0]
-        oo = o.reindex(times)
-        spikes[e] = (oo > CFG["outage"]["spike_multiple"] * base).values
-    best = None
-    grid_search = []
-    for g50, h50, c50 in itertools.product([6, 8, 10, 12, 14, 16, 18, 20], [10, 15, 20, 25, 30, 35, 40], [5, 7, 9, 11, 13]):
-        ri = {e: (risk_from(runs[e][1], grid, g50, h50, c50) * grid.tspan_km[None]).sum(1) for e in runs}
+    spikes = {e: (o.reindex(runs[e][0]) > CFG["outage"]["spike_multiple"] * outage_baseline(e)).values for e in wind_ev}
+    best, rows = None, []
+    for cfg in configs:
+        ri = {e: (risk_fn(runs[e][1], **cfg) * grid.tspan_km[None]).sum(1) for e in runs}
         ctrl_ri = np.concatenate([ri[e] for e in ctrl])
-        alarm = float(np.quantile(ctrl_ri, 0.98))  # <= 2% false-alarm hours in training control weeks by construction
-        alarm = max(alarm, 1.0)
+        alarm = max(float(np.quantile(ctrl_ri, 0.98)), 1.0)
         hits = np.concatenate([ri[e][spikes[e]] >= alarm for e in wind_ev])
         hit_rate = float(hits.mean()) if hits.size else 0.0
-        peak = max(float(ri[e].max()) for e in wind_ev)
-        margin = peak / alarm
-        grid_search.append({"g50": g50, "h50": h50, "c50": c50, "alarm": alarm, "hit_rate": hit_rate, "margin": margin})
+        margin = max(float(ri[e].max()) for e in wind_ev) / alarm
         pos = np.concatenate([ri[e][spikes[e]] for e in wind_ev])
-        auc = float((pos[:, None] > ctrl_ri[None, :]).mean() + 0.5 * (pos[:, None] == ctrl_ri[None, :]).mean()) if pos.size else 0.5
-        grid_search[-1]["auc_spike_vs_control"] = auc
-        key = (round(hit_rate, 6), round(auc, 6), margin)
+        a = float((pos[:, None] > ctrl_ri[None, :]).mean() + 0.5 * (pos[:, None] == ctrl_ri[None, :]).mean()) if pos.size else 0.5
+        row = {**{k: v for k, v in cfg.items() if not isinstance(v, dict)}, "alarm": alarm, "hit_rate": hit_rate, "margin": margin, "auc_spike_vs_control": a}
+        rows.append(row)
+        key = (round(hit_rate, 6), round(a, 6), margin)
         if best is None or key > best[0]:
-            best = (key, {"g50": g50, "h50": h50, "c50": c50, "region_alarm": alarm})
-    params = best[1]
-    # line-level alarm: 99.5th pct of line-hour risk in training control weeks (min 0.3)
+            best = (key, cfg, alarm)
     lr = []
     for e in ctrl:
-        rk = risk_from(runs[e][1], grid, params["g50"], params["h50"], params["c50"])
+        rk = risk_fn(runs[e][1], **best[1])
         line = np.zeros((rk.shape[0], grid.nl))
         np.maximum.at(line, (slice(None), grid.tb), rk)
         lr.append(line.ravel())
-    params["line_alarm"] = float(max(0.3, np.quantile(np.concatenate(lr), 0.995)))
-    summary = {"chosen": params, "objective": "max hit rate on training wind-event outage-spike hours (alarm = 98th pct of control-week RI); tie-break: AUC spike-hours vs control-hours, then peak/alarm margin",
-               "spike_hours": {e: int(spikes[e].sum()) for e in wind_ev}, "best_hit_rate": best[0][0], "best_auc": best[0][1], "best_margin": best[0][2],
-               "n_configs": len(grid_search),
-               "top10": sorted(grid_search, key=lambda d: (-d["hit_rate"], -d["auc_spike_vs_control"], -d["margin"]))[:10]}
+    line_alarm = float(max(0.3, np.quantile(np.concatenate(lr), 0.995)))
+    summary = {"spike_hours": {e: int(spikes[e].sum()) for e in wind_ev}, "best_hit_rate": best[0][0], "best_auc": best[0][1],
+               "best_margin": best[0][2], "n_configs": len(rows),
+               "top10": sorted(rows, key=lambda d: (-d["hit_rate"], -d["auc_spike_vs_control"], -d["margin"]))[:10]}
+    return best[1], best[2], line_alarm, summary
+
+
+def fit_fire(gust_cal, storm):
+    """Fits both the legacy blended score and the v3 two-step chain on TRAINING events with the same objective.
+    Pre-set acceptance rule: use the two-step model unless its training AUC is more than 0.05 below the legacy one."""
+    grid = E.LAGrid()
+    cal = {"gust": gust_cal, "fire": D.DEFAULT_CAL["fire"], "storm": storm}
+    runs = _fire_runs(grid, cal)
+    leg_cfg, leg_alarm, leg_line, leg_sum = _search(
+        runs, grid, lambda r, g50, h50, c50: risk_from(r, grid, g50, h50, c50),
+        [{"g50": g, "h50": h, "c50": c} for g, h, c in itertools.product([6, 8, 10, 12, 14, 16, 18, 20], [10, 15, 20, 25, 30, 35, 40], [5, 7, 9, 11, 13])])
+    two_cfg, two_alarm, two_line, two_sum = _search(
+        runs, grid, lambda r, h50: risk_two_step(r, grid, h50, storm), [{"h50": h} for h in (5, 10, 15, 20, 25, 30, 35, 40, 50)])
+    rule_two = grid.landfire and two_sum["best_auc"] >= leg_sum["best_auc"] - 0.05
+    forced = CFG.get("fire_model", "auto")
+    use_two = rule_two if forced == "auto" else forced == "two_step"
+    if use_two:
+        params = {"model": "two_step", "h50": two_cfg["h50"], "region_alarm": two_alarm, "line_alarm": two_line,
+                  "g50": None, "c50": storm.get("c50", 5.0)}
+        chosen_sum = two_sum
+    else:
+        params = {"model": "legacy", **leg_cfg, "region_alarm": leg_alarm, "line_alarm": leg_line}
+        chosen_sum = leg_sum
+    summary = {"chosen": params, "two_step_accepted": bool(use_two), "two_step_passed_training_rule": bool(rule_two),
+               "config_override": forced if forced != "auto" else None,
+               "objective": "max hit rate on training wind-event outage-spike hours (alarm = 98th pct of control-week RI); tie-break: AUC spike-hours vs control-hours, then peak/alarm margin",
+               "acceptance_rule": "two-step used unless its training AUC < legacy training AUC - 0.05 (set before any test result)",
+               "legacy": {"chosen": {**leg_cfg, "region_alarm": leg_alarm, "line_alarm": leg_line}, **leg_sum},
+               "two_step": {"chosen": {**two_cfg, "region_alarm": two_alarm, "line_alarm": two_line}, **two_sum},
+               **{k: chosen_sum[k] for k in ("spike_hours", "best_hit_rate", "best_auc", "best_margin", "n_configs", "top10")}}
     return params, summary
 
 
-def _tower_clearance(grid, eid, cal):
+def _tower_clearance(grid, eid, cal, canopy=None):
     """Re-run the physics chain up to clearance (fire-parameter independent)."""
     from backend import thermal as TH
 
@@ -184,7 +197,7 @@ def _tower_clearance(grid, eid, cal):
     Tc = TH.conductor_temperature(grid.tcond, I_t, W["temp"], np.maximum(W["wind"], 0.5), phi, W["ghi"], grid.telev[None], iters=30)
     sag = TH.sag(Tc, grid.tspan_m[None], grid.tsagref[None])
     theta = TH.blowout_angle(W["gust"] * np.sin(phi), grid.tcond["D"][None], grid.tcond["w_N_m"][None])
-    return TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy[None])
+    return TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], (grid.tcanopy if canopy is None else canopy)[None])
 
 
 # ------------------------------------------------------------------ 4. storm-damage model (wind agent)
@@ -259,17 +272,18 @@ def main():
     print("gust:", json.dumps(gust_sum["before_windy"]), "->", json.dumps(gust_sum["after_windy"]))
     load_model = fit_load()
     print("load train MAPE:", {k: round(v["train_mape"], 2) for k, v in load_model.items()})
-    fire, fire_sum = fit_fire(gust_cal)
-    print("gust zones:", {z: (v["accepted"], round(v["windy_rmse_identity"], 2), round(v["windy_rmse_candidate"], 2)) for z, v in gust_sum["zones"].items()})
-    print("fire:", fire, "hit rate", fire_sum["best_hit_rate"], "auc", round(fire_sum["best_auc"], 3), "margin", round(fire_sum["best_margin"], 2))
-    for row in fire_sum["top10"][:6]:
-        print("   ", row)
     nudge, nudge_sum = fit_nudge()
     print("nudge:", nudge)
-    storm, storm_sum = fit_storm({"gust": gust_cal, "fire": fire})
+    # storm (fault) model first: the two-step fire model uses it as P(fault)
+    storm, storm_sum = fit_storm({"gust": gust_cal, "fire": {"c50": S.FAULT_C50}})
+    storm["c50"] = S.FAULT_C50
     print("storm:", storm, "LOYO", round(storm_sum["loyo_auc_chosen"], 3), "vs gust", round(storm_sum["loyo_auc_gust_baseline_k6"], 3))
+    fire, fire_sum = fit_fire(gust_cal, storm)
+    print("fire:", fire, "| legacy train hit/auc", round(fire_sum["legacy"]["best_hit_rate"], 3), round(fire_sum["legacy"]["best_auc"], 3),
+          "| two-step train hit/auc", round(fire_sum["two_step"]["best_hit_rate"], 3), round(fire_sum["two_step"]["best_auc"], 3))
     cal = {"gust": gust_cal, "fire": fire, "load": load_model, "storm": storm, "nudge": nudge, "trained_on": TRAIN,
-           "load_fit_years": CFG["load_model"]["fit_years"], "storm_fit_years": CFG["series"]["calibrate_years"]}
+           "load_fit_years": CFG["load_model"]["fit_years"], "storm_fit_years": CFG["series"]["calibrate_years"],
+           "vegetation": "LANDFIRE 2016 (EVH, FBFM40)" if E.LAGrid().landfire else "per-zone constants"}
     (D.P / "calibration.json").write_text(json.dumps(cal, indent=1))
     save("calibration_summary", {"gust": gust_sum, "fire": fire_sum, "storm": storm_sum, "nudge": nudge_sum,
                                   "load": {k: {"train_mape": v["train_mape"]} for k, v in load_model.items()}})

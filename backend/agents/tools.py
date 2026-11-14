@@ -128,9 +128,11 @@ def summarize_result(r: dict) -> dict:
         "unserved_mw": r["totals"]["unserved_mw"],
         "customers_out": r["totals"]["customers_out"],
         "critical_on_backup": r["totals"]["critical_on_backup"],
-        "violations": r["violations"],
-        "n1_warnings": r["n1_warnings"],
-        "watch": r.get("watch", []),
+        "n_violations": len(r["violations"]),
+        "violations": r["violations"][:5],  # top 5 only: dozens of lines per revision swamp the LLM context
+        "n1_warnings": r["n1_warnings"][:5],
+        "n_watch": len(r.get("watch", [])),
+        "watch": r.get("watch", [])[:5],
     }
 
 
@@ -140,7 +142,12 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         """Current grid: every line (status, flow, loading %, conductor temp, sag, tree clearance, fire risk,
         violations) and every substation (load, served/unserved MW, flooded). Also totals and N-1 warnings."""
         log(agent, "reading grid summary")
-        return json.dumps(grid_summary(state))
+        cache = state.__dict__.setdefault("_summary_cache", {})
+        key = id(state.sim)  # computed once per grid state, shared by every agent in the run
+        if key not in cache:
+            cache.clear()
+            cache[key] = json.dumps(grid_summary(state))
+        return cache[key]
 
     def get_weather() -> str:
         """Current weather per zone (ridge, valley, coast): air temp, wind, gust, wind direction
@@ -214,7 +221,19 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
                if c["id"] in ("V2", "V4a", "V4b")}
         return json.dumps({"storm": h.get("storm"), "actual_customers_out": h["outages"], "validation": val}, default=str)
 
+    def get_candidate_actions() -> str:
+        """The valid switching actions for this grid state (real line, bus and import IDs), pre-screened by the
+        rule-based planner. Build plans ONLY from these actions (you may combine up to 3)."""
+        from .mock_planner import _Planner
+
+        log(agent, "reading candidate actions")
+        p = _Planner(state, lambda *a, **k: None, 0)
+        base = p.sim([])
+        p.analyze(base)
+        return json.dumps([{"action": c["action"], "label": c["label"], "why": c["why"]} for c in p.candidates(base)][:25])
+
     all_tools = {
+        "get_candidate_actions": get_candidate_actions,
         "get_storm_damage": get_storm_damage,
         "get_grid_summary": get_grid_summary,
         "get_weather": get_weather,

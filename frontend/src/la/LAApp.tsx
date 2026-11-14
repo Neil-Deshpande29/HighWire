@@ -5,7 +5,7 @@ import { la, type Hour, type LAEvent, type LAStatic, type LAView, type Series } 
 import LAScene from "./LAScene";
 import ModelChart from "./ModelChart";
 
-const KIND_ICON: Record<string, string> = { wind: "💨", heat: "🌡️", control: "🌤️" };
+const KIND_ICON: Record<string, string> = { wind: "💨", heat: "🌡️", control: "🌤️", forecast: "🔮" };
 
 export default function LAApp() {
   const [s, setS] = useState<LAStatic | null>(null);
@@ -22,6 +22,22 @@ export default function LAApp() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [layer, setLayer] = useState<"fire" | "storm">("fire");
+  const [fcBusy, setFcBusy] = useState(false);
+  const refreshForecast = useCallback(async () => {
+    setFcBusy(true); setErr(null);
+    try {
+      await la.refreshForecast();
+      for (let k = 0; k < 120; k++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await la.forecastStatus();
+        if (st.status === "error") throw new Error(st.error ?? "forecast failed");
+        if (st.status === "done") break;
+      }
+      const ev2 = await la.events();
+      setEvents(ev2); setSeries(null); setEid("FX");
+      la.series("FX").then((sr) => { setSeries(sr); const k = sr.now_utc ? sr.t_utc.findIndex((t) => new Date(t).getTime() >= new Date(sr.now_utc!).getTime()) : 0; setI(Math.max(0, k)); });
+    } catch (e) { setErr(String(e)); } finally { setFcBusy(false); }
+  }, []);
   const overlay = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const poll = useRef<number | null>(null);
@@ -37,7 +53,7 @@ export default function LAApp() {
     setPlaying(false); setJob(null); setView(null); setSelected(null);
     la.series(eid).then((sr) => {
       setSeries(sr);
-      const fa = sr.v4a?.first_alarm_utc;
+      const fa = sr.now_utc ?? sr.v4a?.first_alarm_utc;
       const k = fa ? sr.t_utc.findIndex((t) => new Date(t).getTime() >= new Date(fa.replace(" ", "T")).getTime()) : 0;
       setI(Math.max(0, k));
     }).catch((e) => setErr(String(e)));
@@ -89,9 +105,13 @@ export default function LAApp() {
       if (hour.redflag_active.length) lines.push(`NWS Red Flag Warning active in ${hour.redflag_active.length} fire-weather zones.`);
     }
     if (lit.length) lines.push(`Burning: ${lit.map((f) => `${f.name} (${f.hours_since_ignition} h)`).join(", ")}.`);
-    lines.push(`Actually out right now (EAGLE-I): ${(hour.outages["Los Angeles"] ?? 0).toLocaleString()} customers in LA County.`);
+    if (kind === "forecast") {
+      const now = series?.now_utc ? new Date(series.now_utc).getTime() : 0;
+      const dh = Math.round((new Date(hour.t_utc).getTime() - now) / 3.6e6);
+      lines.push(dh >= 0 ? `Forecast for ${dh} h from now (Open-Meteo, issued ${series?.now_utc?.slice(0, 13).replace("T", " ")} UTC).` : `${-dh} h ago (recent weather).`);
+    } else lines.push(`Actually out right now (EAGLE-I): ${(hour.outages["Los Angeles"] ?? 0).toLocaleString()} customers in LA County.`);
     return lines;
-  }, [hour, ev, kind]);
+  }, [hour, ev, kind, series]);
 
   if (!s) return <div className="loading">{err ?? "Loading the Los Angeles grid…"}</div>;
   return (
@@ -103,7 +123,9 @@ export default function LAApp() {
           {ev && hour && (
             <div className={`banner-map ${hour.n_over_alarm > 0 || hour.n_overloaded > 0 ? "alert" : "calm"}`}>
               <div className="bm-title"><span className="bm-icon">{KIND_ICON[ev.kind]}</span>{ev.id}: {ev.name}</div>
-              <div className="bm-desc">{tLocal} (Los Angeles time) · <span className={`split ${ev.split}`}>{ev.split}</span> event · replaying recorded weather</div>
+              <div className="bm-desc">{tLocal} (Los Angeles time) · {ev.kind === "forecast"
+                ? <><span className="split test">live</span> prediction from the current weather forecast</>
+                : <><span className={`split ${ev.split}`}>{ev.split}</span> event · replaying recorded weather</>}</div>
               <ul className="bm-list">{banner?.map((l) => <li key={l} style={{ borderColor: "#f97316" }}>{l}</li>)}</ul>
             </div>
           )}
@@ -139,11 +161,14 @@ export default function LAApp() {
           <div className="events">
             {events.map((e) => (
               <button key={e.id} className={e.id === eid ? "active" : ""} onClick={() => setEid(e.id)} title={e.name}>
-                {KIND_ICON[e.kind]} {e.id} <span className={`split ${e.split}`}>{e.split}</span>
+                {KIND_ICON[e.kind]} {e.id === "FX" ? "Live" : e.id} <span className={`split ${e.split}`}>{e.id === "FX" ? "forecast" : e.split}</span>
               </button>
             ))}
           </div>
           <div className="small muted">{ev?.name}</div>
+          <button className="refresh" disabled={fcBusy} onClick={refreshForecast}>
+            {fcBusy ? "Fetching forecast and running the models…" : "🔮 Refresh live forecast"}
+          </button>
         </section>
         {series && hour && (
           <section>
@@ -166,7 +191,9 @@ export default function LAApp() {
               <div className={hour.n_over_alarm ? "bad" : "ok"}><b>{hour.n_over_alarm}</b><span>lines over alarm</span></div>
               {hour.storm && <div className={hour.storm.index >= hour.storm.alarm ? "bad" : "ok"}><b>{hour.storm.index.toFixed(2)}</b><span>storm index (alarm {hour.storm.alarm.toFixed(2)})</span></div>}
             </>)}
-            <div><b>{(hour.outages["Los Angeles"] ?? 0).toLocaleString()}</b><span>LA customers out (actual)</span></div>
+            {kind === "forecast"
+              ? <div><b>{Math.round((hour.demand.LDWP ?? 0) + (hour.demand.SCE ?? 0)).toLocaleString()}</b><span>MW demand (forecast)</span></div>
+              : <div><b>{(hour.outages["Los Angeles"] ?? 0).toLocaleString()}</b><span>LA customers out (actual)</span></div>}
             <div><b>{hour.weather.max_gust}</b><span>max gust m/s</span></div>
           </section>
         )}
@@ -175,11 +202,12 @@ export default function LAApp() {
 
         {hour && hour.over_alarm.length > 0 && (
           <section>
-            <h3>Lines above the fire alarm</h3>
+            <h3>Lines above the fire alarm <span className="muted small">(and what is downwind if they spark)</span></h3>
             <div className="toplines">
               {hour.over_alarm.slice(0, 8).map((l) => (
                 <div key={l.id} className={"tl" + (selected === l.id ? " sel" : "")} onClick={() => setSelected(l.id)}>
                   <b>{l.id}</b> {Math.round(l.kv)} kV {l.zone} <span className="bad">{l.risk.toFixed(2)}</span> <span className="muted">gust {l.gust} · RH {l.rh}%</span>
+                  {l.downwind && <div className="muted small">downwind 10 km: ~{l.downwind.people.toLocaleString()} people{l.downwind.hospitals ? ` · ${l.downwind.hospitals} hospital${l.downwind.hospitals > 1 ? "s" : ""}` : ""}{l.downwind.water_plants ? ` · ${l.downwind.water_plants} water plant${l.downwind.water_plants > 1 ? "s" : ""}` : ""}</div>}
                 </div>
               ))}
               {hour.n_over_alarm > 8 && <div className="muted small">+{hour.n_over_alarm - 8} more</div>}

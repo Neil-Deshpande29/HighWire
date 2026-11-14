@@ -34,6 +34,38 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 
+def damage_prob(gust, clr, onset, c50):
+    """P(fault) per tower span: wind load on the conductor and nearby vegetation (calibrated on outages, storm.py)."""
+    return sigmoid((gust - onset) / 2.0) * (0.5 + 0.5 * sigmoid((c50 - clr) / 1.0))
+
+
+# LANDFIRE FBFM40 fuel model -> receptivity of the fine fuel to a spark (0-1). Judgment values, NOT fitted:
+# grass catches first, then grass-shrub, slash, shrub, timber understory, timber litter; NB = non-burnable (urban,
+# water, barren, agriculture) keeps a small floor for landscaping/debris. See validation/DECISIONS.md.
+def fuel_receptivity(fbfm):
+    f = np.asarray(fbfm)
+    out = np.full(f.shape, 0.05)
+    out[(f >= 101) & (f <= 109)] = 1.0   # GR grass
+    out[(f >= 121) & (f <= 124)] = 0.9   # GS grass-shrub
+    out[(f >= 201) & (f <= 204)] = 0.7   # SB slash-blowdown
+    out[(f >= 141) & (f <= 149)] = 0.8   # SH shrub
+    out[(f >= 161) & (f <= 165)] = 0.6   # TU timber-understory
+    out[(f >= 181) & (f <= 189)] = 0.4   # TL timber litter
+    return out
+
+
+def veg_height(evh):
+    """LANDFIRE EVH code -> vegetation height (m). 101-199 tree (v-100 m), 201-299 shrub ((v-200)/10), 301-399 herb
+    ((v-300)/10); developed-upland forest (13-15) assumed 10 m urban trees; everything else 0."""
+    v = np.asarray(evh, dtype=float)
+    h = np.zeros(v.shape)
+    h = np.where((v >= 101) & (v <= 199), v - 100, h)
+    h = np.where((v >= 201) & (v <= 299), (v - 200) / 10.0, h)
+    h = np.where((v >= 301) & (v <= 399), (v - 300) / 10.0, h)
+    h = np.where((v >= 13) & (v <= 15), 10.0, h)
+    return h
+
+
 @dataclass
 class Topology:
     closed: np.ndarray  # bool per branch
@@ -90,7 +122,22 @@ class LAGrid:
         self.tattach = np.array(att)
         self.trow = np.array(row)
         self.tspan_m = np.array([br[i]["span_m"] for i in tb], dtype=float)
-        self.tfuel = np.array([FUEL[ZONES[z]] for z in zone]) * (~self.cable[self.tb])
+        self.tfuel = np.array([FUEL[ZONES[z]] for z in zone]) * (~self.cable[self.tb])  # legacy (v1/v2) zone fuel
+        self.tcanopy_zone = self.tcanopy.copy()
+        self.tfuel_ign = self.tfuel.copy()
+        self.tfbfm = np.zeros(len(tb), dtype=int)
+        self.landfire = False
+        lf = D.P / "landfire_towers.npz"
+        if lf.exists():
+            z = np.load(lf)
+            if int(z["n_towers"]) == len(tb):
+                self.landfire = True
+                # vegetation top at the line (30 m pixel under the tower), replaces the per-zone constant
+                self.tcanopy = veg_height(z["EVH_c"])
+                # fuel receptivity: the most receptive fuel at the tower or 45 m either side (where sparks land)
+                rec = np.maximum.reduce([fuel_receptivity(z[f"FBFM40_{k}"]) for k in ("c", "l", "r")])
+                self.tfuel_ign = rec * (~self.cable[self.tb])
+                self.tfbfm = z["FBFM40_c"]
         self.tcond = {k: np.array([TH.CONDUCTORS[br[i]["conductor"]][k] for i in tb], dtype=float)
                       for k in ("D", "R1", "R2", "T1", "T2", "eps", "alpha", "w_N_m", "n")}
         # ---- loads, generation, imports
@@ -275,8 +322,16 @@ def hindcast(grid: LAGrid, wx: dict, hours_idx, ldwp_mw, sce_mw, top: Topology |
     theta = TH.blowout_angle(gperp, grid.tcond["D"][None], grid.tcond["w_N_m"][None])
     clr = TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy[None])
     fc = cal["fire"]
-    risk = (sigmoid((W["gust"] - fc["g50"]) / 2.0) * sigmoid((fc["h50"] - W["rh"]) / 5.0)
-            * (0.5 + 0.5 * sigmoid((fc["c50"] - clr) / 1.0)) * grid.tfuel[None])
+    if fc.get("model") == "two_step":
+        # P(fire) = P(fault | wind, vegetation) x P(ignition | dryness, fuel)   (v3; validation/DECISIONS.md)
+        st = cal["storm"]
+        p_fault = damage_prob(W["gust"], clr, st["onset"], st.get("c50", 5.0))
+        p_ign = sigmoid((fc["h50"] - W["rh"]) / 5.0) * grid.tfuel_ign[None]
+        risk = p_fault * p_ign
+    else:  # legacy v1/v2 blended score, with the per-zone canopy it was calibrated on
+        clr_z = TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy_zone[None])
+        risk = (sigmoid((W["gust"] - fc["g50"]) / 2.0) * sigmoid((fc["h50"] - W["rh"]) / 5.0)
+                * (0.5 + 0.5 * sigmoid((fc["c50"] - clr_z) / 1.0)) * grid.tfuel[None])
     energized = on[grid.tb][None]
     risk = risk * energized
     nl = grid.nl

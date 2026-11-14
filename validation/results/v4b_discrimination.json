@@ -3,8 +3,8 @@
  "features": {
   "storm_index": {
    "k_hours": 1,
-   "auc_calibrate": 0.7627481971284202,
-   "auc_report": 0.8070915301592162
+   "auc_calibrate": 0.7608351101655517,
+   "auc_report": 0.8056936915465123
   },
   "risk_index": {
    "k_hours": 24,
@@ -24,7 +24,7 @@
  "storm_verdict": "matches",
  "per_year": {
   "2022": {
-   "storm_index": 0.8183697834997662,
+   "storm_index": 0.8184292041484416,
    "risk_index": 0.5471293774586669,
    "baseline_max_gust": 0.8390069048994525,
    "n_positive": 105
@@ -36,7 +36,7 @@
    "n_positive": 0
   },
   "2024": {
-   "storm_index": 0.7867602724114687,
+   "storm_index": 0.7840574954374474,
    "risk_index": 0.6117692035375342,
    "baseline_max_gust": 0.7876048902158503,
    "n_positive": 71

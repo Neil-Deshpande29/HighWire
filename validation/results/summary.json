@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-14T15:05:50.120669+00:00",
+ "generated_utc": "2026-11-14T15:45:30.674016+00:00",
  "cards": [
   {
    "id": "V1",
@@ -35,7 +35,7 @@
    "headline": "Storm index: E1 Spearman 0.04, lead -21 h; E3 Spearman 0.43, lead -31 h",
    "baseline": "Fire index: E1 0.13 / lead -10 h, E3 0.78 / lead -49 h; calm week C3 storm alarm on 0.0% of hours",
    "plot": "v4a_replay.png",
-   "one_liner": "Inside single test events the fire index co-moves with outages better than the new storm index (E3 Spearman 0.78 vs 0.43; E1 0.13 vs 0.04), and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. Likely cause: the storm model was fit on the coarse 0.25 deg multi-year grid and is applied here to the finer 0.1 deg event grid."
+   "one_liner": "Inside single test events the fire index co-moves with outages better than the new storm index (E3 Spearman 0.78 vs 0.43; E1 0.13 vs 0.04), and neither alarm fires before outages start rising, so this is a damage tracker, not yet an early warning. The storm model is tuned to rank hours across years (V4b), not to follow the shape of one storm; grid resolution is not the cause (checked on training event E2: Spearman 0.49 on the event grid vs 0.51 on the multi-year grid)."
   },
   {
    "id": "V4b",
@@ -72,6 +72,15 @@
    "baseline": "28% of Red Flag zone-hours contain a high-risk line",
    "plot": null,
    "one_liner": "When we flag a line, NWS forecasters had almost always flagged that area too; we flag far less than they do (conservative)."
+  },
+  {
+   "id": "V8",
+   "title": "Prediction from archived forecasts (no hindsight)",
+   "status": "mixed",
+   "headline": "2024 day-ahead storm AUC 0.80; E3 day-1 ignitions: Eaton Fire top 6% (gust-only 2%); Hurst Fire top 3% (gust-only 10%)",
+   "baseline": "Day-ahead forecast gust alone AUC 0.86",
+   "plot": null,
+   "one_liner": "Using only forecasts an operator had in advance: over 2024 the day-ahead storm index separates the worst outage hours with AUC 0.80 (forecast gust alone 0.86; same index on recorded weather 0.77). For the Jan 2025 Eaton/Hurst storm, the fire alarm was knowable 45 h before LA County outages hit half their peak from the day-1 forecast and 69 h before from the day-2 forecast (exploratory metric; the pre-set 'first spike' metric is distorted by missing outage data before the event). One event and one year: promising, not proof."
   }
  ]
 }

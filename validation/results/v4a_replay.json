@@ -26,14 +26,14 @@
    "spike_hours": 100,
    "hits_on_spike_hours": 0.77,
    "storm": {
-    "spearman_la": 0.038802905818203656,
-    "spearman_p": 0.6778727209907487,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.03534859673599996,
+    "spearman_p": 0.7051582545634563,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": "2018-11-09 05:00:00+00:00",
     "lead_time_h": -21.0,
     "alarm_hour_fraction": 0.19166666666666668,
     "hits_on_spike_hours": 0.23,
-    "peak": 0.1023906953944458
+    "peak": 0.09868941068380087
    }
   },
   "E2": {
@@ -60,14 +60,14 @@
    "spike_hours": 43,
    "hits_on_spike_hours": 0.9069767441860465,
    "storm": {
-    "spearman_la": 0.49495144382275397,
-    "spearman_p": 9.883650830037297e-06,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.49392243874204134,
+    "spearman_p": 1.0380231976889145e-05,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": "2019-10-11 13:00:00+00:00",
     "lead_time_h": -19.0,
     "alarm_hour_fraction": 0.18055555555555555,
     "hits_on_spike_hours": 0.2558139534883721,
-    "peak": 0.1001984931543203
+    "peak": 0.09654002020532934
    }
   },
   "E3": {
@@ -94,14 +94,14 @@
    "spike_hours": 99,
    "hits_on_spike_hours": 0.2828282828282828,
    "storm": {
-    "spearman_la": 0.42726496072374426,
-    "spearman_p": 3.2365992639104186e-06,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.42695388157200015,
+    "spearman_p": 3.296104766403723e-06,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": "2025-01-08 00:00:00+00:00",
     "lead_time_h": -31.0,
     "alarm_hour_fraction": 0.21666666666666667,
     "hits_on_spike_hours": 0.25252525252525254,
-    "peak": 0.10497534644038761
+    "peak": 0.10527741815990012
    }
   },
   "C1": {
@@ -128,14 +128,14 @@
    "spike_hours": 58,
    "hits_on_spike_hours": 0.0,
    "storm": {
-    "spearman_la": 0.3408055406042936,
-    "spearman_p": 6.171143527197399e-06,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.3401626975168393,
+    "spearman_p": 6.441166952844874e-06,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": null,
     "lead_time_h": null,
     "alarm_hour_fraction": 0.0,
     "hits_on_spike_hours": 0.0,
-    "peak": 0.04068554788417031
+    "peak": 0.04135401418556688
    }
   },
   "C2": {
@@ -162,14 +162,14 @@
    "spike_hours": 154,
    "hits_on_spike_hours": 0.045454545454545456,
    "storm": {
-    "spearman_la": 0.018162433072272683,
-    "spearman_p": 0.8152382984178457,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.016059174727364848,
+    "spearman_p": 0.836314489441205,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": null,
     "lead_time_h": null,
     "alarm_hour_fraction": 0.0,
     "hits_on_spike_hours": 0.0,
-    "peak": 0.01331225228289898
+    "peak": 0.013488238552442326
    }
   },
   "C3": {
@@ -196,47 +196,47 @@
    "spike_hours": 115,
    "hits_on_spike_hours": 0.10434782608695652,
    "storm": {
-    "spearman_la": 0.21021675019703634,
-    "spearman_p": 0.006237884871620379,
-    "alarm": 0.05203274601380113,
+    "spearman_la": 0.21134931536857504,
+    "spearman_p": 0.00595800353197951,
+    "alarm": 0.05223364184762598,
     "first_alarm_utc": null,
     "lead_time_h": null,
     "alarm_hour_fraction": 0.0,
     "hits_on_spike_hours": 0.0,
-    "peak": 0.04540265567765801
+    "peak": 0.04604364564211795
    }
   }
  },
  "storm_test": {
   "E1": {
-   "spearman_la": 0.038802905818203656,
-   "spearman_p": 0.6778727209907487,
-   "alarm": 0.05203274601380113,
+   "spearman_la": 0.03534859673599996,
+   "spearman_p": 0.7051582545634563,
+   "alarm": 0.05223364184762598,
    "first_alarm_utc": "2018-11-09 05:00:00+00:00",
    "lead_time_h": -21.0,
    "alarm_hour_fraction": 0.19166666666666668,
    "hits_on_spike_hours": 0.23,
-   "peak": 0.1023906953944458
+   "peak": 0.09868941068380087
   },
   "E3": {
-   "spearman_la": 0.42726496072374426,
-   "spearman_p": 3.2365992639104186e-06,
-   "alarm": 0.05203274601380113,
+   "spearman_la": 0.42695388157200015,
+   "spearman_p": 3.296104766403723e-06,
+   "alarm": 0.05223364184762598,
    "first_alarm_utc": "2025-01-08 00:00:00+00:00",
    "lead_time_h": -31.0,
    "alarm_hour_fraction": 0.21666666666666667,
    "hits_on_spike_hours": 0.25252525252525254,
-   "peak": 0.10497534644038761
+   "peak": 0.10527741815990012
   },
   "C3": {
-   "spearman_la": 0.21021675019703634,
-   "spearman_p": 0.006237884871620379,
-   "alarm": 0.05203274601380113,
+   "spearman_la": 0.21134931536857504,
+   "spearman_p": 0.00595800353197951,
+   "alarm": 0.05223364184762598,
    "first_alarm_utc": null,
    "lead_time_h": null,
    "alarm_hour_fraction": 0.0,
    "hits_on_spike_hours": 0.0,
-   "peak": 0.04540265567765801
+   "peak": 0.04604364564211795
   }
  },
  "headline": "E1 (Woolsey, test): risk index first crossed its alarm 10 h after LA County outages crossed 2x baseline; Spearman 0.13",

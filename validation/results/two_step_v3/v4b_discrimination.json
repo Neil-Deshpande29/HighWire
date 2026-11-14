@@ -1,0 +1,49 @@
+{
+ "check": "V4b",
+ "features": {
+  "storm_index": {
+   "k_hours": 1,
+   "auc_calibrate": 0.7608351101655517,
+   "auc_report": 0.8056936915465123
+  },
+  "risk_index": {
+   "k_hours": 24,
+   "auc_calibrate": 0.6313304960688869,
+   "auc_report": 0.6474116282427769
+  },
+  "baseline_max_gust": {
+   "k_hours": 6,
+   "auc_calibrate": 0.7482537017419307,
+   "auc_report": 0.8203073896690419
+  }
+ },
+ "positive_threshold_customers": 13482.825000000017,
+ "n_positive_hours": 176,
+ "n_hours": 26304,
+ "beats_baseline": false,
+ "storm_verdict": "matches",
+ "per_year": {
+  "2022": {
+   "storm_index": 0.8184292041484416,
+   "risk_index": 0.5896976699403043,
+   "baseline_max_gust": 0.8390069048994525,
+   "n_positive": 105
+  },
+  "2023": {
+   "storm_index": NaN,
+   "risk_index": NaN,
+   "baseline_max_gust": NaN,
+   "n_positive": 0
+  },
+  "2024": {
+   "storm_index": 0.7840574954374474,
+   "risk_index": 0.620264684630219,
+   "baseline_max_gust": 0.7876048902158503,
+   "n_positive": 71
+  }
+ },
+ "headline": "2022-2024 high-outage hours: storm index AUC 0.81 (fire index 0.65) vs gust-only baseline 0.82: matches the baseline",
+ "baseline": "Regional maximum gridded gust, same look-back window selection",
+ "caveat": "Positives include every cause of high outages (heat, rain, equipment); non-weather causes are not separable in EAGLE-I.",
+ "plot": "v4b_discrimination.png"
+}
