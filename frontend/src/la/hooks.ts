@@ -62,3 +62,28 @@ export function usePoll(): [Job | null, (id: string) => void, () => void] {
   useEffect(() => stop, [stop]);
   return [job, start, clear];
 }
+
+const KEPT_SIMS = 40; // results kept; older ones are dropped
+
+/** Physics for several action lists at once (the options table). Each key is fetched once and kept, so selecting a
+ *  row costs nothing and every row shows numbers from the same call. A key names its event, hour, conditions and actions. */
+export function useSims(specs: { key: string; run: () => Promise<SimResult> }[]): Record<string, SimResult> {
+  const [res, setRes] = useState<Record<string, SimResult>>({});
+  const asked = useRef(new Set<string>());
+  const latest = useRef(specs);
+  latest.current = specs;
+  const keys = specs.map((s) => s.key).join("\n");
+  useEffect(() => {
+    for (const sp of latest.current) {
+      if (asked.current.has(sp.key)) continue;
+      asked.current.add(sp.key);
+      sp.run().then((r) => setRes((m) => {
+        const next = { ...m, [sp.key]: r };
+        const all = Object.keys(next);
+        for (const old of all.slice(0, Math.max(0, all.length - KEPT_SIMS))) { delete next[old]; asked.current.delete(old); }
+        return next;
+      })).catch(() => { asked.current.delete(sp.key); });
+    }
+  }, [keys]);
+  return res;
+}

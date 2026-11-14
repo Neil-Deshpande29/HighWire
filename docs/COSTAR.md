@@ -1,77 +1,59 @@
-# CoStar and Vexcel in HighWire
+# CoStar, Vexcel and HighWire
 
-What is built, what data it runs on today, and the exact steps to switch to CoStar and Vexcel data.
+The CoStar track asks for at least two of its three data layers (CoStar data extract, Matterport, Vexcel).
+HighWire uses **Vexcel** (live) and **CoStar** (one import away). This page says what each does and how to load it.
 
-## What the operator sees
+## Vexcel: live
 
-1. **Aerial imagery under the map.** Layers menu, "Aerial imagery". The 3D terrain shows a stitched aerial picture of
-   the region; lines, labels and risk colours are drawn on top. The picture is muted so they stay legible.
-2. **Vegetation near the wires.** Each line over the fire alarm shows how much of the ground within 100 m of its
-   conductors is vegetated, measured from aerial photos of its most fire-prone stretches: "Vegetation near the wires:
-   high (71% within 100 m)". A high reading marks the line as one to act on first.
-3. **What a cut would hit.** Each of the eight riskiest lines shows what loses grid power if that one line is switched
-   off: "If cut: 2 hospitals, 5 water plants on backup · 55,680 customers".
-4. **Buildings in every plan.** Each plan card says what it leaves without grid power, by kind of building, and names
-   the sites under Details. Among safe plans, the one that cuts off less critical buildings ranks first.
-5. **Warnings on each plan step.** Under Details, a chip on each step opens the five buildings that step cuts off,
-   heaviest first, with kind, backup hours and data source. The level (high, medium, low) is set in code and shown as
-   a shape, a word and a colour.
-6. **Photos of the selected line.** Selecting a line, or finding it by id in "Find a line", opens its aerial photos
-   with the vegetation reading and the facts at each photo.
+Set `VEXCEL_API_KEY` in `.env` (git-ignored). The key is sent only in the `X-API-KEY` header and never saved anywhere else.
 
-A link reopens any view: `/?event=E1&hour=11&imagery=1` is the Woolsey replay at 11 AM with aerial imagery on.
+| What | Where it shows | Command | Code |
+|---|---|---|---|
+| Aerial imagery under the map | Layers, "Aerial imagery (Vexcel)" | `make imagery` | `backend/la/basemap.py`, `backend/la/vexcel.py` |
+| Trees near each risky line's wires | "Risk by line", the line's sheet, the plan's reasons | `make trees` | `backend/la/trees.py` |
 
-Neither factor changes the calibrated fire index. They rank lines and plans; the physics check still decides what is safe.
+- Imagery comes from `ortho/extract`, 12 areas stitched into one picture. The hackathon key stops near 34.32 N;
+  north of that the public USGS picture shows through, and `GET /la/imagery` says how much Vexcel covers.
+- Trees come from `elements/detect` with the label "tree" on a 300 m square at each of a line's most fire-prone spots.
+  Trees within 100 m of the line are counted once. A line with 20 or more is named first when the planner orders cuts.
+- Tree counts and the vegetation share (from USDA infrared photos) never change the fire index. They order the work.
+- Request shapes follow Vexcel's hackathon quickstart. Imagery and counts are cached under `data/processed/`, git-ignored.
 
-## What it runs on today
+## CoStar: load the extract
 
-No CoStar, Vexcel or Matterport call is made yet: no API documentation or keys were available when this was built.
+The extract (Houston and Los Angeles) is handed out in the track Discord. One teammate does this once:
 
-| Feature | Data today | Switch |
+1. In the track Discord, run `/costar-keys`. The reply has the download link and its password.
+2. Download and unzip it anywhere on this machine.
+3. Run `make costar FILE=/path/to/the/extract` (a file or a folder; csv, xlsx, json or geojson).
+4. Restart the backend.
+
+The importer finds columns by name (latitude, longitude, property type, ...), keeps properties inside the LA grid,
+prints what it used, and writes `data/processed/costar/buildings.json` (git-ignored). It stops with a clear message if
+it finds no coordinates. Until then the building list is 218 hospitals and water plants from OpenStreetMap, and the
+screen says so.
+
+## What the building data drives
+
+**The Buildings agent** (`buildings_agent`) compares what each risky line feeds and reports it on a priority ladder:
+
+| Tier | Who | Building kinds |
 |---|---|---|
-| Imagery under the map | USGS National Map imagery (public domain) | one setting, below |
-| Vegetation near the wires | USDA NAIP photos, with their infrared band | add a provider module |
-| Building types | hospitals and water plants from OpenStreetMap (218 sites) | drop in one file |
+| 1 | Life safety | hospitals, emergency services |
+| 2 | Lifelines | water plants |
+| 3 | Cannot ride through an outage | medical sites, data centers, cold stores, schools |
+| 4 | Homes and industry | residential, hotels, industrial |
+| 5 | Offices and shops | offices, retail, other |
 
-## Switching to Vexcel imagery
+- Each CoStar property type maps to a kind (`buildings.kind_of`) and each property to its nearest substation.
+- When two lines are equally risky, the one that reaches a lower tier is cut first.
+- Among safe plans, the one that puts fewer high-tier buildings on backup ranks first.
+- Every plan and every plan step lists what it puts on backup power, by tier.
+- The AI team gets the same data through the `get_building_impact` tool; the rule-based planner reads it directly.
 
-**Under the map.** Any XYZ tile service works. In `.env`:
+The ladder and its weights are in `backend/la/buildings.py` (`TIERS`, `WEIGHTS`). They are a stated judgement, not a model.
 
-```
-HIGHWIRE_BASEMAP_URL=<Vexcel tile address with {z}, {x}, {y} and the key>
-HIGHWIRE_BASEMAP_NAME=Vexcel
-```
+## Honest limits
 
-then `make imagery`. The address is read from the environment only and is never written to the cache or the metadata.
-
-**For the vegetation measure.** Add `site_agent/vexcel.py` with the same functions as `site_agent/naip.py`
-(`tile_for`, `tiles_for`, `cached_tile`; tile dicts with `img`, `bbox`, `center`, `photo_date`, `gsd_m`, `source`, and
-`nir` when an infrared crop exists), register it in `site_agent/imagery.py` (`PROVIDERS`), and set
-`HIGHWIRE_IMAGERY=vexcel`. `site_agent/greenery.py` needs no change: it uses the infrared crop when there is one and
-a colour rule when there is not. The colour rule agrees with infrared on 82% of pixels across eight LA photos and
-over-counts dark roofs and asphalt, so prefer imagery with an infrared band.
-
-## Switching to CoStar buildings
-
-Write the properties to `data/processed/costar/buildings.json` (git-ignored) as a JSON list:
-
-```json
-[{"id": "...", "name": "...", "property_type": "Office", "secondary_type": "", "lat": 34.05, "lon": -118.25}]
-```
-
-Only `property_type`, `lat` and `lon` are required. `backend/la/buildings.py` maps the type to a kind (hospital,
-medical, data center, cold storage, school, residential, industrial, office, retail, other), assigns each property
-to the nearest substation, and from then on every count, score and list includes it. The only code still to write is
-the exporter that calls the CoStar API and saves that list.
-
-Weights are in `backend/la/buildings.py` (`WEIGHTS`): hospital 10; emergency services and water 8; medical 6; data
-center 5; cold storage and schools 4; residential, industrial and lodging 2; office, retail and other 1. They are a
-judgement for triage, not a measure of people or dollars.
-
-## Limits to say out loud
-
-- Lines of 66 kV and above are modelled, not the feeders that serve each building. "Loses grid power" means the
-  substation serving the area is cut off.
-- Photos show the day they were flown and cover a line's most fire-prone stretches, not its whole length.
-- Licensed data (CoStar, Vexcel, Matterport responses, tiles and derived tables) stays out of git: the cache folders
-  under `data/processed/` are ignored.
+- Lines of 66 kV and up are modelled. "Loses power" means the substation serving the area is cut off; no feeder is traced to a building.
+- Matterport is not used.

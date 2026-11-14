@@ -32,6 +32,16 @@ WEIGHTS = {
     "medical": 6, "data_center": 5, "cold_storage": 4, "school": 4,
     "residential": 2, "industrial": 2, "lodging": 2, "office": 1, "retail": 1, "other": 1,
 }
+# The priority ladder: the same judgement as WEIGHTS, grouped into five named tiers, top tier protected first. Every
+# building kind belongs to exactly one tier, and a higher tier never has a lower weight than a tier below it.
+TIERS = [
+    {"tier": 1, "name": "Life safety", "kinds": ["hospital", "emergency"], "why": "people are in danger within hours without power"},
+    {"tier": 2, "name": "Lifelines", "kinds": ["water"], "why": "the city cannot run or fight a fire without them"},
+    {"tier": 3, "name": "Cannot ride through an outage", "kinds": ["medical", "data_center", "cold_storage", "school"],
+     "why": "care, data, food or children depend on power"},
+    {"tier": 4, "name": "Homes and industry", "kinds": ["residential", "lodging", "industrial"], "why": "people are home or at work, but safe"},
+    {"tier": 5, "name": "Offices and shops", "kinds": ["office", "retail", "other"], "why": "they can close for the day"},
+]
 MAX_SITES = 40  # names listed per impact; the counts always cover everything
 HIGH_FROM, MEDIUM_FROM = 8, 4  # weight at or above which a building is a high or a medium warning
 
@@ -40,6 +50,22 @@ def severity(kind: str) -> str:
     """Warning level for one building losing grid power: high (life safety, lifelines), medium, or low."""
     w = WEIGHTS.get(kind, WEIGHTS["other"])
     return "high" if w >= HIGH_FROM else "medium" if w >= MEDIUM_FROM else "low"
+
+
+def tier_of(kind: str) -> int:
+    """Which rung of the priority ladder a building kind sits on (1 is protected first)."""
+    return next((t["tier"] for t in TIERS if kind in t["kinds"]), TIERS[-1]["tier"])
+
+
+def ladder(rows) -> list[dict]:
+    """The priority ladder filled in for a set of buildings: one entry per tier, top first, with how many buildings of
+    that tier are in the set and the first few names."""
+    out = []
+    for t in TIERS:
+        mine = sorted((r for r in rows if tier_of(r["kind"]) == t["tier"]), key=lambda r: (-WEIGHTS.get(r["kind"], 1), r["name"]))
+        out.append({"tier": t["tier"], "name": t["name"], "why": t["why"], "kinds": t["kinds"], "n": len(mine),
+                    "names": [r["name"] for r in mine[:3]]})
+    return out
 
 
 def kind_of(property_type: str | None, secondary_type: str | None = None) -> str:
@@ -100,6 +126,11 @@ def _rows() -> tuple[dict, ...]:
     return tuple(osm + _costar_rows())
 
 
+def rows() -> tuple[dict, ...]:
+    """Every building row, OpenStreetMap first, then CoStar when its file is present."""
+    return _rows()
+
+
 @lru_cache(maxsize=1)
 def by_bus() -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
@@ -131,7 +162,16 @@ def impact_of(rows: list[dict]) -> dict:
                    "severity": severity(r["kind"])} for r in ranked[:MAX_SITES]],
         "n": len(rows),
         "severity": severity(ranked[0]["kind"]) if ranked else None,  # the worst single building decides the level
+        "ladder": [{"tier": t["tier"], "name": t["name"], "n": t["n"]} for t in ladder(rows)],
     }
+
+
+def summary() -> dict:
+    """What building records are loaded: where they come from, how many of each kind, and the ladder they fill."""
+    all_rows = rows()
+    kinds = Counter(r["kind"] for r in all_rows)
+    return {"sources": sources(), "n": len(all_rows), "costar": sum(r["source"] == "costar" for r in all_rows),
+            "by_kind": {k: kinds[k] for k in sorted(kinds, key=lambda k: (-WEIGHTS.get(k, 1), k))}, "ladder": ladder(all_rows)}
 
 
 def outage_impact(bus_ids) -> dict:

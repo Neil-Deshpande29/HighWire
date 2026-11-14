@@ -66,19 +66,20 @@ export function situationNumbers(a: {
     numbers.push({ value: String(study ? sit?.n_overloaded ?? "…" : hour.n_overloaded), label: "lines over their rating", tone: (study ? sit?.n_overloaded : hour.n_overloaded) ? "act" : "ok" });
     numbers.push({ value: `${Math.round(study ? sit?.max_loading ?? 0 : hour.max_loading)}%`, label: "busiest line's load", sub: "share of its rating" });
   } else {
-    numbers.push({ value: String(nHigh), label: "lines at high fire risk", tone: nHigh ? "act" : "ok" });
-    numbers.push({ value: sit ? fmtPeople(sit.people_downwind) : "…", label: "people living downwind", sub: sit?.hospitals_downwind ? `${sit.hospitals_downwind} hospitals` : "within 10 km of them" });
+    numbers.push({ value: String(nHigh), label: "power lines at high fire risk", tone: nHigh ? "act" : "ok" });
+    numbers.push({ value: sit ? fmtPeople(sit.people_downwind) : "…", label: "people downwind of them" });
+    numbers.push({ value: sit ? String(sit.hospitals_downwind + sit.water_plants_downwind) : "…", label: "hospitals and water plants downwind" });
   }
-  numbers.push({ value: worst?.text ?? "", label: "worst hour", sub: worst?.sub });
   if (study) numbers.push({ value: studySim ? fmtInt(studySim.customers_out) : "…", label: "customers losing power", sub: "in this study" });
-  else if (!past) {
-    const k0 = series.now_utc ? Math.max(0, series.t_utc.findIndex((x) => new Date(x) >= new Date(series.now_utc!))) : 0;
-    numbers.push({ value: `${(Math.max(...series.load_mw.slice(k0)) / 1000).toFixed(1)} GW`, label: "peak demand ahead", sub: "forecast" });
-  } else if (revealed) {
+  else if (past && revealed) {
     const o = hour.outages["Los Angeles"];
-    numbers.push(o == null ? { value: "n/a", label: "customers out now", sub: "no outage data this hour", tone: "muted" } : { value: fmtInt(o), label: "customers out now", sub: "actual, LA County" });
+    numbers.push(o == null ? { value: "n/a", label: "customers really out", sub: "no record this hour", tone: "muted" } : { value: fmtInt(o), label: "customers really out", sub: "LA County record" });
+  } else numbers.push({ value: worst?.text ?? "", label: "until the worst hour", sub: worst?.sub });
+  if (!past && !study && numbers.length < 4) {
+    const k0 = series.now_utc ? Math.max(0, series.t_utc.findIndex((x) => new Date(x) >= new Date(series.now_utc!))) : 0;
+    numbers.push({ value: `${(Math.max(...series.load_mw.slice(k0)) / 1000).toFixed(1)} GW`, label: "peak demand ahead" });
   }
-  else numbers.push({ value: "?", label: "customers out now", tone: "muted", action: "Show what happened", onClick: onReveal });
+  void onReveal;
   return numbers;
 }
 
@@ -89,6 +90,7 @@ export function agentChips(nHigh: number, out: CopilotOutput | null, hour: Hour 
     { id: "wind_agent", name: "Wind agent", summary: out?.crew_staging?.above_alarm ? "storm damage likely" : "no storm alarm" },
     { id: "heat_agent", name: "Heat agent", summary: hour?.n_overloaded ? `${hour.n_overloaded} lines hot` : "no overheating" },
     { id: "brownout_agent", name: "Brownout agent", summary: out && out.do_nothing.customers_out ? `${fmtInt(out.do_nothing.customers_out)} at risk` : "no shortfalls" },
+    { id: "buildings_agent", name: "Buildings agent", summary: "who loses power, by priority" },
   ];
 }
 

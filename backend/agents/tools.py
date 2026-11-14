@@ -24,6 +24,7 @@ TEAMS = {
     "water_agent": "cause",
     "reports_agent": "reports",
     "brownout_agent": "outcome",
+    "buildings_agent": "outcome",
     "fire_agent": "outcome",
     "cascade_agent": "outcome",
     "flood_agent": "outcome",
@@ -269,7 +270,44 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         log(agent, "reading situation brief")
         return brief_text(build_brief(state))
 
+    def get_building_impact(line_ids_json: str) -> str:
+        """LA grid: what loses grid power if each of these lines is switched off. For every line id in the JSON list:
+        buildings by kind, their priority tier (1 life safety, 2 lifelines, 3 cannot ride through an outage, 4 homes and
+        industry, 5 offices and shops), the heaviest names, and the customers behind it. Use it to decide which of two
+        equally risky lines to cut first: the one that reaches the lower tier. Building records are CoStar where the
+        extract is loaded, OpenStreetMap hospitals and water plants otherwise; the answer says which."""
+        if not hasattr(state, "cut_impact"):
+            return json.dumps({"error": "building impact is available on the LA grid only"})
+        from ..la import buildings as B
+
+        try:
+            ids = [str(x) for x in json.loads(line_ids_json)][:12]
+        except (ValueError, TypeError):
+            return json.dumps({"error": "pass a JSON list of line ids, e.g. [\"L558\", \"L226\"]"})
+        log(agent, f"comparing what {len(ids)} line(s) feed, by building tier")
+        out = {}
+        for lid in ids:
+            if lid not in state.lines:
+                out[lid] = {"error": "unknown line"}
+                continue
+            c = state.cut_impact(lid)
+            out[lid] = {"by_kind": c["by_kind"], "tiers": [t for t in c["ladder"] if t["n"]], "customers": c["customers"],
+                        "names": [s["name"] for s in c["sites"][:5]], "triage_score": c["score"]}
+        info = B.summary()
+        return json.dumps({"lines": out, "records": {"n": info["n"], "from_costar": info["costar"], "sources": info["sources"]},
+                           "ladder": [{"tier": t["tier"], "name": t["name"], "kinds": t["kinds"]} for t in B.TIERS]})
+
+    def get_operator_feedback() -> str:
+        """What the operator said when rejecting earlier plans (fixed reasons with counts, and short notes). Read it
+        before ranking plans and say in "tradeoffs" how a plan answers it. Empty when nothing was rejected yet."""
+        from ..la import feedback as F
+
+        log(agent, "reading operator feedback from earlier rejections")
+        return json.dumps(F.summary())
+
     all_tools = {
+        "get_building_impact": get_building_impact,
+        "get_operator_feedback": get_operator_feedback,
         "get_situation_brief": get_situation_brief,
         "get_site_context": get_site_context,
         "get_candidate_actions": get_candidate_actions,
@@ -294,6 +332,25 @@ def _action_label(a: dict) -> str:
     if t == "dispatch_gen":
         return f"dispatch {a.get('target')} to {a.get('mw')} MW"
     return f"{t} {a.get('target')}"
+
+
+def _distinct(plans: list[dict]) -> list[dict]:
+    """Drop a plan that switches off the same lines and does the same other things as one ranked above it."""
+    seen, out = set(), []
+    for p in plans:
+        off, other = set(), []
+        for a in p["actions"]:
+            if a.get("type") == "open_line":
+                off.add(a.get("target"))
+            elif a.get("type") == "deenergize_lines":
+                off |= set(a.get("targets") or [])
+            else:
+                other.append(json.dumps(a, sort_keys=True))
+        key = (frozenset(off), tuple(sorted(other)))
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
 
 
 # --------------------------------------------------------------------------- verification
@@ -338,6 +395,7 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     load = max(base["totals"].get("load_mw", 1.0), 1.0)
     plans.sort(key=lambda p: (not p["result"]["is_safe"], p["result"]["unserved_mw"] > 0.1 * load, len(p["result"]["violations"]),
                               building_score(p["result"]), p["result"]["unserved_mw"], len(p["actions"])))
+    plans = _distinct(plans)  # two plans that switch the same things are one option
     for i, p in enumerate(plans):
         p["id"] = f"P{i + 1}"
     safe = [p for p in plans if p["result"]["is_safe"]]
@@ -348,7 +406,8 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     if output["no_safe_option"] and plans:
         plans = plans[:1]  # show only the least-bad plan, clearly labelled
         plans[0]["least_bad"] = True
-    output["plans"] = plans[:3]
+    # three plans at most, plus the one shaped by the operator's feedback if it did not make the cut
+    output["plans"] = plans[:3] + [p for p in plans[3:] if p.get("from_feedback")][:1]
     output.setdefault("disagreements", [])
     output.setdefault("situation", "")
     try:  # the shared brief travels with every result; a brief failure never breaks planning

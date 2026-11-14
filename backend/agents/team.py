@@ -125,6 +125,11 @@ LA_SUBAGENTS = {
                        "Weigh that against what a spark would reach: get_site_context(line_id) shows homes and people "
                        "downwind of the line's riskiest stretches.",
                        ["get_grid_summary", "get_critical_sites", "get_site_context"]),
+    "buildings_agent": ("Which buildings lose grid power if a line is switched off, ranked on the priority ladder (tier 1 life "
+                        "safety: hospitals, emergency services; tier 2 lifelines: water; tier 3 cannot ride through an outage; "
+                        "tier 4 homes and industry; tier 5 offices and shops). Call get_building_impact with the flagged line "
+                        "ids and say which lines can be cut at no cost to tiers 1-3 and which reach a hospital.",
+                        ["get_building_impact", "get_critical_sites"]),
 }
 
 LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operator on the REAL Greater Los Angeles transmission grid
@@ -132,7 +137,8 @@ LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operat
 human operator approves or rejects them. The whole run has a 45 second budget, so be brief.
 
 Workflow:
-1. In ONE message call the `task` tool 4 times in parallel: fire_agent, wind_agent, heat_agent, brownout_agent.
+1. In ONE message call the `task` tool 5 times in parallel: fire_agent, wind_agent, heat_agent, brownout_agent,
+   buildings_agent.
    Description: "Assess current conditions and return your findings JSON."
 2. Call get_candidate_actions() once. Build up to 3 plans of at most 3 actions each, using ONLY actions from that list
    (do not invent line or bus ids). deenergize_lines shuts a group of lines off as ONE action (PSPS style).
@@ -169,6 +175,13 @@ def _la_prompts(state, log):
     block = "\n\n" + BRIEF_HEADER + brief_text(brief)
     subagents = _subagent_specs(state, log, LA_SUBAGENTS, block)
     prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}." + block
+    from ..la import feedback as F
+
+    said = F.as_text()  # what the operator said when rejecting earlier plans: the coordinator's memory across runs
+    if said:
+        log("coordinator", "carrying operator feedback from earlier rejections")
+        prompt += ("\n\nOperator feedback from earlier rejections. Prefer plans that answer it, and say in \"tradeoffs\" how a "
+                   "plan does. It never overrides the physics check:\n" + said)
     return subagents, prompt
 
 
@@ -181,7 +194,7 @@ def _run_llm(state, log) -> dict:
     if la:  # LA: only agents that have real data to read, one parallel wave (audit: 5 of 9 were no-ops on LA)
         subagents, prompt = _la_prompts(state, log)
         coord_tools = ["get_candidate_actions", "simulate_plan", "get_event_context", "get_validation_summary", "get_critical_sites",
-                       "get_site_context"]
+                       "get_site_context", "get_building_impact", "get_operator_feedback"]
     else:
         subagents = _subagent_specs(state, log, SUBAGENTS)
         prompt = COORDINATOR_PROMPT

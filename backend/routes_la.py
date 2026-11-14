@@ -18,7 +18,9 @@ from pydantic import BaseModel
 
 from . import jobs
 from .bulletin import la_bulletin
+from .la import authority as AUTH
 from .la import data as LAD
+from .la import record as REC
 from .la import replay as RP
 
 router = APIRouter()
@@ -42,6 +44,12 @@ class LASimIn(BaseModel):
     t: str | None = None
     actions: list[dict] = []
     conditions: dict | None = None
+
+
+class LARoleIn(BaseModel):
+    role: str = "operator"  # who is acting: "operator" or "supervisor"
+    reasons: list[str] = []  # on a rejection: why (ids from backend/la/feedback.py REASONS)
+    note: str = ""  # on a rejection: anything else the operator wants the coordinator to know
 
 
 def _la_grid():
@@ -192,13 +200,15 @@ def _base_state(event: str, t: str | None):
 def _sim_payload(st, actions: list[dict]) -> dict:
     """Plan-result shape + per-line arrays (branch order) + situation numbers, for the map and the changes tray."""
     from .la import consequence as C
+    from .la import exposure as X
 
     sim = st.simulate(actions)
     g = st.grid
     L = [sim["lines"][b["id"]] for b in g.branches]
-    top, pts, n_hot = st.fire_lines(sim)
+    top, _, n_hot = st.fire_lines(sim)
     wxx = st.weather_extremes()
-    dw = C.downwind_union(pts) if pts else {"people": 0, "hospitals": 0, "water_plants": 0}
+    hot = st.hot_points(sim)  # every live high-risk line, not only the ones listed
+    dw = C.downwind_union([p[1:] for p in hot]) if hot else {"people": 0, "hospitals": 0, "water_plants": 0}
     crit = sim["totals"]["critical_on_backup"]
     built = sim["totals"]["buildings_out"]  # every site behind a cut-off substation, so two hospitals on one bus count as two
     load = {bid: round(st.buses[bid]["load_mw"], 1) for bid in st.buses if st.buses[bid]["load_mw"] > 0.5}
@@ -214,8 +224,13 @@ def _sim_payload(st, actions: list[dict]) -> dict:
         "situation": {"n_high_risk": n_hot, "max_loading": round(max(l["loading_pct"] for l in L), 0),
                       "n_overloaded": int(sum(bool(l["energized"]) and l["loading_pct"] > 100 for l in L)), "load_mw": sim["totals"]["load_mw"],
                       **wxx,
-                      "people_downwind": int(dw["people"]), "hospitals_downwind": int(dw["hospitals"])},
+                      "people_downwind": int(dw["people"]), "hospitals_downwind": int(dw["hospitals"]),
+                      "water_plants_downwind": int(dw["water_plants"])},
         "top_lines": top, "conditions": st.conditions, "t_utc": st.t_utc.isoformat(),
+        # the two sides of the decision, never added together: buildings_out is what acting costs (on backup power),
+        # fire_exposure is what not acting leaves downwind of the lines still live at high risk
+        "fire_exposure": X.exposed([(lat, lon, wf, g.branches[k]["id"]) for k, lat, lon, wf in hot]),
+        "authority": AUTH.assess(sim["is_safe"], sim["totals"]["customers_out"], built["hospitals"]),
     }
 
 
@@ -227,6 +242,26 @@ def la_simulate(body: LASimIn):
     base = _base_state(body.event, body.t)
     st = base.with_conditions(body.conditions) if body.conditions else base
     return _sim_payload(st, body.actions)
+
+
+@router.post("/la/risk")
+def la_risk(body: LASimIn):
+    """Risk register for this moment + actions: each high-risk line's likelihood and its two consequences."""
+    from .la import risk
+
+    _require_event(body.event)
+    base = _base_state(body.event, body.t)
+    st = base.with_conditions(body.conditions) if body.conditions else base
+    return risk.register(st, body.actions)
+
+
+@router.get("/la/sensors/{event_id}")
+def la_sensors(event_id: str, t: str | None = None):
+    """Weather stations against the weather the model ran on: recorded reports for a replay hour, live ones for Now."""
+    from .la import sensors
+
+    _require_event(event_id)
+    return sensors.check(_base_state(event_id, t))
 
 
 # --------------------------------------------------------------------------- co-pilot: run, approve, reject
@@ -249,33 +284,141 @@ def la_copilot_run(body: LARunIn):
         LA["study"] = st
     else:
         LA["state"] = st
-    job_id = jobs.start(st, f"{'study of ' if study else 'replaying '}{st.scenario} on the real LA grid ({len(st.lines)} lines)")
+    hour = st.t_utc.isoformat()
+
+    def stamp(out: dict, log_entries: list[dict]):
+        """Say who may approve each plan, draw how the team's work came together, and write the run into the decision
+        record (Operate runs only)."""
+        from .agents import synthesis
+        from .la import feedback as FB
+
+        for p in out["plans"]:
+            p["authority"] = AUTH.of_result(p["result"])
+        if "feedback_used" not in out:  # the AI team: the feedback went into the coordinator's instructions
+            out["feedback_used"] = [{"reason": r["id"], "text": r["text"], "applied": "Given to the AI coordinator with its instructions."}
+                                    for r in FB.summary()["reasons"]]
+        out["synthesis"] = synthesis.build(out, log_entries)
+        if study:
+            return
+        planner = "AI agent team" if out.get("mode") == "llm" else "rule-based planner"
+        REC.add("plans", f"Co-pilot returned {len(out['plans'])} plan{'s' if len(out['plans']) != 1 else ''} from the {planner}. "
+                         f"Doing nothing fails {len(out['do_nothing']['violations'])} physics check"
+                         f"{'s' if len(out['do_nothing']['violations']) != 1 else ''}.",
+                event=st.eid, hour_utc=hour, planner=out.get("mode"), fallback_reason=out.get("fallback_reason"),
+                plans=[{"id": p["id"], "passes_physics": p["result"]["is_safe"], "customers_out": p["result"]["customers_out"],
+                        "hospitals_on_backup": p["result"].get("hospitals_on_backup"), "authority": p["authority"]["level"],
+                        "reasons": p["authority"]["reasons"]} for p in out["plans"]])
+
+    if not study:
+        REC.add("run", "Operator asked the co-pilot for plans.", role="operator", event=st.eid, hour_utc=hour)
+    job_id = jobs.start(st, f"{'study of ' if study else 'replaying '}{st.scenario} on the real LA grid ({len(st.lines)} lines)", on_done=stamp)
     return {"job_id": job_id, "state": st.view(), "study": study}
 
 
-@router.post("/la/plans/{plan_id}/approve")
-def la_approve(plan_id: str):
+def _role(body: LARoleIn | None) -> str:
+    role = body.role if body else "operator"
+    if role not in ("operator", "supervisor"):
+        raise HTTPException(400, "role must be operator or supervisor")
+    return role
+
+
+def _plan_or_404(plan_id: str):
     st = LA["state"]
     if st is None or plan_id not in st.plans:
         raise HTTPException(404, "unknown plan (run the LA co-pilot first)")
-    plan = st.plans[plan_id]
+    return st, st.plans[plan_id]
+
+
+@router.post("/la/plans/{plan_id}/approve")
+def la_approve(plan_id: str, body: LARoleIn | None = None):
+    """Approve a plan that passed the physics check. A plan over the operator's limit (backend/la/authority.py) is
+    refused unless the supervisor role approves it."""
+    st, plan = _plan_or_404(plan_id)
+    role = _role(body)
     if not plan["result"]["is_safe"]:
         raise HTTPException(400, "plan is not safe; it cannot be approved")
+    auth = AUTH.of_result(plan["result"])
+    if auth["level"] == "supervisor" and role != "supervisor":
+        raise HTTPException(403, "Needs a supervisor's sign-off: " + "; ".join(auth["reasons"]) + ".")
     st.apply_actions(plan["actions"])
     with st.lock:
         for pid in st.plan_status:
             st.plan_status[pid] = "approved" if pid == plan_id else "superseded"
         st.bulletin = la_bulletin(st, plan)
+    hour = st.t_utc.isoformat()
+    REC.add("approved", f"Plan {plan_id.lstrip('P')} approved by the {role}.", role=role, event=st.eid, hour_utc=hour, plan=plan_id,
+            authority=auth["level"], reasons=auth["reasons"], customers_out=plan["result"]["customers_out"],
+            hospitals_on_backup=plan["result"].get("hospitals_on_backup"), actions=plan["actions"])
+    REC.add("bulletin", "Bulletin for responders issued.", event=st.eid, hour_utc=hour, plan=plan_id)
     return {"bulletin": st.bulletin, "state": st.view()}
 
 
 @router.post("/la/plans/{plan_id}/reject")
-def la_reject(plan_id: str):
-    st = LA["state"]
-    if st is None or plan_id not in st.plans:
-        raise HTTPException(404, "unknown plan")
+def la_reject(plan_id: str, body: LARoleIn | None = None):
+    """Reject a plan. The reasons and note go to the feedback store, which the coordinator reads on later runs."""
+    from .la import feedback as FB
+
+    st, plan = _plan_or_404(plan_id)
+    role = _role(body)
     st.plan_status[plan_id] = "rejected"
-    return {"plan_status": st.plan_status}
+    hour = st.t_utc.isoformat()
+    fb = FB.add(plan, body.reasons if body else [], body.note if body else "", event=st.eid, hour_utc=hour, role=role)
+    why = "; ".join([FB.REASONS[r].lower() for r in fb["reasons"]] + ([f'"{fb["note"]}"'] if fb["note"] else []))
+    REC.add("rejected", f"Plan {plan_id.lstrip('P')} rejected by the {role}" + (f": {why}." if why else "."), role=role, event=st.eid,
+            hour_utc=hour, plan=plan_id, reasons=fb["reasons"], note=fb["note"])
+    return {"plan_status": st.plan_status, "feedback": FB.summary()}
+
+
+@router.get("/la/feedback")
+def la_feedback():
+    """What the operator said when rejecting plans, as the coordinator carries it into the next run."""
+    from .la import feedback as FB
+
+    return {**FB.summary(), "choices": FB.REASONS}
+
+
+@router.delete("/la/feedback")
+def la_feedback_clear():
+    from .la import feedback as FB
+
+    FB.clear()
+    return FB.summary()
+
+
+@router.get("/la/buildings")
+def la_buildings():
+    """The building records in use (CoStar where its extract is loaded, OpenStreetMap otherwise) and the priority ladder."""
+    from .la import buildings as B
+
+    return B.summary()
+
+
+@router.post("/la/plans/{plan_id}/escalate")
+def la_escalate(plan_id: str):
+    """The operator sends a plan that is over their limit to the supervisor. Nothing is switched."""
+    st, plan = _plan_or_404(plan_id)
+    auth = AUTH.of_result(plan["result"])
+    if auth["level"] != "supervisor":
+        raise HTTPException(400, "this plan does not need a supervisor")
+    st.plan_status[plan_id] = "escalated"
+    REC.add("escalated", f"Plan {plan_id.lstrip('P')} sent to the supervisor: " + "; ".join(auth["reasons"]) + ".", role="operator",
+            event=st.eid, hour_utc=st.t_utc.isoformat(), plan=plan_id, reasons=auth["reasons"])
+    return {"plan_status": st.plan_status, "authority": auth}
+
+
+# --------------------------------------------------------------------------- decision record
+@router.get("/la/record")
+def la_record():
+    return {"entries": REC.entries(), "basis": AUTH.BASIS}
+
+
+@router.post("/la/reset")
+def la_reset():
+    """Start the session over: forget the Operate state (plans, approvals, bulletin) and clear the record."""
+    LA["state"], LA["study"] = None, None
+    REC.clear()
+    REC.add("reset", "Session reset: plans, approvals and the earlier record were cleared.")
+    return {"entries": REC.entries()}
 
 
 @router.get("/la/state")
