@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { Job } from "../api";
+import TeamPanel from "./TeamPanel";
 
 export type AgentChip = { id: string; name: string; summary: string };
 
@@ -15,23 +16,9 @@ export default function PlanList({ job, chips, cards, outcome, bulletin, noSafe 
 }) {
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [job?.log.length]);
-  const running = job?.status === "running";
   return (
     <section className="plans">
-      {job && (
-        <div className="chips">
-          {chips.map((c) => {
-            const spoke = job.log.some((e) => e.agent === c.id);
-            const state = job.status === "error" ? "err" : running ? (spoke ? "busy" : "wait") : "done";
-            return (
-              <span key={c.id} className={`chip ${state}`}>
-                {state === "done" ? "✓" : state === "err" ? "!" : <i className="spinner" />} {c.name}
-                <em>{state === "done" ? c.summary : state === "busy" ? "working…" : state === "err" ? "failed" : "waiting"}</em>
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {job && <TeamPanel job={job} chips={chips} />}
       {job?.status === "error" && <div className="error">Co-Pilot failed: {job.error}</div>}
       {job?.status === "done" && job.output && <PlannerNote mode={job.output.mode} reason={job.output.fallback_reason} />}
       {outcome && <div className="card outcome"><b>Plan approved.</b> {outcome}</div>}

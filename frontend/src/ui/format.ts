@@ -159,3 +159,12 @@ export function plainViolation(v: string): string {
   if (v.startsWith("Invalid action")) return v.replace("Invalid action: ", "");
   return v;
 }
+
+const AGENT_WORDS: Record<string, string> = { fire_agent: "the Fire agent", wind_agent: "the Wind agent", heat_agent: "the Heat agent",
+  brownout_agent: "the Brownout agent", coordinator: "the Coordinator" };
+/** Text an agent or the planner wrote, in the screen's own units and names: mph, °C, "the Fire agent". Values are unchanged. */
+export function plainAgentText(t: string): string {
+  const s = t.replace(/(\d+(?:\.\d+)?) m\/s/g, (_, v) => `${mph(+v)} mph`).replace(/(\d+(?:\.\d+)?) C\b/g, "$1 °C")
+    .replace(/\b(fire_agent|wind_agent|heat_agent|brownout_agent|coordinator)\b/g, (m) => AGENT_WORDS[m]).replace(/line\(s\)/g, "lines");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
