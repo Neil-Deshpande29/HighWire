@@ -1,0 +1,79 @@
+import { API, type Job, type Plan } from "../api";
+
+export type LAEvent = {
+  id: string; name: string; kind: "wind" | "heat" | "control"; split: "train" | "test" | "none";
+  start: string; end: string; has_replay: boolean; fires: string[];
+  v4a: { lead_time_h: number | null; spearman_la: number; first_alarm_utc: string | null; first_spike_utc: string | null } | null;
+};
+export type Branch = {
+  id: string; kv: number; kv_class: number; cable: boolean; name: string | null; zone: string;
+  from_bus: string; to_bus: string; length_km: number; rating_a: number; geometry: [number, number][];
+};
+export type Fire = {
+  id: string; name: string; event: string; lat: number; lon: number; ignition_utc: string;
+  utility_related: string; facility: string; source_url: string; perimeter: [number, number][] | null;
+};
+export type LAStatic = {
+  bbox: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
+  proj: { lat0: number; lon0: number }; modeled_note: string;
+  terrain: { lats: number[]; lons: number[]; elev: number[][] };
+  branches: Branch[];
+  buses: { id: string; name: string; lat: number; lon: number; kv: number; kind: string }[];
+  labels: { id: string; name: string; lat: number; lon: number; kv: number }[];
+  critical_sites: { name: string; type: string; lat: number; lon: number; bus: string }[];
+  redflag_zones: Record<string, [number, number][][]>;
+  fires: Fire[];
+  calibration: { fire: { g50: number; h50: number; c50: number; line_alarm: number; region_alarm: number } };
+};
+export type Hour = {
+  event: string; i: number; n: number; t_utc: string; t_local: string;
+  lines: { risk: number[]; loading: number[]; temp: number[]; clear: number[]; gust: number[]; rh: number[]; flow: number[] };
+  region_index: number; region_alarm: number; line_alarm: number; load_mw: number;
+  demand: { LDWP: number; SCE: number }; outages: Record<string, number | null>;
+  over_alarm: { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number }[];
+  n_over_alarm: number; max_loading: number; n_overloaded: number;
+  weather: { lats: number[]; lons: number[]; gust: number[][]; rh: number[][]; temp: number[][]; dir: number[][]; max_gust: number; min_rh: number; max_temp: number };
+  redflag_active: string[]; fires: { id: string; name: string; ignited: boolean; hours_since_ignition: number }[];
+  source: string;
+  copilot: LAView | null;
+};
+export type LAView = {
+  event: string; t_utc: string; scenario: string; opened: string[]; deenergized: string[];
+  totals: { unserved_mw: number; customers_out: number; critical_on_backup: string[]; violation_count: number; load_mw: number };
+  violations: string[]; n_violations: number;
+  lines: Record<string, { status: string; fire_risk: number; loading_pct: number; energized: boolean }>;
+  plan_status: Record<string, string>; bulletin: { text: string } | null;
+};
+export type Series = {
+  event: string; t_utc: string[]; risk_index: number[]; la_out: (number | null)[]; four_county_out: (number | null)[];
+  load_mw: number[]; max_loading: number[]; region_alarm: number;
+  v4a: { lead_time_h: number | null; first_alarm_utc: string | null; first_spike_utc: string | null; outage_baseline_la: number;
+         spearman_la: number; exploratory_lead_to_main_surge_h: number | null } | null;
+  fires: Fire[]; source: string;
+};
+export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
+
+async function get<T>(p: string): Promise<T> {
+  const r = await fetch(API + p);
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.json();
+}
+async function post<T>(p: string, body?: unknown): Promise<T> {
+  const r = await fetch(API + p, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail ?? m; } catch { /* */ } throw new Error(m); }
+  return r.json();
+}
+
+export const la = {
+  events: () => get<LAEvent[]>("/events"),
+  static: () => get<LAStatic>("/la/static"),
+  hour: (eid: string, i: number) => get<Hour>(`/replay/${eid}?i=${i}`),
+  series: (eid: string) => get<Series>(`/la/series/${eid}`),
+  validation: () => get<{ cards: Card[]; calibration: unknown }>("/validation"),
+  run: (event: string, t: string) => post<{ job_id: string; state: LAView }>("/la/copilot/run", { event, t }),
+  job: (id: string) => get<Job>(`/copilot/${id}`),
+  approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
+  reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
+};
+export const resultUrl = (f: string) => `${API}/results/${f}`;
+export type { Plan };

@@ -1,0 +1,167 @@
+plant_code,name,utility,lat,lon,nameplate_mw,tech
+315,AES Alamitos LLC,AES Alamitos LLC,33.7688,-118.1009,1115.0,Natural Gas Steam Turbine
+341,Long Beach Generation LLC,Long Beach Generation LLC,33.7641,-118.2248,252.0,Natural Gas Fired Combustion Turbine
+377,Grayson,City of Glendale - (CA),34.1556,-118.2782,57.4,Natural Gas Fired Combustion Turbine
+396,Foothill,Los Angeles Department of Water & Power,34.318248,-118.494449,8.8,Conventional Hydroelectric
+399,Harbor,Los Angeles Department of Water & Power,33.7706,-118.2656,548.1,Natural Gas Fired Combustion Turbine
+400,Haynes,Los Angeles Department of Water & Power,33.764741,-118.09913,1739.1,Natural Gas Fired Combustion Turbine
+403,San Fernando,Los Angeles Department of Water & Power,34.312778,-118.492778,2.8,Conventional Hydroelectric
+404,Scattergood,Los Angeles Department of Water & Power,33.918151,-118.427648,876.0,Natural Gas Steam Turbine
+408,Valley (CA),Los Angeles Department of Water & Power,34.244991,-118.391327,690.5,Natural Gas Fired Combined Cycle
+422,Glenarm,City of Pasadena - (CA),34.126,-118.1494,265.6,Natural Gas Fired Combustion Turbine
+482,Rio Hondo,Metropolitan Water District of S CA,34.004722,-118.09917,1.9,Conventional Hydroelectric
+483,Coyote Creek,Metropolitan Water District of S CA,33.92493,-117.95517,3.1,Conventional Hydroelectric
+487,Valley View,Metropolitan Water District of S CA,33.9001,-117.82905,4.1,Conventional Hydroelectric
+6449,Azusa,City of Pasadena - (CA),34.1548,-117.9093,3.0,Conventional Hydroelectric
+6646,San Dimas,Metropolitan Water District of S CA,34.1275,-117.7958,9.9,Conventional Hydroelectric
+6647,Yorba Linda,Metropolitan Water District of S CA,33.9117,-117.8192,5.1,Conventional Hydroelectric
+7987,Lake One,City of Burbank Water and Power,34.1772,-118.3147,60.5,Natural Gas Fired Combustion Turbine
+10091,Total Energy Facilities,Los Angeles County Sanitation,33.7683,-118.2836,38.4,Other Waste Biomass
+10169,Carson Cogeneration,Carson Cogeneration Co,33.8759,-118.2491,55.8,Natural Gas Fired Combined Cycle
+10213,El Segundo Cogen,Chevron USA Inc-El Segundo,33.9058,-118.4031,180.1,Natural Gas Fired Combined Cycle
+10472,Puente Hills Energy Recovery,Los Angeles County Sanitation,34.0233,-118.0241,50.0,Landfill Gas
+50216,Watson Cogeneration,ARCO Products Co-Watson,33.816647,-118.244841,405.0,Natural Gas Fired Combined Cycle
+50300,VESI Pomona,"VESI Pomona Energy Storage, Inc.",34.059444,-117.774167,40.0,Batteries
+50375,East Portal Generator,Calleguas Mun Water District,34.2619,-118.6242,1.2,Conventional Hydroelectric
+50530,Equilon Los Angeles Refining,Tesoro Refining and Marketing Company,33.791667,-118.234722,83.0,Other Gases
+50541,Harbor Cogen,Harbor Cogeneration Co.,33.7771,-118.2303,107.4,Natural Gas Fired Combined Cycle
+50610,Saint Johns Health Center,Saint John's Health Center,34.030318,-118.47844,1.2,Natural Gas Fired Combustion Turbine
+50624,"Torrance Refining Company, LLC","Torrance Refining Company, LLC",33.85336,-118.33,49.3,All Other
+50837,Southeast Resource Recovery,SERRF Joint Powers Authority,33.759236,-118.239922,35.6,Municipal Solid Waste
+52064,Dominguez Plant,Eco Services Corp.,33.8431,-118.2347,5.0,All Other
+52073,UCLA So Campus Cogen Project,University of California-LA,34.0692,-118.4439,43.0,Natural Gas Fired Combined Cycle
+52096,Berry Placerita Cogen,Shadow Wolf Energy,34.38407,-118.494882,42.8,Natural Gas Fired Combustion Turbine
+54015,MM West Covina,MM West Covina Energy LLC,34.033206,-117.906129,6.8,Landfill Gas
+54017,San Gabriel Hydro Project,Los Angeles County-San Gabriel,34.204311,-117.855714,5.0,Conventional Hydroelectric
+54296,Biola University Hybrid,Biola University,33.906953,-118.013105,4.3,Natural Gas Internal Combustion Engine
+54327,Toyon Power Station,"Toyon Landfill Gas Conversion, LLC",34.146253,-118.30485,1.1,Landfill Gas
+54451,Los Angeles Refinery Wilmington,Phillips 66 - Los Angeles,33.7686,-118.2867,58.5,Other Gases
+55161,MM Lopez Energy,MM Lopez Energy LLC,34.2925,-118.389444,3.0,Landfill Gas
+55557,Wilmington Hydrogen Plant,Air Products & Chemicals Inc,33.7803,-118.24,31.9,All Other
+56039,H. Gonzales,City of Vernon,33.9986,-118.2219,11.8,Natural Gas Fired Combustion Turbine
+56041,Malburg,City of Vernon,33.9986,-118.2219,130.0,Natural Gas Fired Combined Cycle
+56046,Magnolia Power Project,City of Burbank Water and Power,34.1786,-118.3153,387.6,Natural Gas Fired Combined Cycle
+56051,THUMS,THUMS Long Beach Company,33.7684,-118.2141,57.4,Natural Gas Fired Combustion Turbine
+56090,Blacksand Generating Facility,Bridge Energy LLC,33.9328,-117.855,8.0,Natural Gas Fired Combustion Turbine
+56474,Barre Peaker,Southern California Edison Co,33.8073,-117.9832,49.8,Natural Gas Fired Combustion Turbine
+56475,Center Hybrid,Southern California Edison Co,33.9296,-118.1046,59.8,Natural Gas Fired Combustion Turbine
+56814,ELACC Photovoltaic Power Facility,MMA LA Power LP,34.040278,-118.148056,1.0,Solar Photovoltaic
+56898,Ameresco Chiquita Canyon,AMERESCO Chiquita Canyon LLC,34.431664,-118.642855,9.2,Landfill Gas
+57027,Canyon Power Plant,City of Anaheim - (CA),33.858056,-117.861667,200.0,Natural Gas Fired Combustion Turbine
+57102,Whittier LFG Power Plant #1,J&A-Whittier LLC,33.9716,-118.0481,2.2,Landfill Gas
+57163,Calabasas Gas to Energy Facility,Los Angeles County Sanitation,34.1511,-118.7236,9.2,Landfill Gas
+57308,Maclay Solar Project,Los Angeles Department of Water & Power,34.319722,-118.430833,2.0,Solar Photovoltaic
+57311,Occidental College Solar Project,Occidental College,34.1283,-118.206903,1.0,Solar Photovoltaic
+57313,Metro Support Services Center Solar,Metropolitan Transportation Authority,34.0578,-118.229722,1.2,Solar Photovoltaic
+57314,Los Angeles Harbor College,Los Angeles Community College District,33.783102,-118.28493,1.2,Solar Photovoltaic
+57460,Caltech Central,Bloom Energy 2009 PPA,34.1358,-118.1267,1.1,Other Natural Gas
+57515,Walnut Creek Energy Park,Walnut Creek LLC,34.008709,-117.944864,500.0,Natural Gas Fired Combustion Turbine
+57683,"Staples La Mirada, CA","SunE WF3-ST Holdings, LLC",33.881667,-118.0175,1.1,Solar Photovoltaic
+57702,Signal Hill West Unit,"Signal Hill Petroleum, Inc",33.811182,-118.175645,5.7,Other Gases
+57796,Golden Springs Building C-1,Golden Springs Development Company LLC,33.914167,-118.053611,1.2,Solar Photovoltaic
+57797,Golden Springs Building D,Golden Springs Development Company LLC,33.911944,-118.052222,1.3,Solar Photovoltaic
+57841,ISH Solar Hospital Downey,SunEdison LLC,33.921667,-118.124444,1.1,Solar Photovoltaic
+57860,Industry MetroLink PV 1,City of Industry,34.008661,-117.845603,1.5,Solar Photovoltaic
+57871,2555 E Olympic Bl,Los Angeles Department of Water & Power,34.026944,-118.224167,1.0,Solar Photovoltaic
+57901,El Segundo Energy Center LLC,"El Segundo Energy Center, LLC",33.910556,-118.425,537.4,Natural Gas Fired Combined Cycle
+58007,Brea Expansion Plant,Brea Power II,33.932022,-117.840233,35.699999999999996,Landfill Gas
+58056,"Irwindale Brew Yard, LLC","Irwindale Brew Yard, LLC",34.121667,-117.938333,2.5,Solar Photovoltaic
+58128,Kaiser Downey,Bloom Energy 2009 PPA,33.919167,-118.128611,1.0,Other Natural Gas
+58169,CSUF Trigeneration,California State University at Fullerton,33.880638,-117.88656,8.899999999999999,Solar Photovoltaic
+58248,Pierce College,Los Angeles Community College District,34.183611,-118.574722,1.9,Solar Photovoltaic
+58249,VA Sepulveda Ambulatory Care Center,VA Sepulveda Ambulatory Care Center,34.248889,-118.483333,4.4,Solar Photovoltaic
+58253,CBS Television City,"Televison City Studios, LLC.",34.075,-118.36,2.8000000000000003,Other Natural Gas
+58258,Central Utilities Plant LAX 2,LAX Airport,33.943889,-118.404167,9.2,Natural Gas Fired Combustion Turbine
+58300,Honda Torrance,Bloom Energy,33.838056,-118.315,1.1,Other Natural Gas
+58422,CSU Northridge Plant,"California State University, Northridge",34.243333,-118.530556,0.6000000000000001,Solar Photovoltaic
+58429,Sunshine Gas Producers,Sunshine Gas Producers LLC,34.335678,-118.519188,23.0,Landfill Gas
+58912,Santa Fe Springs Rooftop Solar BLDG M,Golden Springs Development Company LLC,33.910833,-118.044444,1.8,Solar Photovoltaic
+58913,Santa Fe Springs Rooftop Solar BLDG H,Golden Springs Development Company LLC,33.910833,-118.044444,1.5,Solar Photovoltaic
+58963,Las Virgenes Municipal Water District,Tesla Inc.,34.136111,-118.701944,1.0,Solar Photovoltaic
+59261,Verizon-Torrance,Bloom Energy,33.850556,-118.304167,1.0,Other Natural Gas
+59416,Anaheim Solar Energy Plant,Anaheim Public Utilities,33.8025,-117.919722,2.1,Solar Photovoltaic
+59461,"Bowerman Power LFG, LLC","Bowerman Power LFG, LLC",33.718889,-117.702222,23.799999999999997,Landfill Gas
+59651,"Forever 21 Retail, Inc.",Los Angeles Department of Water & Power,34.071389,-118.196111,1.3,Solar Photovoltaic
+59652,Nordhoff Place,Los Angeles Department of Water & Power,34.236667,-118.565833,0.9,Solar Photovoltaic
+59798,Colon PV,Los Angeles Department of Water & Power,33.792694,-118.252407,1.3,Solar Photovoltaic
+60151,Building F,Golden Springs Development Company LLC,33.914356,-118.050189,1.3,Solar Photovoltaic
+60153,Building G,Golden Springs Development Company LLC,33.912917,-118.050561,1.2,Solar Photovoltaic
+60154,Buidling L,Golden Springs Development Company LLC,33.912917,-118.041944,1.0,Solar Photovoltaic
+60183,Freeway Springs,Golden Springs Development Company LLC,33.892614,-118.037564,2.0,Solar Photovoltaic
+60255,Weymouth Solar Plant,Metropolitan Water District of S CA,34.108618,-117.782246,3.0,Solar Photovoltaic
+60698,Stanton Energy Reliability Center Hybrid,"Wellhead Services, Inc",33.806801,-117.985758,161.0,Batteries
+60699,DESI-1 Battery Energy Storage Facility,Southern California Edison Co,33.799248,-117.873371,2.4,Batteries
+60914,Westmont 300B,"Altus Power America Management, LLC",33.766067,-118.284733,3.0,Solar Photovoltaic
+60960,Hyperion Treatment Plant CHP Plant,Constellation New Energy Inc.,33.9254,-118.4298,33.0,Other Waste Biomass
+60974,Glendale Battery Energy Storage System,City of Glendale - (CA),34.162327,-118.283684,2.0,Batteries
+60978,CSUF State College,MN8 Energy LLC,33.87912,-117.8887,1.0,Solar Photovoltaic
+60979,CSUF Nutwood Solar,MN8 Energy LLC,33.87912,-117.8887,1.9,Solar Photovoltaic
+61154,AT&T Anaheim,Bloom Energy,33.836439,-117.916893,1.3,Other Natural Gas
+61204,"AES ES Alamitos, LLC","AES ES Alamitos, LLC",33.770202,-118.099665,100.0,Batteries
+61249,Westmont 300A,"Altus Power America Management, LLC",33.766067,-118.288925,2.9,Solar Photovoltaic
+61250,USPS PV,"Altus Power America Management, LLC",33.977922,-118.2587,7.4,Solar Photovoltaic
+61319,Port of LA Solar FiT Project,Los Angeles Department of Water & Power,33.727977,-118.280032,1.1,Solar Photovoltaic
+61348,Westmont 400A,"Altus Power America Management, LLC",33.764227,-118.288925,2.3,Solar Photovoltaic
+61349,Westmont 400B,"Altus Power America Management, LLC",33.764227,-118.284733,2.2,Solar Photovoltaic
+61593,Westmont 301,"Altus Power America Management, LLC",33.763012,-118.286558,1.8,Solar Photovoltaic
+61594,Westmont 401,"Altus Power America Management, LLC",33.762421,-118.288214,2.9,Solar Photovoltaic
+61718,Aerolease,"PCS Energy, LLC         ",34.189857,-118.451355,1.3,Solar Photovoltaic
+61722,HEBT Irvine 1,Electrodes,33.713489,-117.852086,5.5,Batteries
+62028,CSU Long Beach Lots 7 & 14,MN8 Energy LLC,33.78104,-118.11357,4.5,Solar Photovoltaic
+62115,AES Alamitos Energy Center,"AES Alamitos Energy, LLC",33.767229,-118.100194,678.0,Natural Gas Fired Combined Cycle
+62286,Xebec 1,AES Distributed Energy,34.224041,-118.392921,1.9,Solar Photovoltaic
+62287,Francisco St. Solar,AES Distributed Energy,33.8482,-118.3055,1.2,Solar Photovoltaic
+62378,CFW Solar X LLC - Vaughn,Valta Energy,34.277355,-118.429836,1.6,Solar Photovoltaic
+62458,Ratkovich Alhambra,Bloom Energy,34.08145,-118.15191,1.0,Other Natural Gas
+62460,DESI-2 Battery Storage Facility,Southern California Edison Co,33.7357,-117.915286,1.4,Batteries
+62497,Orange County Energy Storage 2,Convergent Energy and Power LP,33.715536,-117.854314,9.0,Batteries
+62499,Orange County Energy Storage 3,Convergent Energy and Power LP,33.714896,-117.85431,6.0,Batteries
+62571,Disney Prospect,Bloom Energy,34.083387,-118.43378,1.0,Other Natural Gas
+62574,ATT Van Nyus,Bloom Energy,34.196324,-118.448225,1.0,Other Natural Gas
+62698,Kaiser East La Palma Ave. Fuel Cell,"2016 ESA Project Company, LLC",33.85098,-117.84531,2.2,Other Natural Gas
+62704,Equinix Douglas St. Fuel Cell,"2016 ESA Project Company, LLC",33.9212,-118.38453,2.0,Other Natural Gas
+62705,Equinix Maple Ave. Fuel Cell,"2016 ESA Project Company, LLC",33.92542,-118.39463,2.0,Other Natural Gas
+62874,Acorn I Energy Storage LLC,Acorn I Energy Storage LLC,34.196505,-118.931898,2.0,Batteries
+62889,Hecate Energy Johanna Facility,Hecate Energy Johanna Facility LLC,33.714672,-117.853061,20.0,Batteries
+63285,Valero Wilmington Cogeneration Plant,Valero Wilmington,33.778655,-118.23853,33.5,Natural Gas Fired Combustion Turbine
+63303,Alticor Inc - Solar Project,MN8 Energy LLC,33.878585,-117.99608,1.2,Solar Photovoltaic
+63385,Castaic Lake Phase II,MN8 Energy LLC,34.433332,-118.510837,3.5,Solar Photovoltaic
+63510,Walnut Unified School District Walnut HS Hybrid,Tesla Inc.,34.02188,-117.85051,2.3,Solar Photovoltaic
+63527,Lafayette 2 - Internal Services Dept,MN8 Energy LLC,34.05,-118.18,1.9,Solar Photovoltaic
+63606,ATT Ventura Blvd,Bloom Energy,34.152191,-118.456078,1.0,Other Natural Gas
+63611,CSU Long Beach,"Hybrid-Electric Building Technologies West Los Angeles 1, LLC",33.78383,-118.10796,2.5,Batteries
+63612,DATS,"Hybrid-Electric Building Technologies West Los Angeles 1, LLC",33.70731,-117.89108,1.0,Batteries
+63613,Downey,"Hybrid-Electric Building Technologies West Los Angeles 1, LLC",33.919368,-118.128919,2.0,Batteries
+63615,Long Beach Convention Center,"Hybrid-Electric Building Technologies West Los Angeles 1, LLC",33.765236,-118.189377,1.5,Batteries
+63623,Lafayette 2 - MLK Jr. Hospital (MLK),MN8 Energy LLC,33.92,-118.24,1.7,Solar Photovoltaic
+63674,Dedeaux,VS Dedeaux LLC,34.013113,-118.241894,0.9,Solar Photovoltaic
+63716,KSR053 Cantara Fuel Cell,"2016 ESA Project Company, LLC",33.7902,-118.29431,1.6,Other Natural Gas
+63758,Kroger La Habra,Ralph's Grocery Company,33.922141,-117.939096,1.2,Solar Photovoltaic
+63843,"Johanna Energy Center, LLC","Johanna Energy Center, LLC",33.715016,-117.853984,20.0,Batteries
+64005,Toyota Long Beach Trigen,"Long Beach Trigen, LLC",33.780852,-118.222435,2.8,Other Waste Biomass
+64264,Las Virgenes,Greenbacker Renewable Energy Corporation,34.1265,-118.70404,3.0,Solar Photovoltaic
+64418,Big Bear,"Altus Power America Management, LLC",34.015287,-118.192851,5.5,Solar Photovoltaic
+64836,Catalina Express,"Altus Power America Management, LLC",33.749947,-118.278469,1.0,Solar Photovoltaic
+64837,Marina South,"Altus Power America Management, LLC",33.717993,-118.275617,1.0,Solar Photovoltaic
+64846,Prairie,"Altus Power America Management, LLC",34.239244,-118.583575,1.8,Solar Photovoltaic
+64921,Santa Ana Storage 2,"Johanna Energy Center, LLC",33.715016,-117.853984,20.0,Batteries
+65193,CalTech - Pasadena (PPA),Bloom Energy 2009 PPA,34.139368,-118.121488,1.0,Other Natural Gas
+65200,DirecTV - Los Angeles,Bloom Energy,33.983377,-118.42517,1.0,Other Natural Gas
+65202,CalTech - Pasadena,Bloom Energy,34.138719,-118.12833,1.0,Other Natural Gas
+65205,AT&T - Gardena,Bloom Energy,33.874969,-118.289798,1.0,Other Natural Gas
+65206,AT&T - Hawthorne,Bloom Energy,33.92429,-118.320597,1.0,Other Natural Gas
+65211,Comcast - Universal City,Bloom Energy,34.137717,-118.36082,1.0,Other Natural Gas
+65330,"8500 Balboa PV, LLC","8500 Balboa PV, LLC",34.22379,-118.49974,3.2,Solar Photovoltaic
+65331,"20333 Normandie PV, LLC",TRITEC Americas,33.84614,-118.30019,2.6,Solar Photovoltaic
+65361,CalTech - Pasadena Wilson Ave,Bloom Energy,34.13818,-118.12841,1.0,Other Natural Gas
+65365,CA - Ventura Co CCD - Moorpark College,"Forefront Power, LLC",34.299721,-118.833462,2.6,Solar Photovoltaic
+65569,Gilead Sciences La Verne Rooftop Solar,"Gilead Sciences, Inc. - La Verne",34.09623,-117.781867,2.8,Batteries
+65770,Ventura Solar,Ventura Solar LLC,34.399199,-118.901987,2.9,Solar Photovoltaic
+65794,"20701 Plummer PV, LLC",Valta Energy,34.243444,-118.58517,1.5,Solar Photovoltaic
+66142,Kaiser - Harbor City,Bloom Energy,33.788034,-118.295496,2.1,Other Natural Gas
+66146,Kaiser - LA,Bloom Energy,34.099359,-118.29571,4.5,Other Natural Gas
+66148,Kaiser - Woodland Hills,Bloom Energy,34.173105,-118.590273,3.1,Other Natural Gas
+66395,Alta Sea,"Signal Street Operating, LLC",33.719111,-118.272621,1.8,Solar Photovoltaic
+66423,Stanton Battery Energy Storage,"Wellhead Services, Inc",33.806779,-117.988626,68.8,Batteries
+66532,BCE Los Alamitos 2,Bright Canyon Energy,33.7841,-118.0509,20.0,Solar Photovoltaic
+66533,BCE Los Alamitos 1,Bright Canyon Energy,33.7899,-118.0639,20.0,Solar Photovoltaic

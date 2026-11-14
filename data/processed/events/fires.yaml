@@ -1,0 +1,44 @@
+# Hand-extracted event facts (source 9). Every row has a source_url. Origin coordinates and discovery times
+# come from WFIGS (fires_wfigs.json, query URLs inside); the times below are the official/utility-reported
+# ignition times used for the ignition hindcast (V5). Times are local with UTC offset.
+fires:
+  - id: woolsey_2018
+    event: E1
+    name: Woolsey Fire
+    ignition_local: '2018-11-08T14:22:00-08:00'
+    ignition_basis: "SCE Big Rock 16 kV circuit (Chatsworth substation) relayed and locked out 2:22 PM; fire reported ~2:24 PM"
+    utility_related: confirmed
+    facility: "SCE Big Rock 16 kV distribution circuit out of Chatsworth Substation (slack guy wire arced with energized jumper)"
+    facility_voltage_kv: 16
+    source_url: https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/investigations-wildfires/sed-investigation-report---woolsey-fire-redacted.pdf
+    other_sources: [https://abc7.com/sce-substation-outage-occurred-before-woolsey-fire-reported/4675611/]
+  - id: saddleridge_2019
+    event: E2
+    name: Saddleridge Fire
+    ignition_local: '2019-10-10T20:42:00-07:00'
+    ignition_basis: "LAFD: area of origin is a 50 ft x 70 ft area beneath an SCE high-voltage transmission tower in Sylmar"
+    utility_related: suspected
+    facility: "SCE transmission tower (SCE filed an electric safety incident report with the CPUC; cause officially undetermined in public reporting)"
+    facility_voltage_kv: null
+    source_url: https://abc7.com/sylmar-fire-in-saddleridge-freeway-210/5619488/
+    other_sources: [https://www.kpbs.org/news/public-safety/2019/10/15/los-angeles-fire-began-under-power-lines-cause-not]
+  - id: eaton_2025
+    event: E3
+    name: Eaton Fire
+    ignition_local: '2025-01-07T18:18:00-08:00'
+    ignition_basis: "WFIGS discovery 2025-01-08 02:18Z; SCE CPUC update 2025-01-27 identifies towers near the preliminary origin in Eaton Canyon"
+    utility_related: confirmed
+    facility: "SCE tower M16T1 on the idle (de-energized for decades) Mesa-Sylmar transmission line; LA County Fire / CAL FIRE origin-and-cause report attributes ignition to electrical arcing on that tower"
+    facility_voltage_kv: 220
+    source_url: https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/eaton-fire-update-1-27-25.pdf
+    other_sources: [https://abc7ny.com/story/utilitys-idle-transmission-tower-caused-2025-eaton-fire-killed-19-los-angeles-california-officials-say/19625408/]
+  - id: hurst_2025
+    event: E3
+    name: Hurst Fire
+    ignition_local: '2025-01-07T22:10:00-08:00'
+    ignition_basis: "SCE EIR: relay event on the Eagle Rock-Sylmar 220 kV circuit at 10:11 PM; fire reported ~10:10 PM; downed conductor at a nearby tower"
+    utility_related: suspected
+    facility: "SCE Eagle Rock-Sylmar 220 kV transmission circuit (SCE 2025-02-06: equipment 'may be associated' with ignition)"
+    facility_voltage_kv: 220
+    source_url: https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/2025-1-10-eir.pdf
+    other_sources: [https://www.foxla.com/news/la-fires-so-cal-edison-report-eaton-fire-hurst-fire-feb-6-2025]

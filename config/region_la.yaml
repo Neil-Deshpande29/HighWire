@@ -1,0 +1,19 @@
+# Highwire region definition: Greater Los Angeles.
+name: la
+title: Greater Los Angeles
+bbox: {lat_min: 33.70, lat_max: 34.45, lon_min: -118.95, lon_max: -117.70}
+timezone: America/Los_Angeles
+terrain_zoom: 10
+weather_grid_deg: 0.1          # Open-Meteo event grid spacing
+weather_grid_coarse_deg: 0.25  # multi-year series for V4b (rate-limit friendly)
+asos_stations: [KLAX, KBUR, KVNY, KSMO, KLGB, KEMT, KCQT, KWHP, KPMD]
+counties:                      # EAGLE-I validation target
+  "06037": Los Angeles
+  "06111": Ventura
+  "06059": Orange
+  "06071": San Bernardino
+primary_county: "06037"
+balancing_authorities: [LDWP, CISO]
+sub_ba: SCE
+nws_wfo: LOX
+min_voltage_kv: 66

@@ -1,0 +1,37 @@
+{
+ "check": "V1",
+ "pass": true,
+ "a_cigre601_example_b": {
+  "published": {
+   "ampacity_a": 1504,
+   "convective_w_m": 172.1,
+   "radiative_w_m": 54.0,
+   "solar_w_m": 13.7
+  },
+  "linerate": {
+   "ampacity_a": 1505.0633564205782,
+   "convective_w_m": 172.182414155522,
+   "radiative_w_m": 54.07492147659424,
+   "solar_w_m": 13.54225468078391
+  },
+  "ampacity_error_pct": 0.07070188966610387,
+  "pass": true,
+  "highwire_ieee738_ampacity_same_inputs_a": 1515.0203572064106,
+  "note": "IEEE 738 and CIGRE 601 are different standards; our IEEE number on CIGRE inputs is informational."
+ },
+ "b_ieee738_annex_b": {
+  "published_convective": 83.061,
+  "highwire": 83.00867359618768,
+  "pass": true
+ },
+ "c_sweep": {
+  "n_cases": 600,
+  "max_abs_err_c": 4.740273863035327e-05,
+  "mean_err_c": 5.874500312671079e-07,
+  "tolerance_c": 2.0,
+  "pass": true
+ },
+ "headline": "Our IEEE 738 matches linerate within 0.00 C over 600 cases",
+ "baseline": "Reference implementation (linerate) and published CIGRE/IEEE worked examples",
+ "plot": "v1_thermal.png"
+}

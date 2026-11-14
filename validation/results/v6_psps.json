@@ -1,0 +1,33 @@
+{
+ "check": "V6",
+ "our_counties": [
+  "Los Angeles",
+  "Orange",
+  "Ventura"
+ ],
+ "sce_counties_in_bbox": [
+  "Los Angeles",
+  "Orange",
+  "San Bernardino",
+  "Ventura"
+ ],
+ "overlap": [
+  "Los Angeles",
+  "Orange",
+  "Ventura"
+ ],
+ "jaccard": 0.75,
+ "lines_flagged": 38,
+ "line_km_flagged": 1445.3755,
+ "first_flag_local": {
+  "Los Angeles": "2025-01-08 13:00:00-08:00",
+  "Ventura": "2025-01-08 13:00:00-08:00",
+  "Orange": "2025-01-09 11:00:00-08:00"
+ },
+ "sce_customers_deenergized": 363196,
+ "sce_circuits_deenergized": 373,
+ "source_url": "https://cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/reports/psps-post-event-reports/2025/20250104sce-psps-post-event-reportdeenergizedfinal.pdf",
+ "headline": "County overlap with SCE's Jan 2025 PSPS: 3/4 (Jaccard 0.75); we would de-energize 38 lines (1445 km)",
+ "baseline": "None meaningful at county level (SCE de-energized circuits in every bbox county).",
+ "caveat": "County-level only; SCE's per-circuit table (Attachment C) was not reachable, so this cannot test where or when within a county."
+}

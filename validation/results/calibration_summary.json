@@ -1,0 +1,185 @@
+{
+ "gust": {
+  "n_pairs": 6501,
+  "zones": {
+   "coast": {
+    "n": 584,
+    "fit_from": "valley",
+    "candidate": [
+     -0.42650623912892277,
+     0.7079446100146799
+    ],
+    "accepted": false,
+    "windy_rmse_identity": 3.688407441082259,
+    "windy_rmse_candidate": 5.878467494827589
+   },
+   "basin": {
+    "n": 739,
+    "fit_from": "basin",
+    "candidate": [
+     -2.0127220086226125,
+     0.7032057829994841
+    ],
+    "accepted": false,
+    "windy_rmse_identity": 3.716620601058642,
+    "windy_rmse_candidate": 5.607084825428477
+   },
+   "valley": {
+    "n": 584,
+    "fit_from": "valley",
+    "candidate": [
+     -0.42650623912892277,
+     0.7079446100146799
+    ],
+    "accepted": false,
+    "windy_rmse_identity": 3.688407441082259,
+    "windy_rmse_candidate": 5.878467494827589
+   },
+   "mountain": {
+    "n": 584,
+    "fit_from": "valley",
+    "candidate": [
+     -0.42650623912892277,
+     0.7079446100146799
+    ],
+    "accepted": false,
+    "windy_rmse_identity": 3.688407441082259,
+    "windy_rmse_candidate": 5.878467494827589
+   }
+  },
+  "before_all": {
+   "bias": 2.6830170948038705,
+   "rmse": 3.5738612758223556
+  },
+  "after_all": {
+   "bias": 2.6830170948038705,
+   "rmse": 3.5738612758223556
+  },
+  "before_windy": {
+   "bias": 0.2373028523248885,
+   "rmse": 3.698541899097271
+  },
+  "after_windy": {
+   "bias": 0.2373028523248885,
+   "rmse": 3.698541899097271
+  },
+  "n_windy": 120
+ },
+ "fire": {
+  "chosen": {
+   "g50": 6,
+   "h50": 10,
+   "c50": 5,
+   "region_alarm": 268.0608519517946,
+   "line_alarm": 0.3
+  },
+  "objective": "max hit rate on training wind-event outage-spike hours (alarm = 98th pct of control-week RI); tie-break: AUC spike-hours vs control-hours, then peak/alarm margin",
+  "spike_hours": {
+   "E2": 43
+  },
+  "best_hit_rate": 0.930233,
+  "best_auc": 0.940684,
+  "best_margin": 3.603321122582625,
+  "n_configs": 280,
+  "top10": [
+   {
+    "g50": 6,
+    "h50": 10,
+    "c50": 5,
+    "alarm": 268.0608519517946,
+    "hit_rate": 0.9302325581395349,
+    "margin": 3.603321122582625,
+    "auc_spike_vs_control": 0.9406838316722038
+   },
+   {
+    "g50": 6,
+    "h50": 10,
+    "c50": 7,
+    "alarm": 281.2048838028253,
+    "hit_rate": 0.9302325581395349,
+    "margin": 3.7494544323584837,
+    "auc_spike_vs_control": 0.9405454042081949
+   },
+   {
+    "g50": 6,
+    "h50": 10,
+    "c50": 9,
+    "alarm": 305.3496253344411,
+    "hit_rate": 0.9302325581395349,
+    "margin": 3.8903768163050354,
+    "auc_spike_vs_control": 0.9401993355481728
+   },
+   {
+    "g50": 6,
+    "h50": 10,
+    "c50": 11,
+    "alarm": 319.15352870991694,
+    "hit_rate": 0.9302325581395349,
+    "margin": 3.9301045164605815,
+    "auc_spike_vs_control": 0.939922480620155
+   },
+   {
+    "g50": 6,
+    "h50": 10,
+    "c50": 13,
+    "alarm": 323.2447569101834,
+    "hit_rate": 0.9302325581395349,
+    "margin": 3.9343905000274457,
+    "auc_spike_vs_control": 0.9398532668881506
+   },
+   {
+    "g50": 6,
+    "h50": 15,
+    "c50": 13,
+    "alarm": 527.341118369984,
+    "hit_rate": 0.9302325581395349,
+    "margin": 2.9084737150125175,
+    "auc_spike_vs_control": 0.9397148394241418
+   },
+   {
+    "g50": 10,
+    "h50": 10,
+    "c50": 9,
+    "alarm": 215.86622135568322,
+    "hit_rate": 0.9069767441860465,
+    "margin": 4.251200979273353,
+    "auc_spike_vs_control": 0.9413759689922481
+   },
+   {
+    "g50": 10,
+    "h50": 10,
+    "c50": 13,
+    "alarm": 227.90431591374596,
+    "hit_rate": 0.9069767441860465,
+    "margin": 4.278329477235912,
+    "auc_spike_vs_control": 0.9412375415282392
+   },
+   {
+    "g50": 10,
+    "h50": 10,
+    "c50": 11,
+    "alarm": 225.1343951986981,
+    "hit_rate": 0.9069767441860465,
+    "margin": 4.277279077724776,
+    "auc_spike_vs_control": 0.9412375415282392
+   },
+   {
+    "g50": 8,
+    "h50": 10,
+    "c50": 5,
+    "alarm": 222.69966607034627,
+    "hit_rate": 0.9069767441860465,
+    "margin": 3.955176508214142,
+    "auc_spike_vs_control": 0.9407530454042082
+   }
+  ]
+ },
+ "load": {
+  "LDWP": {
+   "train_mape": 6.536007863979634
+  },
+  "SCE": {
+   "train_mape": 6.838535034068224
+  }
+ }
+}

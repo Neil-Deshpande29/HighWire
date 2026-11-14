@@ -1,0 +1,23 @@
+{
+ "check": "V4b",
+ "features": {
+  "risk_index": {
+   "k_hours": 24,
+   "auc_calibrate": 0.6268746874543822,
+   "auc_report": 0.6187740946668151
+  },
+  "baseline_max_gust": {
+   "k_hours": 6,
+   "auc_calibrate": 0.7482537017419307,
+   "auc_report": 0.8203073896690419
+  }
+ },
+ "positive_threshold_customers": 13482.825000000017,
+ "n_positive_hours": 176,
+ "n_hours": 26304,
+ "beats_baseline": false,
+ "headline": "2022-2024 high-outage hours: risk index AUC 0.62 vs gust-only baseline 0.82 (does NOT beat the baseline)",
+ "baseline": "Regional maximum gridded gust, same look-back window selection",
+ "caveat": "Positives include every cause of high outages (heat, rain, equipment); non-weather causes are not separable in EAGLE-I.",
+ "plot": "v4b_discrimination.png"
+}

@@ -1,0 +1,20 @@
+# SCE PSPS event Jan 2-17, 2025 (CPUC post-event report "January 04, 2025"). Extracted from the PDF text
+# (data/raw/cpuc/sce_psps_20250104.txt). The per-circuit list (Table 5) continues in Attachment C, an Excel
+# workbook that was not reachable, so only event-level totals and the county list are recorded here.
+id: sce_psps_2025_01
+event: E3
+start_local: '2025-01-02T12:30:00-08:00'
+end_local: '2025-01-17T16:00:00-08:00'
+customers_notified: 712769
+customers_deenergized: 363196
+distribution_circuits_in_scope: 619
+distribution_circuits_deenergized: 373
+counties_deenergized: [Kern, Los Angeles, Orange, Riverside, San Bernardino, Santa Barbara, San Diego, Ventura]
+counties_deenergized_in_bbox: [Los Angeles, Orange, Riverside, San Bernardino, Ventura]
+sample_circuits:   # the 5 rows printed in the PDF body (first de-energization, local time)
+  - {county: LOS ANGELES, circuit: ACROBAT, deenergized: '2025-01-08T14:04', customers: 1653}
+  - {county: ORANGE, circuit: ACRES, deenergized: '2025-01-09T15:13', customers: 1436}
+  - {county: RIVERSIDE, circuit: ACADIAN, deenergized: '2025-01-08T11:14', customers: 297}
+  - {county: RIVERSIDE, circuit: AIDAN, deenergized: '2025-01-08T07:09', customers: 391}
+  - {county: SAN BERNARDINO, circuit: ALLVIEW, deenergized: '2025-01-08T13:57', customers: 303}
+source_url: https://cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/reports/psps-post-event-reports/2025/20250104sce-psps-post-event-reportdeenergizedfinal.pdf

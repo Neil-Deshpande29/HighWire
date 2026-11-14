@@ -1,0 +1,16 @@
+# Train/test split, written BEFORE any calibration or validation run (ground rule 3).
+# Never tune on an event reported as validation.
+region: la
+split:
+  train: [E2, H1, C1, C2]
+  test: [E1, E3, H2, C3]
+series:                       # V4b discrimination over years
+  calibrate_years: [2019, 2020, 2021]
+  report_years: [2022, 2023, 2024]
+load_model:
+  fit_years: [2019, 2020, 2021]
+weather_pad_days: {before: 2, after: 1}   # extra hours fetched around each event for baselines
+outage:
+  baseline_days_before: 2      # V4a baseline = median customers out in this window before the event
+  spike_multiple: 2.0          # outages "spike" when they exceed this x baseline
+  high_hour_quantile: 0.99     # V4b positive class: top 1% of LA County customers-out hours

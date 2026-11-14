@@ -1,0 +1,20 @@
+# secrets
+.env
+
+# big / regenerable data
+data/raw/
+validation/results/series_risk_2019_2024.csv
+
+# environments and builds
+.venv/
+venv/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# stray root npm files (accidental `npm install all`); the real app lives in frontend/
+/package.json
+/package-lock.json
