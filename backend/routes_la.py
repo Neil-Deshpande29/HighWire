@@ -48,6 +48,8 @@ class LASimIn(BaseModel):
 
 class LARoleIn(BaseModel):
     role: str = "operator"  # who is acting: "operator" or "supervisor"
+    reasons: list[str] = []  # on a rejection: why (ids from backend/la/feedback.py REASONS)
+    note: str = ""  # on a rejection: anything else the operator wants the coordinator to know
 
 
 def _la_grid():
@@ -284,10 +286,18 @@ def la_copilot_run(body: LARunIn):
         LA["state"] = st
     hour = st.t_utc.isoformat()
 
-    def stamp(out: dict):
-        """Say who may approve each plan, and write the run into the decision record (Operate runs only)."""
+    def stamp(out: dict, log_entries: list[dict]):
+        """Say who may approve each plan, draw how the team's work came together, and write the run into the decision
+        record (Operate runs only)."""
+        from .agents import synthesis
+        from .la import feedback as FB
+
         for p in out["plans"]:
             p["authority"] = AUTH.of_result(p["result"])
+        if "feedback_used" not in out:  # the AI team: the feedback went into the coordinator's instructions
+            out["feedback_used"] = [{"reason": r["id"], "text": r["text"], "applied": "Given to the AI coordinator with its instructions."}
+                                    for r in FB.summary()["reasons"]]
+        out["synthesis"] = synthesis.build(out, log_entries)
         if study:
             return
         planner = "AI agent team" if out.get("mode") == "llm" else "rule-based planner"
@@ -345,11 +355,42 @@ def la_approve(plan_id: str, body: LARoleIn | None = None):
 
 @router.post("/la/plans/{plan_id}/reject")
 def la_reject(plan_id: str, body: LARoleIn | None = None):
-    st, _ = _plan_or_404(plan_id)
+    """Reject a plan. The reasons and note go to the feedback store, which the coordinator reads on later runs."""
+    from .la import feedback as FB
+
+    st, plan = _plan_or_404(plan_id)
     role = _role(body)
     st.plan_status[plan_id] = "rejected"
-    REC.add("rejected", f"Plan {plan_id.lstrip('P')} rejected by the {role}.", role=role, event=st.eid, hour_utc=st.t_utc.isoformat(), plan=plan_id)
-    return {"plan_status": st.plan_status}
+    hour = st.t_utc.isoformat()
+    fb = FB.add(plan, body.reasons if body else [], body.note if body else "", event=st.eid, hour_utc=hour, role=role)
+    why = "; ".join([FB.REASONS[r].lower() for r in fb["reasons"]] + ([f'"{fb["note"]}"'] if fb["note"] else []))
+    REC.add("rejected", f"Plan {plan_id.lstrip('P')} rejected by the {role}" + (f": {why}." if why else "."), role=role, event=st.eid,
+            hour_utc=hour, plan=plan_id, reasons=fb["reasons"], note=fb["note"])
+    return {"plan_status": st.plan_status, "feedback": FB.summary()}
+
+
+@router.get("/la/feedback")
+def la_feedback():
+    """What the operator said when rejecting plans, as the coordinator carries it into the next run."""
+    from .la import feedback as FB
+
+    return {**FB.summary(), "choices": FB.REASONS}
+
+
+@router.delete("/la/feedback")
+def la_feedback_clear():
+    from .la import feedback as FB
+
+    FB.clear()
+    return FB.summary()
+
+
+@router.get("/la/buildings")
+def la_buildings():
+    """The building records in use (CoStar where its extract is loaded, OpenStreetMap otherwise) and the priority ladder."""
+    from .la import buildings as B
+
+    return B.summary()
 
 
 @router.post("/la/plans/{plan_id}/escalate")

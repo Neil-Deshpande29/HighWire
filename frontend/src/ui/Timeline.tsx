@@ -2,14 +2,14 @@ import { useRef } from "react";
 import type { Series } from "../la/api";
 import { curveOf, isHeat, timeLabel } from "./format";
 
-/** Bottom strip: play/pause, scrubbing and one plain curve (lines at high fire risk, or the busiest line's % of rating).
- * Real ignitions and the "Did Highwire get it right?" box only after the reveal. */
-export default function Timeline({ series, kind, i, playing, revealed, canReveal, checks, onSeek, onPlay, onReveal }: {
-  series: Series; kind: string; i: number; playing: boolean; revealed: boolean; canReveal: boolean; checks: { text: string; lead?: boolean }[];
+/** The clock, at the bottom of the right column: play/pause, scrubbing and one plain curve (lines at high fire risk,
+ * or the busiest line's % of rating). Real ignitions are drawn only after the reveal. */
+export default function Timeline({ series, kind, i, playing, revealed, canReveal, onSeek, onPlay, onReveal }: {
+  series: Series; kind: string; i: number; playing: boolean; revealed: boolean; canReveal: boolean;
   onSeek: (k: number) => void; onPlay: () => void; onReveal: () => void;
 }) {
   const heat = isHeat(kind);
-  const W = 1000, H = 92, pl = 30, pr = 8, pt = 10, pb = 18;
+  const W = 372, H = 70, pl = 22, pr = 6, pt = 10, pb = 16; // drawn at the column's own width so the labels are not stretched
   const n = series.t_utc.length;
   const x = (k: number) => pl + (k / Math.max(n - 1, 1)) * (W - pl - pr);
   const without = curveOf(series, kind);
@@ -30,15 +30,15 @@ export default function Timeline({ series, kind, i, playing, revealed, canReveal
   const area = `${path(without)} L${x(n - 1)},${H - pb} L${x(0)},${H - pb} Z`;
   const top = heat ? `${Math.round(ymax / 1.12)}%` : `${Math.round(ymax / 1.12)}`;
   return (
-    <div className="timeline glass">
+    <div className="card timeline">
       <div className="tl-controls">
         <button className="play" onClick={onPlay} aria-label={playing ? "Pause" : "Play"}>{playing ? "❚❚" : "▶"}</button>
         <div className="tl-title">
-          <b>{heat ? "Busiest power line, % of its rating" : "Power lines at high fire risk"}</b>
-          <span className="muted small">{heat ? "dashed line = over its rating" : "each hour of the event"}{nowK >= 0 ? " · right of “now” is the forecast" : ""}</span>
+          <b>{heat ? "Busiest line, % of its rating" : "Lines at high fire risk"}</b>
+          <span className="muted small">hour by hour · drag to change the time</span>
         </div>
         <div className="spacer" />
-        {canReveal && !revealed && <button className="pill" onClick={onReveal}>Show what happened</button>}
+        {canReveal && !revealed && <button className="pill" onClick={onReveal}>What happened?</button>}
       </div>
       <svg ref={svg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
         onPointerDown={(e) => { drag.current = true; (e.target as Element).setPointerCapture?.(e.pointerId); seekAt(e.clientX); }}
@@ -48,33 +48,27 @@ export default function Timeline({ series, kind, i, playing, revealed, canReveal
         {days.map((k) => (
           <g key={k}>
             <line x1={x(k)} x2={x(k)} y1={pt} y2={H - pb} stroke="#d1d1d6" strokeWidth={1} />
-            <text x={x(k) + 4} y={H - 5} fontSize="10" fill="#8e8e93">{timeLabel(series.t_utc[k], { weekday: "short", month: "short", day: "numeric" })}</text>
+            <text x={x(k) + 3} y={H - 4} fontSize="9" fill="#8e8e93">{timeLabel(series.t_utc[k], { weekday: "short", day: "numeric" })}</text>
           </g>
         ))}
         <text x={2} y={pt + 4} fontSize="10" fill="#8e8e93">{top}</text>
         <text x={2} y={H - pb} fontSize="10" fill="#8e8e93">0</text>
         <path d={area} fill="#ff9500" opacity={0.12} />
         {heat && <line x1={pl} x2={W - pr} y1={y(100)} y2={y(100)} stroke="#ff3b30" strokeDasharray="5 5" strokeWidth={1.2} />}
-        <path d={path(without)} fill="none" stroke="#ff7a00" strokeWidth={2.2} />
+        <path d={path(without)} fill="none" stroke="#ff7a00" strokeWidth={1.8} />
         {revealed && series.fires.map((f, j) => {
           const k = idxOf(f.ignition_utc);
           return k >= 0 ? (
             <g key={f.id}>
               <line x1={x(k)} x2={x(k)} y1={pt} y2={H - pb} stroke="#ff3b30" strokeWidth={1.5} />
-              <text x={x(k) + 4} y={pt + 9 + j * 12} fontSize="10" fill="#ff3b30" fontWeight={600}>{f.name.replace(/ Fire$/, "")} fire starts</text>
+              <text x={x(k) + 3} y={pt + 8 + j * 11} fontSize="9" fill="#ff3b30" fontWeight={600}>{f.name.replace(/ Fire$/, "")} fire</text>
             </g>
           ) : null;
         })}
         {nowK >= 0 && (<g><line x1={x(nowK)} x2={x(nowK)} y1={pt - 6} y2={H - pb} stroke="#007aff" strokeDasharray="3 3" /><text x={x(nowK) + 4} y={pt + 2} fontSize="10" fill="#007aff">now</text></g>)}
         <line x1={x(i)} x2={x(i)} y1={pt - 8} y2={H - pb} stroke="#1d1d1f" strokeWidth={2} />
-        <circle cx={x(i)} cy={y(without[i])} r={4.5} fill="#fff" stroke="#1d1d1f" strokeWidth={2} />
+        <circle cx={x(i)} cy={y(without[i])} r={4} fill="#fff" stroke="#1d1d1f" strokeWidth={2} />
       </svg>
-      {revealed && checks.length > 0 && (
-        <div className="reveal">
-          <b>Did Highwire get it right?</b>
-          <ul>{checks.map((c) => <li key={c.text} className={c.lead ? "lead" : ""}>{c.text}</li>)}</ul>
-        </div>
-      )}
     </div>
   );
 }

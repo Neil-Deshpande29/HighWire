@@ -16,6 +16,7 @@ import numpy as np
 from . import buildings as B
 from . import consequence as C
 from . import data as D
+from . import trees as T
 from .state import CUSTOMERS_PER_MW, SUBTRANSMISSION_MAX_KV
 
 ELEVATED_FROM = 0.6  # share of the alarm from which a line counts as elevated; the map's orange uses the same step
@@ -65,7 +66,7 @@ def register(st, actions=None) -> dict:
             "id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "class": "bulk" if bulk else "sub",
             "index": round(line["fire_risk"], 3), "ratio": round(line["fire_risk"] / alarm, 2),
             "gust_ms": line["gust_ms"], "rh_pct": line["rh_pct"], "clearance_m": line["clearance_m"], "loading_pct": line["loading_pct"],
-            "downwind": dw, "exposure_band": band, "if_cut": cut, "greenery": G.line_greenery(b["id"]),
+            "downwind": dw, "exposure_band": band, "if_cut": cut, "greenery": G.line_greenery(b["id"]), "trees": T.line_trees(b["id"]),
         })
     rows.sort(key=lambda r: -r["index"])
     for band in matrix["high"]:

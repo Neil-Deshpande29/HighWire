@@ -69,10 +69,26 @@ def _greenery(state, line_id: str):
         return None
 
 
+def _trees(state, line_id: str):
+    """Trees counted near an LA line's wires on Vexcel imagery, or None (not counted, not covered, not the LA grid)."""
+    if not hasattr(state, "grid"):
+        return None
+    try:
+        from ..la import trees as T
+
+        return T.line_trees(line_id)
+    except Exception:  # noqa: BLE001  context only: never let it break planning
+        return None
+
+
 def _greenery_phrase(state, ids) -> str:
-    """Names the lines whose photos show vegetation close to the wires: the ones to act on first."""
+    """Names the lines with vegetation or many trees close to the wires: the ones to act on first."""
     green = [l for l in ids if (_greenery(state, l) or {}).get("level") == "high"]
-    return f" Aerial photos show vegetation close to the wires on {', '.join(green[:6])}." if green else ""
+    treed = sorted((l for l in ids if (_trees(state, l) or {}).get("many")), key=lambda l: -_trees(state, l)["trees"])
+    out = f" Aerial photos show vegetation close to the wires on {', '.join(green[:6])}." if green else ""
+    if treed:
+        out += " Vexcel imagery shows the most trees near the wires on " + ", ".join(f"{l} ({_trees(state, l)['trees']})" for l in treed[:4]) + "."
+    return out
 
 
 def _cut_phrase(state, line_id: str) -> str:
@@ -88,7 +104,7 @@ def _cut_phrase(state, line_id: str) -> str:
 def _cut_order(state, risk: float, line_id: str):
     """Order for single-line cuts: vegetation near the wires first, then the cut that costs the least critical
     buildings, then the higher fire index."""
-    green = (_greenery(state, line_id) or {}).get("level") == "high"
+    green = (_greenery(state, line_id) or {}).get("level") == "high" or bool((_trees(state, line_id) or {}).get("many"))
     score = state.cut_impact(line_id)["score"] if hasattr(state, "cut_impact") else 0
     return (not green, score, -risk)
 
@@ -507,6 +523,79 @@ class _Planner:
             out.append("cascade_agent pushed to re-close the operator-opened line; coordinator flagged it for operator confirmation since it reverses a manual switch.")
         return out
 
+    def buildings(self, base) -> None:
+        """Buildings agent (LA): compare what each flagged line feeds, by the priority ladder, and say which cuts are
+        cheap and which reach a hospital. Reads backend/la/buildings.py, so a CoStar file widens it."""
+        st = self.state
+        if not hasattr(st, "cut_impact"):
+            return
+        from ..la import buildings as B
+
+        info = B.summary()
+        src = "CoStar property records and OpenStreetMap" if info["costar"] else "OpenStreetMap hospitals and water plants (the CoStar extract is not loaded)"
+        self.say("buildings_agent", f"building records: {info['n']} from {src}")
+        flagged = [m.group(1) for v in base["violations"] if (m := re.match(r"Line (\w+): fire risk", v))]
+        cuts = {l: st.cut_impact(l) for l in flagged}
+        ranked = sorted(flagged, key=lambda l: (-cuts[l]["score"], -cuts[l]["customers"], l))
+        for l in ranked:
+            c = cuts[l]
+            if not c["n"]:
+                continue
+            top = next(t for t in c["ladder"] if t["n"])
+            self.find("buildings_agent", l, f"cutting it reaches tier {top['tier']}: {top['name'].lower()}",
+                      ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in c["by_kind"].items()) + f" on backup; {c['customers']:,} customers", 3 if top["tier"] <= 2 else 2)
+        free = [l for l in flagged if not cuts[l]["n"]]
+        if free:
+            self.find("buildings_agent", "cut first", "these lines feed no listed building",
+                      f"{len(free)} of {len(flagged)} flagged lines: " + ", ".join(free[:8]) + (" and more" if len(free) > 8 else ""), 1)
+        self.find("buildings_agent", "records", "where the building list comes from", f"{info['n']} buildings from {src}", 1 if info["costar"] else 2)
+        hit = [l for l in ranked if cuts[l]["n"]]
+        self.say("buildings_agent", (f"{len(hit)} of {len(flagged)} flagged lines feed a listed building; worst is {hit[0]}" if hit
+                                     else f"none of the {len(flagged)} flagged lines feeds a listed building"))
+
+    def feedback(self, base, cands) -> tuple[list, list[dict]]:
+        """Coordinator (LA): act on what the operator said when rejecting earlier plans. Returns extra candidate
+        combinations to offer, and one line per piece of feedback saying what was done with it."""
+        st = self.state
+        if not hasattr(st, "cut_impact"):
+            return [], []
+        from ..la import feedback as F
+
+        fb = F.summary()
+        if not fb["n"]:
+            return [], []
+        self.say("coordinator", f"operator feedback on record from {fb['n']} rejection{'s' if fb['n'] != 1 else ''}: "
+                                + "; ".join(r["text"].lower() for r in fb["reasons"]))
+        given = {r["id"] for r in fb["reasons"]}
+        used, extra = [], []
+        flagged = [m.group(1) for v in base["violations"] if (m := re.match(r"Line (\w+): fire risk", v))]
+        spare_for = {"too_many_customers": lambda c: c["customers"] > 0, "critical_site": lambda c: c["n"] > 0}
+        for reason, hits in spare_for.items():
+            if reason not in given:
+                continue
+            text = F.REASONS[reason]
+            keep_on = [l for l in flagged if hits(st.cut_impact(l))]
+            off = [l for l in flagged if l not in keep_on]
+            if not flagged:
+                used.append({"reason": reason, "text": text, "applied": "No line is at high fire risk this hour, so there was nothing to change."})
+            elif not keep_on:
+                used.append({"reason": reason, "text": text, "applied": "Every plan this hour already avoids it."})
+            elif not off:
+                used.append({"reason": reason, "text": text, "applied": "No smaller shut-off exists: every line at high risk feeds customers or a critical site."})
+            else:
+                what = "cuts no customers" if reason == "too_many_customers" else "puts no listed building on backup"
+                action = {"type": "deenergize_lines", "target": f"the lines whose shut-off {what}", "targets": off}
+                extra.append([{"action": action, "raised_by": ["buildings_agent", "fire_agent"], "label": f"smaller shut-off: {len(off)} lines, from your feedback",
+                               "why": f"You rejected an earlier plan because: {text.lower()}. This turns off only the {len(off)} flagged lines whose shut-off {what} "
+                                      f"and leaves {len(keep_on)} on ({', '.join(keep_on[:6])}{' and more' if len(keep_on) > 6 else ''})."}])
+                used.append({"reason": reason, "text": text, "applied": f"Added a smaller shut-off: {len(off)} lines off, {len(keep_on)} left on. The physics check decides whether it is safe."})
+        for reason in ("not_enough", "wrong_lines", "other"):
+            if reason in given:
+                used.append({"reason": reason, "text": F.REASONS[reason], "applied": "Kept on record. The rule-based planner cannot act on it; the AI team reads it."})
+        for n in fb["notes"]:
+            used.append({"reason": "note", "text": n, "applied": "Kept on record for the AI team and shown here."})
+        return extra, used
+
     def stations(self):
         """Wind agent (LA): check the weather the model ran on against what the airport stations measured this hour."""
         from ..la import sensors
@@ -571,6 +660,7 @@ class _Planner:
                 pass
         base = self.sim([])
         self.analyze(base)
+        self.buildings(base)
         storm_sent, staging = self.storm()
         if base["is_safe"]:
             self.say("coordinator", "do-nothing case passes every physics check; no switching recommended")
@@ -585,6 +675,7 @@ class _Planner:
         self.say("coordinator", f"{len(base['violations'])} violations to resolve; building candidate plans")
         cands = self.candidates(base)
         self.say("coordinator", f"{len(cands)} candidate actions: " + ", ".join(c["label"] for c in cands))
+        fb_combos, fb_used = self.feedback(base, cands)
         g_plan, g_attempts, g_r = self.greedy(base, cands)
 
         self.say("coordinator", "screening alternative combinations with the physics engine")
@@ -632,6 +723,10 @@ class _Planner:
         for combo, r in chosen:
             attempts = g_attempts if combo is g_plan else 1
             plans.append(self.plan_json(combo, r, attempts))
+        for combo in fb_combos[:1]:  # one plan shaped by the operator's feedback, physics-checked like the rest
+            p = self.plan_json(combo, self.sim([c["action"] for c in combo]), 1)
+            p["from_feedback"] = True
+            plans.append(p)
         for p in plans:
             self.say("coordinator", f"proposing: {p['title']} ({'safe' if p['result']['is_safe'] else 'NOT SAFE'}, {p['result']['unserved_mw']} MW unserved)")
 
@@ -645,6 +740,8 @@ class _Planner:
             "plans": plans,
             "disagreements": self.disagreements(chosen[0][0]),
             "agent_findings": self.findings,
+            "feedback_used": fb_used,
+            "stats": {"candidates": len(cands), "screened": len(results), "safe": len(safe), "simulations": self.sims},
         }
 
 

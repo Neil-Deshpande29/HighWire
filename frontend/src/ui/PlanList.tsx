@@ -1,39 +1,43 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { Job } from "../api";
-import TeamPanel from "./TeamPanel";
+import type { BuildingRecords } from "../la/api";
+import TeamPanel, { type Ladder } from "./TeamPanel";
 
 export type AgentChip = { id: string; name: string; summary: string };
 
 /** Says which planner produced the plans on screen, so a rule-based run is never mistaken for the AI agent team. */
 function PlannerNote({ mode, reason }: { mode: string; reason?: string | null }) {
-  if (mode === "llm") return <div className="note planner">Plans by the AI agent team. The physics engine re-ran every number.</div>;
-  if (reason) return <div className="note planner warn">The AI agent team did not finish ({reason}). These plans come from the rule-based planner; physics checked each one.</div>;
-  return <div className="note planner">Plans by the rule-based planner: no AI key is set, so the agent team did not run. Physics checked each one.</div>;
+  if (mode === "llm") return <div className="note planner">Plans by the AI agent team. Every number was re-checked by physics.</div>;
+  if (reason) return <div className="note planner warn">▲ The AI team did not finish ({reason}). These plans come from the rule-based planner instead.</div>;
+  return <div className="note planner">Plans by the rule-based planner (no AI key is set). Every number was checked by physics.</div>;
 }
 
-export default function PlanList({ job, chips, cards, outcome, bulletin, noSafe }: {
-  job: Job | null; chips: AgentChip[]; cards: ReactNode; outcome: string | null; bulletin: string | null; noSafe: boolean;
+export default function PlanList({ job, chips, cards, outcome, verdict, bulletin, noSafe, records, ladder, shownPlans }: {
+  job: Job | null; chips: AgentChip[]; cards: ReactNode; outcome: string | null; verdict: string | null; bulletin: string | null; noSafe: boolean;
+  records: BuildingRecords | null; ladder: Ladder | null; shownPlans: string[];
 }) {
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [job?.log.length]);
+  const done = job?.status === "done";
   return (
     <section className="plans">
-      {job && <TeamPanel job={job} chips={chips} />}
       {job?.status === "error" && <div className="error">Co-Pilot failed: {job.error}</div>}
-      {job?.status === "done" && job.output && <PlannerNote mode={job.output.mode} reason={job.output.fallback_reason} />}
-      {outcome && <div className="card outcome"><b>Plan approved.</b> {outcome}</div>}
+      {outcome && <div className="card outcome"><b>Plan approved.</b> {outcome}{verdict && <div className="verdict-line">{verdict}</div>}</div>}
       {bulletin && (
         <details className="drawer card">
           <summary>Bulletin for responders · <button className="link" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(bulletin); }}>Copy</button></summary>
           <pre className="bulletin">{bulletin}</pre>
         </details>
       )}
-      {noSafe && <div className="note">No plan within 3 actions passes every physics check at this hour. The least-bad option is shown and can't be approved; a wider shutoff is the operator's call.</div>}
-      {job?.status === "done" && !job.output?.plans.length && <div className="note">No switching needed at this hour: every line passes the physics checks as it is.</div>}
-      <div className="plan-cards">{cards}</div>
+      {done && job.output && <PlannerNote mode={job.output.mode} reason={job.output.fallback_reason} />}
+      {noSafe && <div className="note warn">▲ No safe plan was found this hour. The closest one is shown and can't be approved.</div>}
+      {done && !job.output?.plans.length && <div className="note">Nothing needs switching this hour: every line is within its limits.</div>}
+      {/* while the team works, watch the team; once it is done, the options come first and the team's working stays below */}
+      {done && <div className="plan-cards">{cards}</div>}
+      {job && <TeamPanel job={job} chips={chips} records={records} ladder={ladder} shownPlans={shownPlans} />}
       {job && (
         <details className="drawer log-drawer">
-          <summary>Agent log ({job.log.length})</summary>
+          <summary>Everything the agents logged ({job.log.length})</summary>
           <div className="log" ref={logRef}>
             {job.log.map((e, k) => <div key={k}><b>{e.agent}</b> {e.message}</div>)}
           </div>

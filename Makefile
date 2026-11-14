@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 FETCH = cd data/fetch && ../../$(PY)
 
-.PHONY: data grid calibrate validate forecast naip site imagery test dev all clean-results
+.PHONY: data grid calibrate validate forecast naip site imagery trees costar test dev all clean-results
 
 # 1. Download + process every public source (idempotent; skips files already present).
 data:
@@ -50,10 +50,18 @@ naip:
 site: naip
 	$(PY) -m site_agent.agent --batch
 
-# 7. Aerial picture under the map: stitches public USGS imagery for the region (about 170 tiles, 2 MB, git-ignored).
-#    Another provider: set HIGHWIRE_BASEMAP_URL (an XYZ tile address) and HIGHWIRE_BASEMAP_NAME in .env first.
+# 7. Aerial picture under the map (git-ignored). With VEXCEL_API_KEY in .env it comes from Vexcel, with the public
+#    USGS picture where the key has no coverage; without a key it is all USGS.
 imagery:
 	$(PY) -m backend.la.basemap
+
+# 8. Trees near the wires of every line that reaches the fire alarm, counted on Vexcel imagery (needs VEXCEL_API_KEY).
+trees:
+	$(PY) -m backend.la.trees
+
+# 9. Load the CoStar data extract (from the track Discord, /costar-keys):  make costar FILE=/path/to/the/extract
+costar:
+	$(PY) -m backend.la.costar_import "$(FILE)"
 
 test:
 	$(PY) -m pytest backend site_agent -q

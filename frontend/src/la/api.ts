@@ -1,4 +1,4 @@
-import { API, type Action, type BuildingsOut, type Job, type Plan } from "../api";
+import { API, type Action, type Authority, type BuildingsOut, type Job, type Plan, type Severity } from "../api";
 
 export type LAEvent = {
   id: string; name: string; kind: "wind" | "heat" | "control" | "forecast"; split: "train" | "test" | "none"; fetched_utc?: string;
@@ -69,7 +69,15 @@ export const NO_CONDITIONS: Conditions = { gust_pct: 0, rh_pct: 0, temp_c: 0, de
 export type Greenery = { share: number; level: "low" | "medium" | "high"; photos: number; corridor_m: number; method: string; source: string; photo_date: string | null };
 export type TopLine = { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number;
   downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number };
-  greenery?: Greenery | null; if_cut?: BuildingsOut & { customers: number } };
+  greenery?: Greenery | null; trees?: Trees | null; if_cut?: BuildingsOut & { customers: number } };
+/** Trees within `corridor_m` of a line's wires, counted on Vexcel aerial imagery (backend/la/trees.py). */
+export type Trees = { trees: number; spots: number; corridor_m: number; source: string; many: boolean };
+/** GET /la/buildings: the building records in use and the priority ladder they fill. */
+export type BuildingRecords = {
+  sources: string[]; n: number; costar: number; by_kind: Record<string, number>;
+  ladder: { tier: number; name: string; why: string; kinds: string[]; n: number; names: string[] }[];
+};
+export type Feedback = { n: number; reasons: { id: string; text: string; n: number }[]; notes: string[]; choices?: Record<string, string> };
 /** POST /la/simulate: physics for one moment + actions (+ Study conditions), never touching the Operate state. */
 export type SimResult = {
   is_safe: boolean; unserved_mw: number; customers_out: number; critical_on_backup: string[]; hospitals_on_backup: number;
@@ -77,9 +85,40 @@ export type SimResult = {
   lines: { risk: number[]; loading: number[]; energized: boolean[]; gust: number[]; rh: number[]; temp: number[] };
   buses_out: string[]; bus_load: Record<string, number>;
   situation: { n_high_risk: number; max_loading: number; n_overloaded: number; load_mw: number; max_gust: number; min_rh: number;
-               max_temp: number; people_downwind: number; hospitals_downwind: number };
+               max_temp: number; people_downwind: number; hospitals_downwind: number; water_plants_downwind: number };
   top_lines: TopLine[]; conditions: Conditions; t_utc: string;
+  fire_exposure: FireExposure; authority: Authority;
 };
+/** Buildings downwind of the lines still live at high fire risk (backend/la/exposure.py): the cost of not acting. */
+export type FireExposure = {
+  by_kind: Record<string, number>; score: number; hospitals: number; n: number; severity: Severity | null;
+  sites: { name: string; kind: string; source: string; severity: Severity; line: string; distance_km: number }[];
+};
+type Reading = { gust_ms: number | null; wind_ms: number | null; rh_pct: number | null; temp_c: number | null };
+/** GET /la/sensors: what each weather station measured against the weather the model ran on. */
+export type Station = {
+  id: string; name: string; lat: number; lon: number; at_utc: string | null; measured: Reading | null; model: Reading;
+  gust_diff_ms: number | null; rh_diff_pct: number | null; flag: "agrees" | "model_low" | "model_high" | "no_report"; drier: boolean;
+};
+export type Sensors = {
+  mode: "live" | "recorded"; source: string; t_utc: string; stations: Station[]; n: number; reporting: number; agree: number;
+  model_low: string[]; model_high: string[]; drier: string[]; level: "ok" | "warn" | "none"; tolerance: { gust_ms: number; rh_pct: number };
+};
+/** POST /la/risk: each high-risk line's likelihood and its two consequences, never added together. */
+export type Band = "high" | "medium" | "low";
+export type RiskRow = {
+  id: string; name: string | null; kv: number; zone: string; class: "sub" | "bulk"; index: number; ratio: number;
+  gust_ms: number; rh_pct: number; clearance_m: number; loading_pct: number; downwind: Downwind; exposure_band: Band;
+  if_cut: (BuildingsOut & { customers: number }) | null; greenery: Greenery | null; trees: Trees | null;
+};
+export type RiskRegister = {
+  t_utc: string; alarm: number; elevated_from: number; n_high: number; n_elevated: number; rows: RiskRow[];
+  matrix: { high: Record<Band, string[]>; elevated: Record<Band, number> };
+  bands: { people_high: number; people_medium: number; cone_km: number };
+};
+/** GET /la/record: the append-only decision record. */
+export type RecordEntry = { n: number; at_utc: string; kind: string; role: string; text: string; event: string | null; hour_utc: string | null; data: Record<string, unknown> };
+export type Role = "operator" | "supervisor";
 export type V5Case = { fire: string; event: string; nearest_line: string; n_lines: number; model_top_pct: number; gust_only_top_pct: number; split: string };
 export type Downwind = { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number };
 export type SitePoint = {
@@ -104,7 +143,7 @@ export type Site = {
   disclaimer: string;
 };
 /** GET /la/imagery: the stitched aerial picture under the map, if one has been built. */
-export type Imagery = { available: boolean; source: string; built_utc?: string; zoom?: number };
+export type Imagery = { available: boolean; source: string; built_utc?: string; zoom?: number; coverage?: number; fallback?: string | null };
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -135,8 +174,17 @@ export const la = {
     return JSON.parse((await r.text()).replace(/\bNaN\b/g, "null")) as T;
   },
   job: (id: string) => get<Job>(`/copilot/${id}`),
-  approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
-  reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
+  approve: (id: string, role: Role = "operator") => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`, { role }),
+  reject: (id: string, reasons: string[] = [], note = "", role: Role = "operator") =>
+    post<{ plan_status: Record<string, string>; feedback: Feedback }>(`/la/plans/${id}/reject`, { role, reasons, note }),
+  feedback: () => get<Feedback>("/la/feedback"),
+  buildings: () => get<BuildingRecords>("/la/buildings"),
+  escalate: (id: string) => post<{ plan_status: Record<string, string>; authority: Authority }>(`/la/plans/${id}/escalate`),
+  record: () => get<{ entries: RecordEntry[]; basis: string }>("/la/record"),
+  reset: () => post<{ entries: RecordEntry[] }>("/la/reset"),
+  sensors: (eid: string, t: string) => get<Sensors>(`/la/sensors/${eid}?t=${encodeURIComponent(t)}`),
+  risk: (event: string, t: string, actions: Action[] = [], conditions?: Conditions) =>
+    post<RiskRegister>("/la/risk", { event, t, actions, conditions }),
   refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
   // the site route takes replay events only; on the live forecast ask for the line's photos and facts without an hour
   site: (line: string, eid: string, i: number) => get<Site>(eid === "FX" ? `/la/site/${line}` : `/la/site/${line}?event=${eid}&i=${i}`),
@@ -146,4 +194,4 @@ export const la = {
 export const imageryUrl = (version: string) => `${API}/la/imagery/basemap.jpg?v=${encodeURIComponent(version)}`;
 export const resultUrl = (f: string) => `${API}/results/${f}`;
 export const siteImageUrl = (line: string, n: number, item: string) => `${API}/la/site/${line}/photo/${n}.jpg?v=${item}`;
-export type { Action, Job, Plan };
+export type { Action, Authority, Job, Plan };

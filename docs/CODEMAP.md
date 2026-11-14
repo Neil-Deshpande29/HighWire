@@ -234,3 +234,37 @@ Live values: fire model `legacy`, `g50` 6, `h50` 10, `c50` 5, `line_alarm` 0.3, 
 - `site_agent/greenery.py`: vegetated share of the 100 m corridor around a line, from its aerial photos (infrared when available). `site_agent/imagery.py` is the provider switch.
 - `backend/la/basemap.py`: the stitched aerial picture under the map; routes `GET /la/imagery` and `GET /la/imagery/basemap.jpg`; `make imagery`.
 - How CoStar and Vexcel data plug in: `docs/COSTAR.md`.
+
+## 11. The operator desk, Vexcel and the Buildings agent (2026-11-14, evening)
+
+**Right column** (`frontend/src/la/LAApp.tsx` holds the state; panels in `frontend/src/desk/` and `frontend/src/ui/`):
+situation (`ui/SituationCard.tsx`, pinned) → middle, the only part that scrolls: options table and the selected
+option (`desk/OptionsTable.tsx`), the agent team (`ui/TeamPanel.tsx`, with `desk/SynthesisGraph.tsx` and the priority
+ladder), or one sheet (`desk/sheets.tsx`: Risk by line, Sensors, Who is affected, Log; `desk/LineSheet.tsx`) →
+Approve bar (`desk/DecisionBar.tsx`: Approve, Reject with a reason, supervisor sign-off for big cuts) → timeline
+(`ui/Timeline.tsx`). Every option's numbers come from `POST /la/simulate` through `useSims` (`la/hooks.ts`).
+
+**Backend added** (all under `backend/la/` unless noted):
+
+| File | What it does | Route |
+|---|---|---|
+| `sensors.py` | weather stations against the model's weather (recorded ASOS for replays, NWS live for Now) | `GET /la/sensors/{event}` |
+| `exposure.py` | buildings downwind of lines left on at high risk; every simulation carries it | in `POST /la/simulate` |
+| `risk.py` | per-line likelihood and the two consequences, plus the matrix | `POST /la/risk` |
+| `authority.py` | who may approve; a big cut needs the supervisor role, enforced by the approve route | in simulate and plans |
+| `record.py` | append-only log of runs, plans, approvals, rejections | `GET /la/record`, `POST /la/reset` |
+| `feedback.py` | why plans were rejected, kept on disk for the coordinator | `POST /la/plans/{id}/reject`, `GET/DELETE /la/feedback` |
+| `vexcel.py`, `trees.py` | Vexcel API client; trees near a line's wires | (cache only) |
+| `basemap.py` | aerial picture under the map: Vexcel, USGS where Vexcel has none | `GET /la/imagery` |
+| `buildings.py` | building kinds, weights, the five-tier ladder; reads the CoStar extract when imported | `GET /la/buildings` |
+| `costar_import.py` | turns the CoStar extract into `data/processed/costar/buildings.json` | `make costar FILE=...` |
+| `agents/synthesis.py` | how the team's findings became plans, as graph data | in the co-pilot output |
+
+**Agent team**: Fire, Wind, Heat, Brownout and Buildings report to the coordinator. New agent tools in
+`agents/tools.py`: `get_building_impact` (what each line feeds, by tier) and `get_operator_feedback` (earlier
+rejections). The rule-based planner (`agents/mock_planner.py`) does the same in code: `buildings()`, `stations()`,
+`feedback()`. A rejection reason of "too many customers" or "critical site" adds a smaller shut-off to the next run,
+marked `from_feedback`; the physics check still decides whether it is safe.
+
+**Runtime data, git-ignored**: `data/processed/imagery/`, `data/processed/vexcel/`, `data/processed/costar/`,
+`data/processed/feedback/`. Tests never touch them (`backend/conftest.py`).

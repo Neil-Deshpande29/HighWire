@@ -33,3 +33,6 @@ data/processed/buildings/
 
 # Stitched aerial picture under the map (make imagery). A provider's tiles may be licensed.
 data/processed/imagery/
+
+# What the operator said when rejecting a plan (kept for the coordinator; runtime data, not code)
+data/processed/feedback/

@@ -6,10 +6,13 @@ export type Action = { type: string; target: string; mw?: number; pct?: number; 
 export type Severity = "high" | "medium" | "low";
 export type BuildingsOut = {
   by_kind: Record<string, number>; score: number; n: number; hospitals?: number; severity?: Severity | null;
+  ladder?: { tier: number; name: string; n: number }[];
   sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string; severity?: Severity }[];
 };
+/** Who may approve (backend/la/authority.py): the operator alone, only with a supervisor, or nobody (fails physics). */
+export type Authority = { level: "operator" | "supervisor" | "blocked"; reasons: string[]; basis: string };
 export type Plan = {
-  id: string; title: string; actions: Action[];
+  id: string; title: string; actions: Action[]; authority?: Authority; from_feedback?: boolean;
   steps: { action: Action; why: string; raised_by: string[]; buildings?: BuildingsOut }[];
   result: { is_safe: boolean; unserved_mw: number; customers_out: number; violations: string[]; critical_on_backup: string[]; n1_warnings: string[]; watch?: string[];
             hospitals_on_backup?: number; buildings_out?: BuildingsOut };
@@ -23,6 +26,17 @@ export type CopilotOutput = {
   fallback_reason?: string | null;
   /** Rule-based planner only: what each agent flagged, with the physical values it read (computed by code). */
   agent_findings?: Record<string, { target: string; issue: string; evidence: string; severity: number }[]>;
+  /** What the coordinator did with the operator's earlier rejections. */
+  feedback_used?: { reason: string; text: string; applied: string }[];
+  /** How the team's work came together (backend/agents/synthesis.py), drawn as a small graph. */
+  synthesis?: Synthesis;
+};
+export type Synthesis = {
+  mode: string;
+  agents: { id: string; name: string; findings: number; act_now: number; log_lines: number; raised_steps: number }[];
+  coordinator: { candidates: number | null; disagreements: number; feedback: number };
+  physics: { screened: number | null; safe: number | null; verified: number };
+  plans: { id: string; safe: boolean; from_feedback: boolean; raised_by: string[] }[];
 };
 /** Shared situation brief (backend/agents/brief.py): one deterministic page of facts every agent starts from. */
 export type BriefLine = {

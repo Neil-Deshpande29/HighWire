@@ -20,7 +20,10 @@ def _use_tmp(monkeypatch, tmp_path):
 
 def test_default_source_is_public_and_another_provider_is_one_setting(monkeypatch):
     monkeypatch.delenv("HIGHWIRE_BASEMAP_URL", raising=False)
+    monkeypatch.delenv("VEXCEL_API_KEY", raising=False)
     assert BM.source() == {"name": "USGS National Map", "url": BM.USGS}
+    monkeypatch.setenv("VEXCEL_API_KEY", "k")
+    assert BM.source() == {"name": "Vexcel", "url": None}  # a Vexcel key alone is enough
     monkeypatch.setenv("HIGHWIRE_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}?key=SECRET")
     monkeypatch.setenv("HIGHWIRE_BASEMAP_NAME", "Vexcel")
     assert BM.source()["name"] == "Vexcel" and "{z}" in BM.source()["url"]
@@ -55,3 +58,35 @@ def test_no_picture_until_built(monkeypatch, tmp_path):
     assert BM.meta() is None and BM.path() is None
     (tmp_path / "basemap.json").write_text(json.dumps({"source": "x"}))
     assert BM.meta() is None  # metadata without the picture does not count
+
+
+def test_vexcel_picture_falls_back_where_the_key_has_no_coverage(monkeypatch, tmp_path):
+    """Vexcel answers the southern areas, refuses the northern ones, and returns black for a strip: the public
+    picture shows through in both, and neither the key nor an address is saved."""
+    _use_tmp(monkeypatch, tmp_path)
+    monkeypatch.delenv("HIGHWIRE_BASEMAP_URL", raising=False)
+    monkeypatch.setenv("VEXCEL_API_KEY", "SECRET-KEY")
+    asked = []
+
+    def ortho(wkt, width, height):
+        import io
+
+        from backend.la import vexcel as V
+
+        south = min(float(p.split()[1]) for p in wkt.split("((")[1].split("))")[0].split(","))
+        asked.append((width, height))
+        if south > 34.15:
+            raise V.NotCovered("outside")
+        img = Image.new("RGB", (width, height), (200, 40, 40))
+        img.paste((0, 0, 0), (0, 0, width, height // 4))  # the top quarter has no imagery
+        buf = io.BytesIO()
+        img.save(buf, "JPEG")
+        return buf.getvalue()
+
+    meta = BM.build(zoom=9, fetch=lambda url: Image.new("RGB", (256, 256), (40, 40, 200)), ortho=ortho)
+    assert meta["source"] == "Vexcel" and meta["fallback"] == "USGS National Map" and 0.3 < meta["coverage"] < 0.6
+    assert meta["tiles"] == 8 and len(asked) == 12 and all(0.9 < h / w < 1.02 for w, h in asked)  # sized for Web Mercator at 34 N
+    assert "SECRET-KEY" not in (tmp_path / "basemap.json").read_text()
+    img = np.asarray(Image.open(BM.path())).astype(int)
+    red_minus_blue = img[..., 0] - img[..., 2]
+    assert red_minus_blue[-20].mean() > 20 and red_minus_blue[20].mean() < -20  # Vexcel in the south, the public picture in the north

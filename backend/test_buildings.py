@@ -45,7 +45,22 @@ def test_impact_counts_sites_not_substations():
 
 
 def test_no_buildings_no_impact():
-    assert B.outage_impact([]) == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "severity": None}
+    empty = B.outage_impact([])
+    assert {k: v for k, v in empty.items() if k != "ladder"} == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "severity": None}
+    assert [t["n"] for t in empty["ladder"]] == [0] * len(B.TIERS)
+
+
+def test_priority_ladder_matches_the_weights():
+    """Every kind sits on exactly one rung, and a higher rung never weighs less than a lower one."""
+    kinds = [k for t in B.TIERS for k in t["kinds"]]
+    assert sorted(kinds) == sorted(B.WEIGHTS) and [t["tier"] for t in B.TIERS] == [1, 2, 3, 4, 5]
+    for above, below in zip(B.TIERS, B.TIERS[1:]):
+        assert min(B.WEIGHTS[k] for k in above["kinds"]) >= max(B.WEIGHTS[k] for k in below["kinds"])
+    assert B.tier_of("hospital") == 1 and B.tier_of("water") == 2 and B.tier_of("school") == 3 and B.tier_of("never heard of it") == 5
+    filled = B.outage_impact(["B398"])["ladder"]  # four water plants and a hospital
+    assert [(t["tier"], t["n"]) for t in filled[:2]] == [(1, 1), (2, 4)] and sum(t["n"] for t in filled) == 5
+    info = B.summary()
+    assert info["n"] == sum(t["n"] for t in info["ladder"]) == sum(info["by_kind"].values()) and "osm" in info["sources"]
 
 
 def test_a_hospital_outweighs_any_number_of_offices_we_would_plausibly_see():
@@ -142,3 +157,25 @@ def test_each_plan_step_names_the_five_buildings_that_matter_most(wind):
     assert second["sites"] == sorted(second["sites"], key=lambda s: (-B.WEIGHTS[s["kind"]], s["name"]))
     assert all(s["severity"] == B.severity(s["kind"]) for s in second["sites"])
     assert plan["result"]["buildings_out"]["n"] == first["n"] + second["n"]  # the steps add up to the plan
+
+
+def test_costar_extract_is_read_by_column_name(tmp_path):
+    """The extract's layout is not published: columns are found by name, rows outside the grid are dropped, and a
+    file with no coordinates is skipped with a note instead of being guessed at."""
+    from backend.la import costar_import as CI
+
+    (tmp_path / "la.csv").write_text(
+        "Property ID,Property Name,PropertyType,Secondary Type,Latitude,Longitude,RBA,Year Built\n"
+        "1,Valley Medical Plaza,Health Care,Hospital,34.20,-118.45,250000,1988\n"
+        "2,Sunset Tower,Office,,34.09,-118.38,90000,1972\n"
+        "2,Sunset Tower (again),Office,,34.09,-118.38,90000,1972\n"
+        "3,Houston Warehouse,Industrial,Warehouse,29.76,-95.37,400000,2001\n")
+    (tmp_path / "leases.csv").write_text("LeaseID,Tenant,SF\n9,Acme,1000\n")
+    rows, notes = CI.convert(tmp_path)
+    assert [r["id"] for r in rows] == ["1", "2"]  # the duplicate id and the Houston row are gone
+    assert rows[0] == {"id": "1", "name": "Valley Medical Plaza", "property_type": "Health Care", "secondary_type": "Hospital",
+                       "lat": 34.20, "lon": -118.45, "size_sf": "250000", "year_built": "1988", "address": None}
+    assert [B.kind_of(r["property_type"], r["secondary_type"]) for r in rows] == ["hospital", "office"]
+    assert any("leases.csv: skipped, no latitude and longitude" in n for n in notes) and any("la.csv: kept 2 of 4 rows" in n for n in notes)
+    assert CI.find_columns(["LAT", "Lng", "Building Name", "Primary Property Type"]) == {
+        "lat": "LAT", "lon": "Lng", "name": "Building Name", "property_type": "Primary Property Type"}

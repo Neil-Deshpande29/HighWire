@@ -14,8 +14,8 @@ JOBS: dict[str, dict] = {}
 def start(state, first_line: str | None = None, on_done=None) -> str:
     """Create a job and plan on `state` in the background. Returns the job id the UI polls with.
     `state` is the synthetic region or an LA state; both carry `lock`, `plans` and `plan_status`.
-    `on_done(output)` runs once the plans are verified and before the job is marked done (the LA routes use it to stamp
-    each plan with who may approve it and to write the decision record)."""
+    `on_done(output, log_entries)` runs once the plans are verified and before the job is marked done (the LA routes
+    use it to stamp each plan with who may approve it, draw how the team's work came together, and write the record)."""
     job_id = uuid.uuid4().hex[:8]
     JOBS[job_id] = {"status": "running", "log": JobLog(), "output": None, "started": time.time()}
     if first_line:
@@ -32,7 +32,7 @@ def _run(job_id: str, state, on_done=None):
             state.plans = {p["id"]: p for p in out["plans"]}
             state.plan_status = {p["id"]: "pending" for p in out["plans"]}
         if on_done:
-            on_done(out)
+            on_done(out, job["log"].entries)
         job["output"] = out
         job["status"] = "done"
     except Exception as e:  # noqa: BLE001

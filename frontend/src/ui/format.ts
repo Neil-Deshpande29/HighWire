@@ -110,6 +110,8 @@ const BUILDING_WORDS: Record<string, [string, string]> = {
   school: ["school", "schools"], residential: ["residential building", "residential buildings"], industrial: ["industrial site", "industrial sites"],
   lodging: ["hotel", "hotels"], office: ["office", "offices"], retail: ["shop", "shops"], other: ["other building", "other buildings"],
 };
+/** "hospitals", "water plants": the plural word for a building kind. */
+export const kindPlural = (k: string) => (BUILDING_WORDS[k] ?? [k, `${k}s`])[1];
 /** "1 hospital · 4 water plants" from counts by kind (the backend sends them heaviest first). */
 export function buildingsText(byKind: Record<string, number>, sep = " · "): string {
   return Object.entries(byKind).map(([k, n]) => `${fmtInt(n)} ${(BUILDING_WORDS[k] ?? [k, `${k}s`])[n === 1 ? 0 : 1]}`).join(sep);

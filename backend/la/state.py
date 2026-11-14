@@ -289,6 +289,7 @@ class LAState:
         from site_agent import greenery as G
 
         from . import consequence as C
+        from . import trees as T
 
         sim = sim or self.sim
         g = self.grid
@@ -301,6 +302,7 @@ class LAState:
             row = {"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
                    "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(lat, lon, wf)}
             row["greenery"] = G.line_greenery(b["id"])  # from cached aerial photos; None until the line has photos
+            row["trees"] = T.line_trees(b["id"])  # trees near the wires, counted on Vexcel imagery; None until counted
             if n < CUT_IMPACT_LINES:
                 row["if_cut"] = self.cut_impact(b["id"], sim.get("actions"))
             rows.append(row)
