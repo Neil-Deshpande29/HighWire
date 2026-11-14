@@ -20,6 +20,8 @@ STAC = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 CROP = "https://planetarycomputer.microsoft.com/api/data/v1/item/crop/{minx},{miny},{maxx},{maxy}.jpg"
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data" / "processed" / "naip"
+RGB_BANDS = "image|1,2,3"
+NIR_BANDS = "image|4,1,2"  # near-infrared, red, green: lets greenery.py tell vegetation from bare ground
 HALF_KM = 0.6  # half-width of the box around the line's riskiest point: ~1.2 km across
 SIZE_PX = 512
 TIMEOUT_S = 60
@@ -44,9 +46,9 @@ def newest_item(lat: float, lon: float) -> dict | None:
     return {"id": f["id"], "datetime": f["properties"].get("datetime"), "gsd_m": f["properties"].get("gsd")}
 
 
-def crop_jpg(item_id: str, box: tuple[float, float, float, float], size: int = SIZE_PX) -> bytes:
+def crop_jpg(item_id: str, box: tuple[float, float, float, float], size: int = SIZE_PX, bands: str = RGB_BANDS) -> bytes:
     url = CROP.format(minx=box[0], miny=box[1], maxx=box[2], maxy=box[3])
-    params = {"collection": "naip", "item": item_id, "assets": "image", "asset_bidx": "image|1,2,3", "max_size": size}
+    params = {"collection": "naip", "item": item_id, "assets": "image", "asset_bidx": bands, "max_size": size}
     r = requests.get(url, params=params, timeout=TIMEOUT_S)
     r.raise_for_status()
     if not r.headers.get("content-type", "").split(";")[0].strip() in ("image/jpeg", "image/jpg"):
@@ -54,9 +56,31 @@ def crop_jpg(item_id: str, box: tuple[float, float, float, float], size: int = S
     return r.content
 
 
-
 def _paths(line_id: str, n: int) -> tuple[Path, Path]:
     return CACHE / f"{line_id}-{n}.json", CACHE / f"{line_id}-{n}.jpg"
+
+
+def _nir_path(line_id: str, n: int) -> Path:
+    return CACHE / f"{line_id}-{n}.nir.jpg"
+
+
+def _fetch_infrared(line_id: str, n: int, item_id: str, box) -> bool:
+    """Save the infrared crop that matches photo n. Optional: without it greenery.py falls back to colour alone."""
+    try:
+        _nir_path(line_id, n).write_bytes(crop_jpg(item_id, tuple(box), bands=NIR_BANDS))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def add_infrared(line_id: str) -> int:
+    """Fetch the infrared crop for every cached photo of a line that lacks one. Returns how many were added."""
+    added = 0
+    for n in range(8):
+        t = cached_tile(line_id, n)
+        if t and "nir" not in t:
+            added += _fetch_infrared(line_id, n, t["item"], t["bbox"])
+    return added
 
 
 def cached_tile(line_id: str, n: int, lat: float | None = None, lon: float | None = None) -> dict | None:
@@ -67,7 +91,8 @@ def cached_tile(line_id: str, n: int, lat: float | None = None, lon: float | Non
     m = json.loads(meta.read_text())
     if lat is not None and lon is not None and (abs(m["center"][0] - lat) > 1e-4 or abs(m["center"][1] - lon) > 1e-4):
         return None
-    return {**m, "img": str(img)}
+    nir = _nir_path(line_id, n)
+    return {**m, "img": str(img), **({"nir": str(nir)} if nir.exists() else {})}
 
 
 def tile_for(line_id: str, n: int, lat: float, lon: float, refresh: bool = False) -> dict | None:
@@ -85,7 +110,8 @@ def tile_for(line_id: str, n: int, lat: float, lon: float, refresh: bool = False
     meta = {"line": line_id, "n": n, "item": item["id"], "photo_date": (item["datetime"] or "")[:10], "gsd_m": item["gsd_m"],
             "center": [lat, lon], "bbox": list(box), "source": "USDA NAIP via Microsoft Planetary Computer"}
     meta_p.write_text(json.dumps(meta, indent=1))
-    return {**meta, "img": str(img_p)}
+    has_nir = _fetch_infrared(line_id, n, item["id"], box)
+    return {**meta, "img": str(img_p), **({"nir": str(_nir_path(line_id, n))} if has_nir else {})}
 
 
 def tiles_for(line_id: str, points: list[tuple[float, float]], fetch: bool = True) -> tuple[list[dict | None], list[str]]:
@@ -112,7 +138,8 @@ def main(argv: list[str]) -> None:
     for k, lid in enumerate(ids, 1):
         tiles, notes = tiles_for(lid, line_points(lid))
         got = sum(t is not None for t in tiles)
-        print(f"[{k}/{len(ids)}] {lid}: {got}/{len(tiles)} photos" + (f" ({notes[0]})" if notes else ""))
+        infrared = add_infrared(lid)
+        print(f"[{k}/{len(ids)}] {lid}: {got}/{len(tiles)} photos" + (f", {infrared} infrared added" if infrared else "") + (f" ({notes[0]})" if notes else ""))
 
 
 if __name__ == "__main__":

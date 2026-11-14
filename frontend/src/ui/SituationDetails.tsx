@@ -1,5 +1,5 @@
 import type { Hour, SimResult, TopLine } from "../la/api";
-import { degF, fmtPeople, mph } from "./format";
+import { buildingsText, degF, fmtInt, fmtPeople, mph } from "./format";
 
 /** Body of the "What's driving this" drawer: weather extremes, Red Flag status, storm damage, and the lines to look at.
  *  In Study the weather extremes come from the study physics (`sit`), everything else from the recorded hour. */
@@ -23,6 +23,16 @@ export default function SituationDetails({ hour, study, sit, tops, selLine, heat
             <button key={l.id} className={`mini ${selLine === l.id ? "on" : ""}`} onClick={() => onSelectLine(l.id)}>
               <b>{l.id}</b> <span>{Math.round(l.kv)} kV · gusts {mph(l.gust)} mph · humidity {Math.round(l.rh)}%</span>
               {l.downwind && <em>{fmtPeople(l.downwind.people)} people{l.downwind.hospitals ? ` · ${l.downwind.hospitals} hospital${l.downwind.hospitals > 1 ? "s" : ""}` : ""} downwind</em>}
+              {l.greenery && (
+                <em className={l.greenery.level === "high" ? "flag" : ""} title={`${l.greenery.photos} aerial photo${l.greenery.photos === 1 ? "" : "s"}, ${l.greenery.source}${l.greenery.photo_date ? `, ${l.greenery.photo_date}` : ""}; ${l.greenery.method} method`}>
+                  Vegetation near the wires: {l.greenery.level} ({Math.round(l.greenery.share * 100)}% within {l.greenery.corridor_m} m){l.greenery.level === "high" ? " · act on this line first" : ""}
+                </em>
+              )}
+              {l.if_cut && (
+                <em className={l.if_cut.hospitals ? "crit" : ""}>
+                  If cut: {l.if_cut.n ? `${buildingsText(l.if_cut.by_kind, ", ")} on backup` : "no listed building loses grid power"}{l.if_cut.customers ? ` · ${fmtInt(l.if_cut.customers)} customers` : ""}
+                </em>
+              )}
             </button>
           ))}
         </div>
