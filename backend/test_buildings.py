@@ -45,7 +45,7 @@ def test_impact_counts_sites_not_substations():
 
 
 def test_no_buildings_no_impact():
-    assert B.outage_impact([]) == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0}
+    assert B.outage_impact([]) == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "severity": None}
 
 
 def test_a_hospital_outweighs_any_number_of_offices_we_would_plausibly_see():
@@ -121,3 +121,24 @@ def test_plans_that_spare_critical_buildings_rank_first(grid):
     assert [p["actions"][0]["target"] for p in out["plans"]] == [without[0], with_hospital[0]]
     assert out["plans"][0]["result"]["buildings_out"]["score"] == 0 < out["plans"][1]["result"]["buildings_out"]["score"]
     assert out["plans"][1]["result"]["hospitals_on_backup"] >= 1
+
+
+def test_warning_levels_are_set_in_code():
+    assert [B.severity(k) for k in ("hospital", "water", "emergency", "medical", "school", "office", "anything else")] == \
+        ["high", "high", "high", "medium", "medium", "low", "low"]
+    assert B.outage_impact([])["severity"] is None
+    assert B.outage_impact(["B398"])["severity"] == "high"  # one hospital is enough, however many other buildings
+
+
+def test_each_plan_step_names_the_five_buildings_that_matter_most(wind):
+    flagged = [v.split(":")[0].replace("Line ", "") for v in wind.sim["violations"] if "fire risk" in v]
+    steps = [{"action": {"type": "open_line", "target": "L220"}, "why": "", "raised_by": []},
+             {"action": {"type": "deenergize_lines", "target": "flagged", "targets": flagged}, "why": "", "raised_by": []}]
+    plan = verify_output(wind, {"plans": [{"id": "P1", "title": "t", "steps": steps}]})["plans"][0]
+    first, second = (s["buildings"] for s in plan["steps"])
+    assert first["n"] == 0 and first["severity"] is None and first["sites"] == []  # L220 alone cuts nothing off
+    assert second["severity"] == "high" and 0 < len(second["sites"]) <= 5 < second["n"]
+    assert [s["kind"] for s in second["sites"][:2]] == ["hospital", "hospital"]  # heaviest first, then by name
+    assert second["sites"] == sorted(second["sites"], key=lambda s: (-B.WEIGHTS[s["kind"]], s["name"]))
+    assert all(s["severity"] == B.severity(s["kind"]) for s in second["sites"])
+    assert plan["result"]["buildings_out"]["n"] == first["n"] + second["n"]  # the steps add up to the plan

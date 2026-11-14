@@ -138,8 +138,12 @@ def summarize_result(r: dict) -> dict:
     built = r["totals"].get("buildings_out")  # LA grid only: the buildings behind cut-off substations, by kind
     if built is not None:
         out["hospitals_on_backup"] = built["hospitals"]
-        out["buildings_out"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "sites": built["sites"][:12]}
+        out["buildings_out"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "severity": built["severity"],
+                                "sites": built["sites"][:12]}
     return out
+
+
+WARNINGS_PER_STEP = 5  # buildings named per plan step; more than a handful stops being read
 
 
 def building_score(result: dict) -> int:
@@ -308,6 +312,10 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         steps = [s for s in (p.get("steps") or []) if isinstance(s, dict) and isinstance(s.get("action"), dict)][:3]
         actions = [s["action"] for s in steps]
         r = simulate(state, actions)
+        if hasattr(state, "step_impacts"):  # LA grid: what each step cuts off, the five heaviest named. Code picks them.
+            for step, built in zip(steps, state.step_impacts(actions)):
+                step["buildings"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "severity": built["severity"],
+                                     "sites": built["sites"][:WARNINGS_PER_STEP]}
         p["steps"] = steps
         p["id"] = p.get("id") or f"P{i + 1}"
         p["actions"] = actions

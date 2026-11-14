@@ -1,10 +1,45 @@
-import type { Plan } from "../api";
+import { useState } from "react";
+import type { BuildingsOut, Plan, Severity } from "../api";
 import type { LAStatic } from "../la/api";
 import { actionText, buildingsText, fmtInt, hospitalsOf, offLines, plainViolation } from "./format";
 
 const AGENT_NAME: Record<string, string> = {
   fire_agent: "Fire", wind_agent: "Wind", heat_agent: "Heat", brownout_agent: "Brownout", coordinator: "Coordinator", reports_agent: "Reports",
 };
+
+const SEVERITY: Record<Severity, { mark: string; word: string }> = {
+  high: { mark: "▲", word: "High" }, medium: { mark: "◆", word: "Medium" }, low: { mark: "●", word: "Low" },
+};
+const SOURCE: Record<string, string> = { osm: "OpenStreetMap", costar: "CoStar" };
+
+/** Warning level as a shape, a word and a colour, so it never depends on colour alone. */
+function Sev({ level }: { level: Severity }) {
+  return <span className={`sev sev-${level}`}>{SEVERITY[level].mark} {SEVERITY[level].word}</span>;
+}
+
+/** What one plan step cuts off: a chip that opens the five buildings that matter most. Code ranks them, not a model. */
+function StepWarnings({ built }: { built: BuildingsOut }) {
+  const [open, setOpen] = useState(false);
+  if (!built.n || !built.severity) return <div className="step-clear">● No listed building loses grid power in this step.</div>;
+  return (
+    <div className="step-warn">
+      <button className={`warn-chip sev-${built.severity}`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {SEVERITY[built.severity].mark} {SEVERITY[built.severity].word} · {buildingsText(built.by_kind, ", ")} without grid power
+      </button>
+      {open && (
+        <ul className="warn-list">
+          {built.sites.map((b) => (
+            <li key={`${b.name}|${b.bus}`}>
+              {b.severity && <Sev level={b.severity} />} <b>{b.name}</b>
+              <span className="muted"> · {b.kind.replace("_", " ")}{b.backup_hours ? ` · about ${Math.round(b.backup_hours)} h of backup` : " · backup not known"} · {SOURCE[b.source] ?? b.source}</span>
+            </li>
+          ))}
+          {built.n > built.sites.length && <li className="muted">and {built.n - built.sites.length} more, listed in the responder bulletin after approval</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export type PlanNums = { highRiskOff: number; customers: number; hospitals: number; ok: boolean; reason: string | null };
 
@@ -36,7 +71,9 @@ export default function PlanCard({ plan, s, sentence, nums, selected, status, ca
         <div className={nums.hospitals ? "warn" : ""}><b>{nums.hospitals}</b><span>hospitals on backup</span></div>
         <div className={nums.ok ? "pass" : "fail"}><b>{nums.ok ? "Passed" : "Failed"}</b><span>physics check</span></div>
       </div>
-      {built && built.n > 0 && <div className="plan-buildings">Without grid power: <b>{buildingsText(built.by_kind)}</b></div>}
+      {built && built.n > 0 && (
+        <div className="plan-buildings">{built.severity && <Sev level={built.severity} />} Without grid power: <b>{buildingsText(built.by_kind)}</b></div>
+      )}
       {!nums.ok && <div className="why-not">Can't be approved: {nums.reason}{nViol > 1 ? ` (+${nViol - 1} more)` : ""}.</div>}
       <details className="drawer" onClick={(e) => e.stopPropagation()}>
         <summary>Details</summary>
@@ -45,6 +82,7 @@ export default function PlanCard({ plan, s, sentence, nums, selected, status, ca
             {plan.steps.map((st, i) => (
               <li key={i}>
                 <b>{actionText(st.action, s)}</b>
+                {st.buildings && <StepWarnings built={st.buildings} />}
                 {st.why && <div className="muted">{st.why}</div>}
                 {st.raised_by.length > 0 && <div className="tags">{st.raised_by.map((a) => <span key={a} className="tag">{AGENT_NAME[a] ?? a} agent</span>)}</div>}
               </li>
