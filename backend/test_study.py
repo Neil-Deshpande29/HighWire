@@ -122,3 +122,24 @@ def test_fire_checks_name_the_igniting_substation(client):
     hot = [l for l, v in st.sim["lines"].items() if v["energized"] and v["fire_risk"] >= alarm and st.lines[l]["kv"] < 180 and not st.lines[l]["cable"]]
     sim = st.simulate([{"type": "deenergize_lines", "target": "flagged", "targets": hot}])
     assert not sim["buses"][sub["id"]]["energized"]
+
+
+def test_brief_follows_study_state(grid):
+    """Agents planning on a Study state must be briefed on that state, not on the recorded hour."""
+    from backend.agents.brief import build_brief
+
+    alarm = D.calibration()["fire"]["line_alarm"]
+    hot = lambda s: sum(v["energized"] and v["fire_risk"] >= alarm and not s.lines[k]["cable"] for k, v in s.sim["lines"].items())  # noqa: E731
+    st = LAState("E1", "2018-11-08T21:00:00Z", grid=grid)
+    b0 = build_brief(st)
+    assert b0["fire"]["n_over_alarm"] > 0  # operate: recorded replay facts
+    wet = st.with_conditions({"rh_pct": 100})
+    bw = build_brief(wet)
+    assert bw["fire"]["n_over_alarm"] == hot(wet) < b0["fire"]["n_over_alarm"]
+    assert bw["weather"]["min_rh_pct"] > b0["weather"]["min_rh_pct"]
+    off = st.with_conditions(None)
+    first = b0["fire"]["shut_off_candidates"][0]["id"]
+    off.apply_actions([{"type": "open_line", "target": first}])
+    bo = build_brief(off)
+    assert first not in [x["id"] for x in bo["fire"]["shut_off_candidates"]]
+    assert bo["fire"]["n_over_alarm"] == hot(off)

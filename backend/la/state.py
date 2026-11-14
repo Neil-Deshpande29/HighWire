@@ -222,7 +222,8 @@ class LAState:
         return {"lines": lines, "buses": buses, "gens": {},
                 "totals": {"unserved_mw": round(tot_uns, 1), "customers_out": int(tot_uns * CUSTOMERS_PER_MW),
                            "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0)},
-                "violations": viol, "n1_warnings": [], "watch": watch, "actions": actions or [], "is_safe": not viol}
+                "violations": viol, "n1_warnings": [], "watch": watch, "actions": actions or [], "is_safe": not viol,
+                "region_index": round(float(r["region_index"][0]), 1)}
 
     def recompute(self):
         with self.lock:
@@ -266,6 +267,41 @@ class LAState:
                 "lines": {k: {"status": v["status"], "fire_risk": v["fire_risk"], "loading_pct": v["loading_pct"], "energized": v["energized"]}
                           for k, v in s["lines"].items()},
                 "plan_status": self.plan_status, "bulletin": self.bulletin}
+
+    def is_modified(self) -> bool:
+        """True when this state differs from the recorded hour (Study conditions or operator changes), so facts must come
+        from its own physics rather than the precomputed replay."""
+        return bool(any((self.conditions or {}).values()) or self.operator_opened or self.deenergized or self.shed or self.caps
+                    or getattr(self, "imp_override", None))
+
+    def fire_lines(self, sim: dict | None = None, limit: int = 25):
+        """Energized overhead lines at or above the fire alarm in `sim` (default: this state's own), riskiest first, in the
+        replay's over_alarm row shape with the downwind cone for this hour's wind. Returns (rows, cone points, total count)."""
+        from . import consequence as C
+
+        sim = sim or self.sim
+        g = self.grid
+        alarm = D.calibration()["fire"]["line_alarm"]
+        L = [sim["lines"][b["id"]] for b in g.branches]
+        hot = sorted([k for k, l in enumerate(L) if l["energized"] and l["fire_risk"] >= alarm and not g.branches[k]["cable"]],
+                     key=lambda k: -L[k]["fire_risk"])
+        wx, h = self.wx, self.hour_idx
+        wdir = wx["wind_direction_10m"][h]
+        rows, pts = [], []
+        for k in hot[:limit]:
+            b = g.branches[k]
+            lat, lon = np.array(b["geometry"]).mean(0)[:2]
+            wf = float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
+            pts.append((float(lat), float(lon), wf))
+            rows.append({"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
+                         "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)})
+        return rows, pts, len(hot)
+
+    def weather_extremes(self) -> dict:
+        """Worst gridded weather this hour, from this state's own (possibly Study-scaled) inputs."""
+        wx, h = self.wx, self.hour_idx
+        return {"max_gust": round(float(np.nanmax(wx["wind_gusts_10m"][h])), 1), "min_rh": round(float(np.nanmin(wx["relative_humidity_2m"][h])), 0),
+                "max_temp": round(float(np.nanmax(wx["temperature_2m"][h])), 1)}
 
     def copy_for_planning(self):
         return copy.copy(self)

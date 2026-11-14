@@ -342,31 +342,13 @@ def _base_state(event: str, t: str | None):
 
 def _sim_payload(st, actions: list[dict]) -> dict:
     """Plan-result shape + per-line arrays (branch order) + situation numbers, for the map and the changes tray."""
-    import numpy as np
-
     from .la import consequence as C
 
     sim = st.simulate(actions)
     g = st.grid
-    alarm = LAD.calibration()["fire"]["line_alarm"]
     L = [sim["lines"][b["id"]] for b in g.branches]
-    hot = sorted([k for k, l in enumerate(L) if l["energized"] and l["fire_risk"] >= alarm and not g.branches[k]["cable"]],
-                 key=lambda k: -L[k]["fire_risk"])
-    wx, h = st.wx, st.hour_idx
-    wdir = wx["wind_direction_10m"][h]
-
-    def wind_from(lat, lon):
-        return float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
-
-    top = []
-    pts = []
-    for k in hot[:25]:
-        b = g.branches[k]
-        lat, lon = np.array(b["geometry"]).mean(0)[:2]
-        wf = wind_from(lat, lon)
-        pts.append((float(lat), float(lon), wf))
-        top.append({"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
-                    "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)})
+    top, pts, n_hot = st.fire_lines(sim)
+    wxx = st.weather_extremes()
     dw = C.downwind_union(pts) if pts else {"people": 0, "hospitals": 0, "water_plants": 0}
     crit = sim["totals"]["critical_on_backup"]
     load = {bid: round(st.buses[bid]["load_mw"], 1) for bid in st.buses if st.buses[bid]["load_mw"] > 0.5}
@@ -379,10 +361,9 @@ def _sim_payload(st, actions: list[dict]) -> dict:
                   "gust": [l["gust_ms"] for l in L], "rh": [l["rh_pct"] for l in L], "temp": [l["temp_c"] for l in L]},
         "buses_out": [bid for bid, b in sim["buses"].items() if b["unserved_mw"] > 0.05],
         "bus_load": load,
-        "situation": {"n_high_risk": len(hot), "max_loading": round(max(l["loading_pct"] for l in L), 0),
+        "situation": {"n_high_risk": n_hot, "max_loading": round(max(l["loading_pct"] for l in L), 0),
                       "n_overloaded": int(sum(bool(l["energized"]) and l["loading_pct"] > 100 for l in L)), "load_mw": sim["totals"]["load_mw"],
-                      "max_gust": round(float(np.nanmax(wx["wind_gusts_10m"][h])), 1), "min_rh": round(float(np.nanmin(wx["relative_humidity_2m"][h])), 0),
-                      "max_temp": round(float(np.nanmax(wx["temperature_2m"][h])), 1),
+                      **wxx,
                       "people_downwind": int(dw["people"]), "hospitals_downwind": int(dw["hospitals"])},
         "top_lines": top, "conditions": st.conditions, "t_utc": st.t_utc.isoformat(),
     }

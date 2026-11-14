@@ -55,7 +55,8 @@ def build_brief(state) -> dict:
     """The situation brief for an LA replay state (cached on the state). Synthetic states get a minimal brief."""
     cache = state.__dict__.get("_brief")
     key = (getattr(state, "eid", None), str(getattr(state, "t_utc", "")), tuple(getattr(state, "operator_opened", [])),
-           _site_cache_stamp())
+           json.dumps(getattr(state, "conditions", None), sort_keys=True), json.dumps(getattr(state, "caps", None), sort_keys=True),
+           json.dumps(getattr(state, "shed", None), sort_keys=True), _site_cache_stamp())
     if cache and cache[0] == key:
         return cache[1]
     brief = _build_la(state) if hasattr(state, "grid") else _build_synthetic(state)
@@ -71,6 +72,13 @@ def _build_la(state) -> dict:
     h = RP.hour(state.eid, t=state.t_utc.isoformat())
     fc = D.calibration()["fire"]
     over = h.get("over_alarm") or []
+    if getattr(state, "is_modified", lambda: False)():
+        # Study conditions or operator changes: the precomputed replay no longer describes this grid, so the fire lines,
+        # region index and weather come from this state's own physics (same engine and calibration). Red Flag zones are
+        # the warnings NWS actually had in force; the storm-damage index needs the weather history, so it stays recorded.
+        over, _, n_hot = state.fire_lines()
+        h = {**h, "over_alarm": over, "n_over_alarm": n_hot, "region_index": sim.get("region_index"),
+             "weather": {**(h.get("weather") or {}), **state.weather_extremes()}}
 
     def line_row(x):
         dw = x.get("downwind") or {}
