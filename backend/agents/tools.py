@@ -130,6 +130,7 @@ def summarize_result(r: dict) -> dict:
         "critical_on_backup": r["totals"]["critical_on_backup"],
         "violations": r["violations"],
         "n1_warnings": r["n1_warnings"],
+        "watch": r.get("watch", []),
     }
 
 

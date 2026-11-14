@@ -109,3 +109,20 @@ def test_five_day_hindcast_under_two_minutes(grid):
     r = E.hindcast(grid, wx, hrs, ld, sc)
     assert time.time() - t < 120
     assert r["line_risk"].shape == (len(hrs), grid.nl) and len(hrs) == 120
+
+
+# ---------------------------------------------------------------- co-pilot safety policy on the real grid
+def test_la_copilot_finds_safe_psps_plan_mid_event(grid):
+    """E1, Nov 8 2018 15:00 PST: dozens of lines above the fire alarm. The utility-style policy (sub-transmission
+    lines are violations, bulk 220-500 kV lines are patrol items) must yield an approvable plan without a blackout."""
+    from backend.agents.mock_planner import run_mock
+    from backend.agents.tools import JobLog
+    from backend.la.state import LAState
+
+    st = LAState("E1", "2018-11-08T15:00:00-08:00", grid=grid)
+    assert len(st.sim["violations"]) > 5 and st.sim["watch"]
+    out = run_mock(st, JobLog(), pace=0)
+    p1 = out["plans"][0]
+    assert not out["no_safe_option"] and p1["result"]["is_safe"]
+    assert p1["result"]["unserved_mw"] < 0.1 * st.sim["totals"]["load_mw"]
+    assert p1["result"]["watch"], "bulk lines above the alarm should be listed for patrol"

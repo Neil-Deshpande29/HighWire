@@ -15,6 +15,14 @@ from . import data as D
 from . import engine as E
 
 CUSTOMERS_PER_MW = 500
+# Utility-style safety policy (validation/DECISIONS.md, "Co-pilot safety policy"):
+#  * a sub-transmission line (< 180 kV) above the fire alarm is a VIOLATION (de-energize it, PSPS style);
+#  * a bulk 220-500 kV line above the alarm is a WATCH item (patrol/monitor): these are the import corridors that
+#    feed the basin, and utilities keep them energized during PSPS (SCE's Jan 2025 PSPS cut 373 distribution circuits);
+#  * overloads, conductor over max temperature, clearance < 3 m, and blackouts (> 10% of regional load unserved)
+#    stay violations.
+SUBTRANSMISSION_MAX_KV = 180.0
+MAX_UNSERVED_FRACTION = 0.10
 
 
 class LAState:
@@ -80,6 +88,8 @@ class LAState:
         g = self.grid
         top = g.base_topology()
         shed = dict(self.shed)
+        imp = dict(getattr(self, "imp_override", {}))
+        imp_ids = {x["id"]: g.bix[x["bus"]] for x in D.grid()["imports"]}
         errors = []
         opened = set(self.operator_opened)
         deen = set(self.deenergized)
@@ -96,7 +106,10 @@ class LAState:
             elif t == "shed_load":
                 shed[a["target"]] = shed.get(a["target"], 0.0) + float(a.get("mw", 0))
             elif t == "dispatch_gen":
-                errors.append("dispatch_gen is not modeled on the LA grid (plants are dispatched pro rata)")
+                if a.get("target") in imp_ids:  # redispatch an import point; the island slack absorbs the change
+                    imp[imp_ids[a["target"]]] = max(0.0, float(a.get("mw", 0)))
+                else:
+                    errors.append("dispatch_gen on the LA grid applies to import points I1..In only (plants are dispatched pro rata)")
             else:
                 errors.append(f"Invalid action type {t!r}")
         for lid in opened:
@@ -109,16 +122,18 @@ class LAState:
                 top.bus_on[g.bix[bid]] = False
             else:
                 errors.append(f"Invalid action: unknown bus {bid}")
+        self._last_imp = imp
         return top, shed, errors, opened, deen
 
     def simulate(self, actions=None) -> dict:
         g = self.grid
         top, shed, errors, opened, deen = self._topology(actions)
-        r = E.hindcast(g, self.wx, np.array([self.hour_idx]), self.ldwp, self.sce, top=top, shed=shed)
+        imp = self._last_imp
+        r = E.hindcast(g, self.wx, np.array([self.hour_idx]), self.ldwp, self.sce, top=top, shed=shed, imp_override=imp)
         cal = D.calibration()["fire"]
         alarm = cal["line_alarm"]
         on = r["energized"]
-        lines, viol = {}, []
+        lines, viol, watch = {}, [], []
         for i, l in enumerate(g.branches):
             lid = l["id"]
             lv = []
@@ -128,7 +143,11 @@ class LAState:
             clr = float(r["line_clear"][0, i])
             if on[i]:
                 if risk >= alarm and not l["cable"]:
-                    lv.append(f"Line {lid}: fire risk {risk:.2f} >= {alarm:.2f} (gust {r['line_gust'][0, i]:.0f} m/s, RH {r['line_rh'][0, i]:.0f}%)")
+                    msg = f"Line {lid}: fire risk {risk:.2f} >= {alarm:.2f} (gust {r['line_gust'][0, i]:.0f} m/s, RH {r['line_rh'][0, i]:.0f}%)"
+                    if l["kv"] < SUBTRANSMISSION_MAX_KV:
+                        lv.append(msg)
+                    else:
+                        watch.append(f"{msg.replace('Line ', 'Patrol ', 1)}: {l['kv']:.0f} kV import corridor kept energized")
                 if clr < 3.0:
                     lv.append(f"Line {lid}: clearance {clr:.1f} m < 3.0 m (wind blowout toward trees)")
                 if loading > 100:
@@ -141,7 +160,7 @@ class LAState:
                           "loading_pct": round(loading, 1), "temp_c": round(temp, 1), "sag_m": round(float(r["line_sag"][0, i]), 2),
                           "clearance_m": round(min(clr, 99.0), 2), "blowout_m": 0.0, "swing_deg": 0.0, "fire_risk": round(risk, 3),
                           "gust_ms": round(float(r["line_gust"][0, i]), 1), "violations": lv}
-        P, load = g.injections(self.ldwp, self.sce, top, shed)
+        P, load = g.injections(self.ldwp, self.sce, top, shed, imp)
         _, full = g.injections(self.ldwp, self.sce, g.base_topology())
         _, sourced, _, _ = g.ptdf(top)
         buses, backup = {}, []
@@ -149,7 +168,8 @@ class LAState:
             served = float(load[0, i]) if sourced[i] else 0.0
             uns = float(full[0, i]) - served
             info = self.buses[b["id"]]
-            ob = info["critical"] and uns > 0.05
+            # a critical site goes to backup only if its substation loses supply (partial rotating shed skips its feeder)
+            ob = info["critical"] and (not sourced[i] or not top.bus_on[i])
             if ob:
                 backup.append(b["id"])
             buses[b["id"]] = {"id": b["id"], "served_mw": round(served, 1), "unserved_mw": round(max(uns, 0.0), 1),
@@ -157,10 +177,13 @@ class LAState:
                               "deenergized": b["id"] in deen, "on_backup": ob}
         viol += errors
         tot_uns = sum(x["unserved_mw"] for x in buses.values())
+        total_load = float(full.sum())
+        if total_load > 0 and tot_uns > MAX_UNSERVED_FRACTION * total_load:
+            viol.append(f"Blackout: {tot_uns:.0f} MW unserved is {tot_uns / total_load * 100:.0f}% of regional load (limit {MAX_UNSERVED_FRACTION * 100:.0f}%)")
         return {"lines": lines, "buses": buses, "gens": {},
                 "totals": {"unserved_mw": round(tot_uns, 1), "customers_out": int(tot_uns * CUSTOMERS_PER_MW),
                            "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0)},
-                "violations": viol, "n1_warnings": [], "actions": actions or [], "is_safe": not viol}
+                "violations": viol, "n1_warnings": [], "watch": watch, "actions": actions or [], "is_safe": not viol}
 
     def recompute(self):
         with self.lock:
@@ -188,6 +211,10 @@ class LAState:
                     self.deenergized.append(a["target"])
                 elif a["type"] == "shed_load":
                     self.shed[a["target"]] = self.shed.get(a["target"], 0.0) + float(a.get("mw", 0))
+                elif a["type"] == "dispatch_gen":
+                    imp_ids = {x["id"]: self.grid.bix[x["bus"]] for x in D.grid()["imports"]}
+                    if a["target"] in imp_ids:
+                        self.imp_override = {**getattr(self, "imp_override", {}), imp_ids[a["target"]]: float(a.get("mw", 0))}
             self.recompute()
 
     def view(self) -> dict:

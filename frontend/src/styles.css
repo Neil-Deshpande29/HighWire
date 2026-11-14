@@ -197,3 +197,6 @@ ul.dis { margin: 4px 0; padding-left: 18px; color: #fde68a; font-size: 12px; }
 .zoom { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); display: grid; place-items: center; z-index: 50; cursor: zoom-out; }
 .zoom img { max-width: 94vw; max-height: 94vh; background: #fff; border-radius: 6px; }
 .pad { padding: 20px; }
+.watch { font-size: 11.5px; color: #fde68a; margin: 4px 0; }
+.watch summary { cursor: pointer; }
+.watch ul { margin: 4px 0; padding-left: 18px; color: #fcd34d; }

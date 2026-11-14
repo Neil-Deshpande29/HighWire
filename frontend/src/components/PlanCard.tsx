@@ -59,6 +59,12 @@ export default function PlanCard({ plan, status, onApprove, onReject, onHover, b
         <span>{r.customers_out.toLocaleString()} customers out</span>
       </div>
       {r.violations.length > 0 && <ul className="viol">{r.violations.map((v) => <li key={v}>{v}</li>)}</ul>}
+      {r.watch && r.watch.length > 0 && (
+        <details className="watch">
+          <summary>Patrol &amp; monitor: {r.watch.length} bulk 220-500 kV line{r.watch.length === 1 ? "" : "s"} above the fire alarm stay energized</summary>
+          <ul>{r.watch.slice(0, 12).map((w) => <li key={w}>{w}</li>)}{r.watch.length > 12 && <li>+{r.watch.length - 12} more (in the bulletin)</li>}</ul>
+        </details>
+      )}
       <div className="tradeoffs">{plan.tradeoffs}</div>
       <div className="conf">
         <span>Confidence</span>

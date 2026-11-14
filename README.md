@@ -33,8 +33,10 @@ Open http://localhost:5173. There are three tabs:
    C1-C3 calm weeks; each is tagged train or test). Scrub or play the hours. Lines are colored by fire risk (by
    loading for heat waves). The map also shows wind arrows, active Red Flag zones and fire origins at their real
    ignition times. The chart under the map is **model vs reality**: our risk index against actual LA County customers
-   out, with the lead time marked. **Run Co-Pilot at this hour** runs the agent team on the real grid. Plans can
-   include PSPS-style group shutoffs, and every plan is physics-checked before approval.
+   out, with the lead time marked. **Run Co-Pilot at this hour** runs the agent team on the real grid. Plans follow
+   a utility-style rule: flagged sub-transmission lines get a PSPS-style shutoff, while flagged 220-500 kV import
+   corridors stay on and are listed for patrol. Overloads and blackouts are never allowed, and every plan is
+   physics-checked before approval (see DECISIONS.md, "Co-pilot safety policy").
 2. **Validation.** One card per check (V1-V7) with the headline number, its baseline, the plot, and a plain sentence
    on what it does and doesn't prove.
 3. **What-if (synthetic).** The Phase-1 demo region (scenario presets, breaker clicks, reports, co-pilot).

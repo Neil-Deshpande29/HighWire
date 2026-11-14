@@ -179,9 +179,11 @@ class LAGrid:
         self._ptdf_cache[key] = out
         return out
 
-    def injections(self, ldwp_mw, sce_mw, top: Topology, shed=None):
+    def injections(self, ldwp_mw, sce_mw, top: Topology, shed=None, imp_override=None):
         """Bus injections (hours x nb) in MW. Loads from BA demand x population shares; in-basin plants supply
-        LOCAL_GEN_FRACTION of load pro rata to nameplate; imports split evenly over import buses (slack absorbs residual)."""
+        LOCAL_GEN_FRACTION of load pro rata to nameplate; imports split evenly over import buses (slack absorbs residual).
+        imp_override {bus_index: MW} redispatches individual import points (operator action); the island slack absorbs
+        the difference."""
         ldwp_mw = np.atleast_1d(np.asarray(ldwp_mw, float))
         sce_mw = np.atleast_1d(np.asarray(sce_mw, float))
         load = ldwp_mw[:, None] * self.share["LDWP"][None] * self.ba_scale["LDWP"] + sce_mw[:, None] * self.share["SCE"][None] * self.ba_scale["SCE"]
@@ -199,6 +201,9 @@ class LAGrid:
         n_imp = max(imp_on.sum(), 1)
         imp_total = total - (frac * cap)
         np.add.at(P, (slice(None), self.imp_bus), (imp_total[:, None] / n_imp) * imp_on[None])
+        for b, mw in (imp_override or {}).items():
+            share = (imp_total / n_imp) * float(top.bus_on[b])
+            P[:, b] += np.asarray(mw, float) - share  # replace this import point's even share with the dispatched MW
         return P, load
 
     def flows(self, P, top: Topology):
@@ -245,13 +250,13 @@ def tower_weather(grid: LAGrid, wx: dict, hours_idx, cal=None):
 
 # ---------------------------------------------------------------- full hindcast for a set of hours
 def hindcast(grid: LAGrid, wx: dict, hours_idx, ldwp_mw, sce_mw, top: Topology | None = None, shed=None, cal=None,
-             thermal=True):
+             thermal=True, imp_override=None):
     """Returns dict of arrays. Shapes: per-tower (H, ntower), per-line (H, nl), per-hour (H,)."""
     cal = cal or D.calibration()
     top = top or grid.base_topology()
     hours_idx = np.atleast_1d(hours_idx)
     W = tower_weather(grid, wx, hours_idx, cal)
-    P, load = grid.injections(ldwp_mw, sce_mw, top, shed)
+    P, load = grid.injections(ldwp_mw, sce_mw, top, shed, imp_override)
     F, sourced = grid.flows(P, top)  # MW (H, nl)
     on, _ = grid.islands(top)
     F = F * on[None]

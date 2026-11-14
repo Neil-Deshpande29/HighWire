@@ -81,6 +81,22 @@ first run are marked **(post-hoc, disclosed)**.
 - **V4b look-back window** (rolling max over k hours) is chosen on 2019-2021 for the index and the baseline separately.
 - **V5** ranks overhead lines only; percentile = rank / N (ties averaged), 0% = riskiest.
 
+## Co-pilot safety policy on the LA grid (changed after first demo, does not affect calibration or V1-V7)
+- First version: every line above the fire alarm was a violation, and plans were capped at 3 actions. In Santa Ana
+  hours 25-42 lines (median) exceed the alarm and about 60% are 220-500 kV import corridors, so almost no hour had an
+  approvable plan. Utilities don't work that way: SCE's Jan 2025 PSPS cut 373 distribution circuits and kept the bulk
+  network on.
+- Now: sub-transmission lines (< 180 kV) above the alarm are violations; bulk 220-500 kV lines above it are
+  patrol-and-monitor items (listed on the plan and in the bulletin). Overloads, conductor over max temperature,
+  clearance < 3 m, and blackouts (> 10% of regional load unserved) remain violations.
+- New plan actions: one `deenergize_lines` group for all flagged sub-transmission lines; when a shutoff creates a new
+  overload, the planner sheds load at the bus with the highest power-flow sensitivity (substations hosting a
+  hospital/water plant can rotate up to 50% of their load, never the critical feeder) or redispatches an import point
+  (`dispatch_gen` on I1..In; the island slack absorbs the change). A critical site counts as on backup only if its
+  substation loses supply.
+- Result over every flagged hour of E1/E2/E3 (102 hours): 100 have an approvable plan, 2 do not (overloads the
+  3-action limit cannot fix); measured during development, not part of the validation report.
+
 ## Product
 - The LA replay runs alongside the Phase-1 synthetic "what-if" scenarios (kept as-is). The LA view uses a 3x vertical exaggeration.
 - Project renamed Highwire (folder `highwire/`).

@@ -16,6 +16,11 @@ import time
 from ..physics import simulate
 from .tools import JobLog, summarize_result, verify_output
 
+try:
+    from ..la import data as D
+except Exception:  # noqa: BLE001
+    D = None
+
 PACE_S = float(os.environ.get("MOCK_PACE", "0.35"))
 MAX_SIMS = 500
 
@@ -153,19 +158,24 @@ class _Planner:
             if m:
                 fire_lines.append((m.group(1), float(m.group(2)), v))
         if fire_lines:
-            # PSPS-style groups by terrain zone and voltage tier (sub-transmission <= 138 kV vs bulk >= 220 kV import corridors)
+            # Only sub-transmission lines are violations (bulk 220-500 kV lines are patrol/watch items, see la/state.py).
+            ids_all = [l for l, _, _ in sorted(fire_lines, key=lambda x: -x[1])]
+            if len(ids_all) >= 2:
+                add({"type": "deenergize_lines", "target": "all sub-transmission lines over fire alarm", "targets": ids_all},
+                    f"PSPS-style shutoff of all {len(ids_all)} sub-transmission line(s) above the calibrated fire alarm "
+                    f"(worst {max(rk for _, rk, _ in fire_lines):.2f}); bulk import corridors stay on and are patrolled.",
+                    ["fire_agent", "wind_agent"], f"PSPS: de-energize all {len(ids_all)} flagged sub-transmission lines")
             by_zone = {}
             for l, rk, _ in fire_lines:
-                tier = "sub-transmission" if st.lines[l].get("kv", 66) < 180 else "bulk"
-                by_zone.setdefault((st.lines[l]["zone"], tier), []).append((rk, l))
-            for (z, tier), items in sorted(by_zone.items(), key=lambda kv: (kv[0][1] == "bulk", -len(kv[1]))):
-                ids = [l for _, l in sorted(items, reverse=True)]
-                if len(ids) < 2:
-                    continue  # a single line is covered by the individual open_line candidates below
-                add({"type": "deenergize_lines", "target": f"{z} {tier} lines over fire alarm", "targets": ids},
-                    f"PSPS-style shutoff of {len(ids)} {z} {tier} line(s) whose fire risk exceeds the calibrated alarm (worst {max(items)[0]:.2f})."
-                    + (" Bulk lines carry imports into the basin; expect load loss." if tier == "bulk" else ""),
-                    ["fire_agent", "wind_agent"], f"de-energize {len(ids)} {z} {tier} lines")
+                by_zone.setdefault(st.lines[l]["zone"], []).append((rk, l))
+            if len(by_zone) > 1:
+                for z, items in sorted(by_zone.items(), key=lambda kv: -len(kv[1])):
+                    ids = [l for _, l in sorted(items, reverse=True)]
+                    if len(ids) < 2:
+                        continue  # a single line is covered by the individual open_line candidates below
+                    add({"type": "deenergize_lines", "target": f"{z} sub-transmission lines over fire alarm", "targets": ids},
+                        f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm (worst {max(items)[0]:.2f}).",
+                        ["fire_agent", "wind_agent"], f"de-energize {len(ids)} {z} sub-transmission lines")
             for l, rk, v in sorted(fire_lines, key=lambda x: -x[1])[:3]:
                 add({"type": "open_line", "target": l}, f"{v.split(': ', 1)[1]}; de-energize to remove the ignition source.",
                     ["fire_agent", "wind_agent"], f"de-energize {l}")
@@ -220,7 +230,7 @@ class _Planner:
         for attempt in range(1, 4):
             fix = None
             for v in r["violations"]:
-                fix = self._fix_for(v, cands, plan)
+                fix = self._fix_for(v, cands, plan) or self._relief_for(v, r, plan)
                 if fix:
                     break
             if not fix:
@@ -234,6 +244,77 @@ class _Planner:
                 return plan, attempt, r
             self.say("coordinator", f"plan A attempt {attempt}: [{labels}] -> REJECTED: {r['violations'][0]}")
         return plan, len(history), r
+
+    def _relief_for(self, violation, r, plan):
+        """A plan created a NEW overload (e.g. PSPS rerouted flow): shed just enough non-critical load at the
+        overloaded line's heavier endpoint. Only used when no pre-built candidate applies."""
+        m = re.match(r"Line (\w+): (loading|conductor)", violation)
+        st = self.state
+        if not m or m.group(1) not in st.lines:
+            return None
+        lid = m.group(1)
+        L = r["lines"][lid]
+        excess = abs(L["flow_mw"]) * max(0.0, 1 - 90.0 / max(L["loading_pct"], 1e-6))  # bring it to ~90%
+        if excess <= 0:
+            excess = abs(L["flow_mw"]) * 0.15  # temperature-limited: relieve ~15%
+        used = {c["action"]["target"] for c in plan if c["action"]["type"] == "shed_load"}
+        if hasattr(st, "grid"):
+            # LA grid: pick the non-critical load whose shedding relieves this line most (PTDF sensitivity)
+            g = st.grid
+            top, *_ = st._topology([c["action"] for c in plan])
+            H = g.ptdf(top)[0]
+            li = g.lix[lid]
+            sign = 1.0 if L["flow_mw"] >= 0 else -1.0
+            best = None
+            for b, info in st.buses.items():
+                served = r["buses"][b]["served_mw"]
+                if b in used or served < 5:
+                    continue
+                # substations hosting a hospital/water plant: rotate up to half their load, never the critical feeder
+                sheddable = served * (0.5 if info["critical"] else 1.0)
+                # shedding 1 MW = +1 MW injection at b -> flow changes by +H; |flow| drops by -sign*H
+                gain = -sign * H[li, g.bix[b]]  # MW of line relief per MW shed
+                key = (round(gain, 2), not info["critical"], sheddable)
+                if gain > 0.05 and (best is None or key > best[0]):
+                    best = (key, b, sheddable)
+            if best is None:
+                # no load relieves it: the flow is pushed by a fixed import point -> redispatch that import
+                P, _ = g.injections(st.ldwp, st.sce, top, None, getattr(st, "_last_imp", None))
+                _, _, slack_of, roots = g.ptdf(top)
+                slacks = set(slack_of.values())
+                cand = []
+                for imp_rec in D.grid()["imports"]:
+                    bi = g.bix[imp_rec["bus"]]
+                    inj = float(P[0, bi])
+                    if bi in slacks or inj <= 1 or not top.bus_on[bi]:
+                        continue
+                    gain = H[li, bi] * sign  # cutting this import by 1 MW reduces |flow| by `gain` MW
+                    if gain > 0.05:
+                        cand.append((gain, imp_rec, inj))
+                if not cand:
+                    return None
+                gain, imp_rec, inj = max(cand, key=lambda c: c[0])
+                new = float(round(max(0.0, inj - excess * 1.15 / gain), 0))
+                return {"action": {"type": "dispatch_gen", "target": imp_rec["id"], "mw": new},
+                        "why": f"The shutoff pushes imports from {imp_rec['name'].replace('Import @ ', '')} through {lid} ({L['loading_pct']:.0f}%); "
+                               f"redispatch that import point from {inj:.0f} to {new:.0f} MW and bring the rest in through the main import bus.",
+                        "raised_by": ["cascade_agent", "brownout_agent"], "label": f"cut import at {imp_rec['name'].replace('Import @ ', '')} to {new:.0f} MW"}
+            key, b, served = best
+            gain = key[0]
+            mw = float(round(min(served, excess * 1.15 / gain), 0)) or 1.0
+        else:
+            ends = [st.lines[lid]["from_bus"], st.lines[lid]["to_bus"]]
+            opts = [(r["buses"][b]["served_mw"], b) for b in ends if not st.buses[b]["critical"] and b not in used and r["buses"][b]["served_mw"] > 1]
+            if not opts:
+                return None
+            served, b = max(opts)
+            mw = float(round(min(served, excess * 1.2), 0)) or 1.0
+        name = st.buses[b]["name"]
+        crit = st.buses[b].get("critical_name") if st.buses[b]["critical"] else None
+        return {"action": {"type": "shed_load", "target": b, "mw": mw},
+                "why": f"The shutoff reroutes power onto {lid} ({L['loading_pct']:.0f}%); rotate {mw:.0f} MW of non-critical load at {name} to bring it back within rating"
+                       + (f" ({crit}'s feeder stays on)." if crit else "."),
+                "raised_by": ["brownout_agent", "cascade_agent"], "label": f"shed {mw:.0f} MW at {name}"}
 
     def _fix_for(self, violation, cands, plan):
         used = {(c["action"]["type"], c["action"]["target"]) for c in plan}
@@ -282,6 +363,8 @@ class _Planner:
             parts.append(f"{', '.join(opened)} out of service until crews patrol them")
         if r["n1_warnings"]:
             parts.append("N-1 watch: " + r["n1_warnings"][0])
+        if r.get("watch"):
+            parts.append(f"{len(r['watch'])} bulk 220-500 kV line(s) above the fire alarm stay energized for patrol/monitoring")
         conf = 0.93 - 0.05 * len(combo) - min(0.3, tot["unserved_mw"] / 200) - 0.04 * len(r["n1_warnings"])
         assumptions = list(ASSUMPTIONS.get(self.state.scenario, ["Reanalysis weather for this hour holds for the next few hours",
                                                                   "Line ratings and impedances are modeled from voltage class, not utility data"]))
@@ -328,6 +411,10 @@ class _Planner:
                 "flood_agent wanted all coastal substations isolated; brownout_agent objected that Mercy Hospital loses its coastal feeds. "
                 + ("Resolved: hospital stays served through C2 from Central, verified by physics." if not hosp["on_backup"] else "Resolved: hospital moves to backup generation.")
             )
+        if r_best.get("watch"):
+            out.append(f"fire_agent wanted the {len(r_best['watch'])} bulk 220-500 kV line(s) above the fire alarm de-energized too; "
+                       "brownout_agent objected: they are the import corridors feeding the basin and switching them off risks a regional blackout. "
+                       "Resolved: keep them energized, patrol and monitor them (listed in the bulletin), as utilities do during a PSPS.")
         if any(c["action"]["type"] == "close_line" and c["action"]["target"] in st.operator_opened for c in best_combo):
             out.append("cascade_agent pushed to re-close the operator-opened line; coordinator flagged it for operator confirmation since it reverses a manual switch.")
         return out

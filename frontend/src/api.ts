@@ -42,7 +42,7 @@ export type Action = { type: string; target: string; mw?: number };
 export type Plan = {
   id: string; title: string; actions: Action[];
   steps: { action: Action; why: string; raised_by: string[] }[];
-  result: { is_safe: boolean; unserved_mw: number; customers_out: number; violations: string[]; critical_on_backup: string[]; n1_warnings: string[] };
+  result: { is_safe: boolean; unserved_mw: number; customers_out: number; violations: string[]; critical_on_backup: string[]; n1_warnings: string[]; watch?: string[] };
   tradeoffs: string; confidence: number; assumptions: string[]; attempts: number; least_bad?: boolean;
 };
 export type CopilotOutput = {
