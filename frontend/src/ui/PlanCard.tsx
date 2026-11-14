@@ -1,6 +1,6 @@
 import type { Plan } from "../api";
 import type { LAStatic } from "../la/api";
-import { actionText, fmtInt, hospitalsOf, offLines, plainViolation } from "./format";
+import { actionText, buildingsText, fmtInt, hospitalsOf, offLines, plainViolation } from "./format";
 
 const AGENT_NAME: Record<string, string> = {
   fire_agent: "Fire", wind_agent: "Wind", heat_agent: "Heat", brownout_agent: "Brownout", coordinator: "Coordinator", reports_agent: "Reports",
@@ -12,7 +12,7 @@ export function planNums(p: Plan, s: LAStatic, isHigh: (id: string) => boolean):
   const r = p.result;
   return {
     highRiskOff: [...offLines(p.actions)].filter(isHigh).length, customers: r.customers_out,
-    hospitals: hospitalsOf(r.critical_on_backup, s), ok: r.is_safe, reason: r.violations[0] ? plainViolation(r.violations[0]) : null,
+    hospitals: r.hospitals_on_backup ?? hospitalsOf(r.critical_on_backup, s), ok: r.is_safe, reason: r.violations[0] ? plainViolation(r.violations[0]) : null,
   };
 }
 
@@ -22,6 +22,7 @@ export default function PlanCard({ plan, s, sentence, nums, selected, status, ca
 }) {
   const done = status === "approved" || status === "rejected" || status === "superseded";
   const nViol = plan.result.violations.length;
+  const built = plan.result.buildings_out;
   return (
     <div className={`card plan ${selected ? "selected" : ""} ${status ?? ""} ${user ? "user" : ""}`} onClick={onSelect}>
       <div className="plan-top">
@@ -35,6 +36,7 @@ export default function PlanCard({ plan, s, sentence, nums, selected, status, ca
         <div className={nums.hospitals ? "warn" : ""}><b>{nums.hospitals}</b><span>hospitals on backup</span></div>
         <div className={nums.ok ? "pass" : "fail"}><b>{nums.ok ? "Passed" : "Failed"}</b><span>physics check</span></div>
       </div>
+      {built && built.n > 0 && <div className="plan-buildings">Without grid power: <b>{buildingsText(built.by_kind)}</b></div>}
       {!nums.ok && <div className="why-not">Can't be approved: {nums.reason}{nViol > 1 ? ` (+${nViol - 1} more)` : ""}.</div>}
       <details className="drawer" onClick={(e) => e.stopPropagation()}>
         <summary>Details</summary>
@@ -48,6 +50,10 @@ export default function PlanCard({ plan, s, sentence, nums, selected, status, ca
               </li>
             ))}
           </ol>
+          {built && built.sites.length > 0 && (
+            <p className="muted">On backup: {built.sites.map((b) => `${b.name} (${b.kind.replace("_", " ")}${b.backup_hours ? `, about ${Math.round(b.backup_hours)} h` : ""})`).join(" · ")}
+              {built.n > built.sites.length ? ` · and ${built.n - built.sites.length} more` : ""}</p>
+          )}
           {plan.tradeoffs && <p className="muted">{plan.tradeoffs}</p>}
           {!user && <p className="muted">Confidence {Math.round(plan.confidence * 100)}% · physics attempts {plan.attempts} · {fmtInt(plan.result.unserved_mw)} MW unserved</p>}
           {plan.assumptions.length > 0 && <p className="muted">Assumes: {plan.assumptions.join(" · ")}</p>}

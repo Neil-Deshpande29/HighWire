@@ -75,7 +75,11 @@ def la_bulletin(st, plan: dict) -> dict:
     lines.append("LINES STILL ENERGIZED ABOVE THE FIRE ALARM (assume LIVE, patrol):")
     lines += [f"  - {v['id']}: risk {v['fire_risk']:.2f}, gust {v['gust_ms']:.0f} m/s" for v in hot[:20]] or ["  - none"]
     lines.append("CRITICAL SITES ON BACKUP POWER:")
-    lines += [f"  - {st.buses[b]['critical_name']} (bus {b}): about {st.buses[b]['backup_hours']:.0f} h of backup" for b in sim["totals"]["critical_on_backup"]] or ["  - none"]
+    built = sim["totals"]["buildings_out"]
+    backup = lambda s: f"about {s['backup_hours']:.0f} h of backup" if s["backup_hours"] else "backup not known"  # noqa: E731
+    lines += [f"  - {s['name']} ({s['kind']}, bus {s['bus']}): {backup(s)}" for s in built["sites"]] or ["  - none"]
+    if built["n"] > len(built["sites"]):
+        lines.append(f"  - ... and {built['n'] - len(built['sites'])} more buildings without grid power")
     lines += ["", f"Unserved load: {sim['totals']['unserved_mw']} MW (~{sim['totals']['customers_out']:,} customers, modeled).",
               "Electrical values are modeled from voltage class; weather is reanalysis.", "", SAFETY_LINE]
     return {"timestamp": ts, "plan_id": plan["id"], "safety": SAFETY_LINE, "text": "\n".join(lines)}

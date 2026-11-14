@@ -177,11 +177,12 @@ def _sim_payload(st, actions: list[dict]) -> dict:
     wxx = st.weather_extremes()
     dw = C.downwind_union(pts) if pts else {"people": 0, "hospitals": 0, "water_plants": 0}
     crit = sim["totals"]["critical_on_backup"]
+    built = sim["totals"]["buildings_out"]  # every site behind a cut-off substation, so two hospitals on one bus count as two
     load = {bid: round(st.buses[bid]["load_mw"], 1) for bid in st.buses if st.buses[bid]["load_mw"] > 0.5}
     return {
         "is_safe": sim["is_safe"], "unserved_mw": sim["totals"]["unserved_mw"], "customers_out": sim["totals"]["customers_out"],
-        "critical_on_backup": crit, "hospitals_on_backup": int(sum(st.buses[b]["critical_type"] == "hospital" for b in crit)),
-        "critical_names": [st.buses[b]["critical_name"] for b in crit],
+        "critical_on_backup": crit, "hospitals_on_backup": built["hospitals"],
+        "critical_names": [s["name"] for s in built["sites"]], "buildings_out": built,
         "violations": sim["violations"][:40], "n_violations": len(sim["violations"]), "watch": sim["watch"], "n1_warnings": [],
         "lines": {"risk": [l["fire_risk"] for l in L], "loading": [l["loading_pct"] for l in L], "energized": [l["energized"] for l in L],
                   "gust": [l["gust_ms"] for l in L], "rh": [l["rh_pct"] for l in L], "temp": [l["temp_c"] for l in L]},

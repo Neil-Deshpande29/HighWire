@@ -97,7 +97,8 @@ export function userPlanFrom(staged: Action[], sim: SimResult): Plan {
   return {
     id: "YOU", title: "Your plan", actions: staged, steps: staged.map((a) => ({ action: a, why: "", raised_by: [] })),
     result: { is_safe: sim.is_safe, unserved_mw: sim.unserved_mw, customers_out: sim.customers_out, violations: sim.violations,
-              critical_on_backup: sim.critical_on_backup, n1_warnings: [], watch: sim.watch },
+              critical_on_backup: sim.critical_on_backup, n1_warnings: [], watch: sim.watch,
+              hospitals_on_backup: sim.hospitals_on_backup, buildings_out: sim.buildings_out },
     tradeoffs: "", confidence: 1, assumptions: [], attempts: 1,
   };
 }
