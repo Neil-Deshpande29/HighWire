@@ -5,7 +5,9 @@ cd "$(dirname "$0")"
 PY="python"
 [ -x .venv/bin/python ] && PY=".venv/bin/python"
 
-$PY -m uvicorn backend.app:app --reload --port 8000 &
+# Reload only on our own code. Watching the repo root also watches .venv, and anything that touches it
+# (running the tests, a pip install) restarts the server in a loop while requests hang.
+$PY -m uvicorn backend.app:app --reload --reload-dir backend --reload-dir site_agent --port 8000 &
 BACK=$!
 trap 'kill $BACK 2>/dev/null' EXIT INT TERM
 

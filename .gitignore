@@ -22,3 +22,11 @@ validation/results/series_storm_2019_2024_*.csv
 
 # NAIP aerial tiles + cached Gemini looks (fetch with: python -m site_agent.naip)
 data/processed/naip/
+
+# Licensed third-party data (CoStar, Vexcel, Matterport): API responses, image tiles and any table derived from them.
+# Cache it under one of these folders only. Never commit it; commit code, schemas and small synthetic fixtures.
+data/processed/licensed/
+data/processed/costar/
+data/processed/vexcel/
+data/processed/matterport/
+data/processed/buildings/
