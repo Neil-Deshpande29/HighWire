@@ -251,3 +251,10 @@ select { font: inherit; }
 .mini em.crit { color: #c21d12; font-weight: 600; }
 .plan-buildings { font-size: 13px; color: var(--ink2); margin-bottom: 6px; }
 .plan-buildings b { color: var(--ink); font-weight: 600; }
+
+/* which planner made the plans; find a line */
+.note.planner { font-size: 12.5px; }
+.note.warn { background: #fff4e5; color: #9a5200; }
+.line-search { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; width: 250px; font-size: 13px; }
+.line-search input { border: 0; outline: none; background: rgba(118, 118, 128, 0.12); border-radius: 9px; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--ink); }
+.line-search input:focus { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); }

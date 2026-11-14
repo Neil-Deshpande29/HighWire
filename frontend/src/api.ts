@@ -19,6 +19,7 @@ export type CopilotOutput = {
   crew_staging?: { storm_index: number; alarm: number; above_alarm: boolean; pre_stage_crews_near: { line: string; name: string | null; p_damage: number }[] } | null;
   do_nothing: { violations: string[]; unserved_mw: number; customers_out: number; critical_on_backup: string[]; n1_warnings: string[] };
   brief?: Brief | null;
+  fallback_reason?: string | null;
 };
 /** Shared situation brief (backend/agents/brief.py): one deterministic page of facts every agent starts from. */
 export type BriefLine = {

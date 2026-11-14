@@ -5,6 +5,7 @@ import ConditionsPanel from "../ui/ConditionsPanel";
 import { headline, isHeat, mergeAction, offLines, planSentence, startIndex, timeLabel, worstHour } from "../ui/format";
 import LayersMenu, { Legend, type ColorLayer } from "../ui/LayersMenu";
 import LineControls from "../ui/LineControls";
+import LineSearch from "../ui/LineSearch";
 import PlanCard, { planNums } from "../ui/PlanCard";
 import PlanList from "../ui/PlanList";
 import SituationCard from "../ui/SituationCard";
@@ -36,7 +37,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [playing, setPlaying] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [color, setColor] = useState<ColorLayer>("fire");
-  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true, imagery: false });
+  // read once: a shared link reopens the same event, hour and imagery layer
+  const link = useRef(new URLSearchParams(window.location.search));
+  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true, imagery: link.current.get("imagery") === "1" });
   const [imagery, setImagery] = useState<Imagery | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const pendingFocus = useRef(true);
@@ -71,12 +74,24 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     setColor(kind === "heat" ? "loading" : "fire");
     pendingFocus.current = true;
     let live = true;
-    la.series(eid).then((sr) => { if (live) { setSeries(sr); setI(startIndex(sr, kind)); } }).catch((e) => setErr(String(e)));
+    la.series(eid).then((sr) => {
+      if (!live) return;
+      const h = Number(link.current.get("hour"));
+      const linked = link.current.get("event") === eid && link.current.has("hour") && Number.isInteger(h) && h >= 0 && h < sr.t_utc.length ? h : null;
+      link.current.delete("hour"); // only the first load follows the link; "Go to" picks its own hour as before
+      setSeries(sr); setI(linked ?? startIndex(sr, kind));
+    }).catch((e) => setErr(String(e)));
     return () => { live = false; };
   }, [eid, ev?.id, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (series && series.event === eid) la.hour(eid, i).then((h) => { if (h.event === eid) setHour(h); }).catch((e) => setErr(String(e))); }, [eid, i, series]);
   useEffect(() => { onTime(hour?.t_utc ?? null); }, [hour?.t_utc, onTime]);
+  useEffect(() => { // keep the address bar a link to what is on screen
+    if (!series || series.event !== eid) return;
+    const q = new URLSearchParams({ event: eid, hour: String(i) });
+    if (layers.imagery) q.set("imagery", "1");
+    window.history.replaceState(null, "", `?${q}`);
+  }, [eid, i, layers.imagery, series]);
   useEffect(() => {
     if (!playing || !series) return;
     const h = window.setInterval(() => setI((x) => (x + 1 < series.t_utc.length ? x + 1 : (setPlaying(false), x))), 700);
@@ -216,6 +231,15 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const stage = (a: Action) => { if (study) setStudyActions((l) => mergeAction(l, a)); else setStaged((l) => mergeAction(l, a)); setPop(null); };
   const hovered = hover && hour ? s.branches[hover.bi] : null;
   const hoverText = hovered && hover && hour ? lineHoverText(hovered, hover.bi, hour, { energized, color, loading, risk, alarm, cur }) : "";
+  const selBi = selLine ? s.branches.findIndex((b) => b.id === selLine) : -1;
+  const selText = selBi >= 0 && hour
+    ? `${selLine}${s.branches[selBi].name ? ` · ${s.branches[selBi].name}` : ""} · ${Math.round(s.branches[selBi].kv)} kV · ${lineHoverText(s.branches[selBi], selBi, hour, { energized, color, loading, risk, alarm, cur })}`
+    : null;
+  const findLine = (id: string) => { // select it and bring its midpoint into view
+    const g = s.branches.find((b) => b.id === id)?.geometry;
+    setSelLine(id); setPop(null);
+    if (g?.length) { const [lat, lon] = g[Math.floor(g.length / 2)]; setFocus({ lat, lon, spanKm: 40, key: Date.now() }); }
+  };
   const simForBus = study ? studySim : opSim;
   const popLine = pop?.kind === "line" ? s.branches[pop.bi] : null;
   const popBus = pop?.kind === "bus" ? s.buses.find((b) => b.id === pop.id) : null;
@@ -238,6 +262,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <Legend color={color} anyOff={!!energized?.some((e) => !e)} hospitals={layers.hospitals} />
         <LayersMenu color={color} layers={layers} hasStorm={!!hour?.line_damage} imagerySource={imagery?.available ? imagery.source : null}
           onColor={setColor} onLayers={setLayers} />
+        <LineSearch s={s} selected={selText} onFind={findLine} />
         {study && <ConditionsPanel value={cond} onChange={setCond} />}
       </div>
       {hovered && hover && !pop && (
