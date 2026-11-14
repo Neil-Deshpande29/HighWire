@@ -3,13 +3,14 @@ export const API = (import.meta.env.VITE_API as string | undefined) ?? "http://l
 /** Plans, co-pilot jobs and the situation brief: the shapes the backend returns for a planning run. */
 export type Action = { type: string; target: string; mw?: number; pct?: number; targets?: string[] };
 /** Buildings behind cut-off substations (backend/la/buildings.py): counts by kind, a triage score, the heaviest names. */
+export type Severity = "high" | "medium" | "low";
 export type BuildingsOut = {
-  by_kind: Record<string, number>; score: number; n: number; hospitals?: number;
-  sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string }[];
+  by_kind: Record<string, number>; score: number; n: number; hospitals?: number; severity?: Severity | null;
+  sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string; severity?: Severity }[];
 };
 export type Plan = {
   id: string; title: string; actions: Action[];
-  steps: { action: Action; why: string; raised_by: string[] }[];
+  steps: { action: Action; why: string; raised_by: string[]; buildings?: BuildingsOut }[];
   result: { is_safe: boolean; unserved_mw: number; customers_out: number; violations: string[]; critical_on_backup: string[]; n1_warnings: string[]; watch?: string[];
             hospitals_on_backup?: number; buildings_out?: BuildingsOut };
   tradeoffs: string; confidence: number; assumptions: string[]; attempts: number; least_bad?: boolean;

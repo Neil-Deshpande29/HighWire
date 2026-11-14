@@ -91,3 +91,9 @@ def test_imagery_switch_names_its_providers(monkeypatch):
     monkeypatch.setenv("HIGHWIRE_IMAGERY", "vexcel")
     with pytest.raises(KeyError, match="vexcel"):
         imagery.provider()  # not registered until its key and docs exist; fail loudly, never fall back silently
+
+
+def test_an_unreadable_photo_is_skipped_not_fatal(photo_dir, tmp_path):
+    photo_dir(0, solid(GREEN, 100, 100))
+    (tmp_path / "L220-0.jpg").write_bytes(b"\xff\xd8\xff\xe0 not really a jpeg")
+    assert G.line_greenery("L220") is None

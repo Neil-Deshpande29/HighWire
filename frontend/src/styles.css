@@ -258,3 +258,32 @@ select { font: inherit; }
 .line-search { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; width: 250px; font-size: 13px; }
 .line-search input { border: 0; outline: none; background: rgba(118, 118, 128, 0.12); border-radius: 9px; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--ink); }
 .line-search input:focus { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); }
+
+/* selected line: aerial photos of its most fire-prone stretches */
+.site { width: 320px; max-height: 46vh; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; scrollbar-width: thin; }
+.site-head { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; }
+.site-veg { border-radius: 9px; padding: 6px 9px; background: #f5f5f7; line-height: 1.35; }
+.site-veg.high { background: #fff4e5; color: #9a5200; }
+.site-veg.medium { background: #fdf8e6; color: #7a5b00; }
+.site-summary { margin: 0; line-height: 1.4; }
+.site-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.site-photo { margin: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.3; }
+.site-photo img, .site-photo .missing { width: 100%; aspect-ratio: 6 / 5; object-fit: cover; border-radius: 9px; background: #e9eef3; display: grid; place-items: center; }
+.site-photo.worst img { box-shadow: 0 0 0 2px var(--warn); }
+.site-check { background: #fff4e5; color: #9a5200; border-radius: 9px; padding: 5px 9px; line-height: 1.35; }
+.tag.warn { background: #fff4e5; color: #9a5200; }
+
+/* building warnings on a plan and on each of its steps: shape + word + colour */
+.sev { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.sev-high { color: #c21d12; }
+.sev-medium { color: #9a5200; }
+.sev-low { color: #1d6b45; }
+.step-warn { margin: 4px 0; }
+.warn-chip { font-size: 12.5px; font-weight: 600; border-radius: 9px; padding: 5px 9px; text-align: left; line-height: 1.3; }
+.warn-chip.sev-high { background: rgba(255, 59, 48, 0.1); }
+.warn-chip.sev-medium { background: rgba(255, 149, 0, 0.14); }
+.warn-chip.sev-low { background: rgba(52, 163, 107, 0.14); }
+.warn-chip:hover { filter: brightness(0.96); }
+.warn-chip:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.warn-list { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; line-height: 1.35; }
+.step-clear { font-size: 12.5px; color: #1d6b45; margin: 4px 0; }

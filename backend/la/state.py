@@ -318,18 +318,28 @@ class LAState:
         Topology only (no power flow), and cached, because the screen asks for the riskiest lines on every refresh."""
         key = (line_id, json.dumps(actions or [], sort_keys=True), tuple(self.operator_opened), tuple(self.deenergized))
         if key not in self._cut_cache:
-            g = self.grid
-
-            def cut_off(extra):
-                top = self._topology(list(actions or []) + extra)[0]
-                sourced = g.ptdf(top)[1]
-                return {b["id"] for i, b in enumerate(g.buses) if not sourced[i] or not top.bus_on[i]}
-
-            newly = cut_off([{"type": "open_line", "target": line_id}]) - cut_off([])
+            base = list(actions or [])
+            newly = self._cut_off(base + [{"type": "open_line", "target": line_id}]) - self._cut_off(base)
             impact = B.outage_impact(sorted(newly))
             impact["customers"] = int(sum(self.buses[b]["load_mw"] for b in newly) * CUSTOMERS_PER_MW)
             self._cut_cache[key] = impact
         return self._cut_cache[key]
+
+    def _cut_off(self, actions) -> set[str]:
+        """Substations with no supply once `actions` are applied on top of the current switching. Topology only."""
+        g = self.grid
+        top = self._topology(actions)[0]
+        sourced = g.ptdf(top)[1]
+        return {b["id"] for i, b in enumerate(g.buses) if not sourced[i] or not top.bus_on[i]}
+
+    def step_impacts(self, actions) -> list[dict]:
+        """For each action in order: the buildings behind the substations that this step, and not an earlier one, cuts off."""
+        out, before = [], self._cut_off([])
+        for k in range(len(actions or [])):
+            after = self._cut_off(actions[:k + 1])
+            out.append(B.outage_impact(sorted(after - before)))
+            before = after
+        return out
 
     def weather_extremes(self) -> dict:
         """Worst gridded weather this hour, from this state's own (possibly Study-scaled) inputs."""

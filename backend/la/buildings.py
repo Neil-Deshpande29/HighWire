@@ -33,6 +33,13 @@ WEIGHTS = {
     "residential": 2, "industrial": 2, "lodging": 2, "office": 1, "retail": 1, "other": 1,
 }
 MAX_SITES = 40  # names listed per impact; the counts always cover everything
+HIGH_FROM, MEDIUM_FROM = 8, 4  # weight at or above which a building is a high or a medium warning
+
+
+def severity(kind: str) -> str:
+    """Warning level for one building losing grid power: high (life safety, lifelines), medium, or low."""
+    w = WEIGHTS.get(kind, WEIGHTS["other"])
+    return "high" if w >= HIGH_FROM else "medium" if w >= MEDIUM_FROM else "low"
 
 
 def kind_of(property_type: str | None, secondary_type: str | None = None) -> str:
@@ -120,9 +127,10 @@ def impact_of(rows: list[dict]) -> dict:
         "by_kind": {k: counts[k] for k in sorted(counts, key=lambda k: (-WEIGHTS.get(k, WEIGHTS["other"]), k))},
         "score": int(sum(weight(r) for r in rows)),
         "hospitals": int(counts.get("hospital", 0)),
-        "sites": [{"name": r["name"], "kind": r["kind"], "bus": r["bus"], "backup_hours": r.get("backup_hours"), "source": r.get("source", "osm")}
-                  for r in ranked[:MAX_SITES]],
+        "sites": [{"name": r["name"], "kind": r["kind"], "bus": r["bus"], "backup_hours": r.get("backup_hours"), "source": r.get("source", "osm"),
+                   "severity": severity(r["kind"])} for r in ranked[:MAX_SITES]],
         "n": len(rows),
+        "severity": severity(ranked[0]["kind"]) if ranked else None,  # the worst single building decides the level
     }
 
 

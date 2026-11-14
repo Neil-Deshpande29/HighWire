@@ -121,10 +121,13 @@ def la_site(line_id: str, event: str | None = None, i: int | None = None):
 
     if event is not None and event not in LAD.events():  # replay events only; the live forecast is not accepted here
         raise HTTPException(404, "unknown event")
+    from site_agent import greenery as G
+
     try:
-        return SA.describe(line_id, event, i)
+        site = SA.describe(line_id, event, i)
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
+    return {**site, "greenery": G.line_greenery(line_id)}  # measured from the photos just fetched or already cached
 
 
 @router.get("/la/site/{line_id}/photo/{n}.jpg")

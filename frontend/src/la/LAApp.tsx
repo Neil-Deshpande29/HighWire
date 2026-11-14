@@ -19,6 +19,7 @@ import {
 } from "./derive";
 import { usePoll, useSim } from "./hooks";
 import LAScene, { type Focus, type Layers } from "./LAScene";
+import SitePanel from "./SitePanel";
 
 type Pop = { kind: "line"; bi: number; x: number; y: number } | { kind: "bus"; id: string; x: number; y: number };
 
@@ -263,6 +264,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <LayersMenu color={color} layers={layers} hasStorm={!!hour?.line_damage} imagerySource={imagery?.available ? imagery.source : null}
           onColor={setColor} onLayers={setLayers} />
         <LineSearch s={s} selected={selText} onFind={findLine} />
+        {selLine && <SitePanel line={selLine} eid={eid} i={i} onClose={() => setSelLine(null)} />}
         {study && <ConditionsPanel value={cond} onChange={setCond} />}
       </div>
       {hovered && hover && !pop && (
