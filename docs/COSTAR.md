@@ -13,6 +13,13 @@ What is built, what data it runs on today, and the exact steps to switch to CoSt
    off: "If cut: 2 hospitals, 5 water plants on backup · 55,680 customers".
 4. **Buildings in every plan.** Each plan card says what it leaves without grid power, by kind of building, and names
    the sites under Details. Among safe plans, the one that cuts off less critical buildings ranks first.
+5. **Warnings on each plan step.** Under Details, a chip on each step opens the five buildings that step cuts off,
+   heaviest first, with kind, backup hours and data source. The level (high, medium, low) is set in code and shown as
+   a shape, a word and a colour.
+6. **Photos of the selected line.** Selecting a line, or finding it by id in "Find a line", opens its aerial photos
+   with the vegetation reading and the facts at each photo.
+
+A link reopens any view: `/?event=E1&hour=11&imagery=1` is the Woolsey replay at 11 AM with aerial imagery on.
 
 Neither factor changes the calibrated fire index. They rank lines and plans; the physics check still decides what is safe.
 
