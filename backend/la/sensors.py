@@ -33,6 +33,7 @@ STATIONS = {
 # A measured gust this far above the model's is flagged. About the model's own error in windy hours (V2: RMSE 5.9 m/s).
 GUST_TOL_MS = 5.0
 RH_TOL_PCT = 15.0  # measured humidity this far below the model's is flagged: the air is drier than the model assumed
+DRY_BELOW_PCT = 30.0  # ...but only when the measured air is itself dry; a gap at 45% humidity changes nothing for fire
 MAX_GUST_MS = 45.0
 LIVE_URL = "https://api.weather.gov/stations/{id}/observations/latest"
 LIVE_TTL_S = 600  # ask each station at most every ten minutes
@@ -139,7 +140,7 @@ def check(st, fetch=None, now: float | None = None, offline: bool = False) -> di
 
     Each station row carries what it measured, what the model used at that spot and hour, and a flag:
     `model_low` (measured gusts stronger than the model's: risk nearby is probably understated), `model_high` (the
-    cautious side), `agrees`, or `no_report`. `drier` marks air measurably drier than the model assumed.
+    cautious side), `agrees`, or `no_report`. `drier` marks dry air (30% humidity or less) that is also well below what the model assumed.
     `offline` never asks the network: a live check then uses the reports already held (the planner calls it this way).
     """
     is_live = st.eid == "FX"
@@ -168,7 +169,8 @@ def check(st, fetch=None, now: float | None = None, offline: bool = False) -> di
             if o["rh_pct"] is not None and m["rh_pct"] is not None:
                 row["rh_diff_pct"] = round(m["rh_pct"] - o["rh_pct"], 0)
             row["flag"] = "model_low" if diff <= -GUST_TOL_MS else "model_high" if diff >= GUST_TOL_MS else "agrees"
-            row["drier"] = o["rh_pct"] is not None and m["rh_pct"] is not None and m["rh_pct"] - o["rh_pct"] >= RH_TOL_PCT
+            row["drier"] = (o["rh_pct"] is not None and m["rh_pct"] is not None and o["rh_pct"] <= DRY_BELOW_PCT
+                            and m["rh_pct"] - o["rh_pct"] >= RH_TOL_PCT)
         rows.append(row)
     reporting = [r for r in rows if r["flag"] != "no_report"]
     low = [r["id"] for r in rows if r["flag"] == "model_low"]

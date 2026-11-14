@@ -7,7 +7,7 @@ export default function SynthesisGraph({ g }: { g: Synthesis }) {
   const W = 372, pitch = 30, top = 6;
   const H = Math.max(top * 2 + g.agents.length * pitch, 112);
   const mid = H / 2;
-  const ax = 2, aw = 100, cx = 130, cw = 76, px = 224, pw = 66, qx = 308, qw = 62;
+  const ax = 2, aw = 98, cx = 122, cw = 78, px = 216, pw = 76, qx = 308, qw = 62;
   const ay = (k: number) => top + k * pitch;
   const py = (k: number) => mid - (g.plans.length * 26) / 2 + k * 26;
   const most = Math.max(1, ...g.agents.map((a) => a.findings));

@@ -74,7 +74,7 @@ export function situationNumbers(a: {
   else if (past && revealed) {
     const o = hour.outages["Los Angeles"];
     numbers.push(o == null ? { value: "n/a", label: "customers really out", sub: "no record this hour", tone: "muted" } : { value: fmtInt(o), label: "customers really out", sub: "LA County record" });
-  } else numbers.push({ value: worst?.text ?? "", label: "until the worst hour", sub: worst?.sub });
+  } else numbers.push({ value: worst?.text ?? "", label: "worst hour", sub: worst?.sub });
   if (!past && !study && numbers.length < 4) {
     const k0 = series.now_utc ? Math.max(0, series.t_utc.findIndex((x) => new Date(x) >= new Date(series.now_utc!))) : 0;
     numbers.push({ value: `${(Math.max(...series.load_mw.slice(k0)) / 1000).toFixed(1)} GW`, label: "peak demand ahead" });
