@@ -11,24 +11,28 @@ from .agents.tools import JobLog
 JOBS: dict[str, dict] = {}
 
 
-def start(state, first_line: str | None = None) -> str:
+def start(state, first_line: str | None = None, on_done=None) -> str:
     """Create a job and plan on `state` in the background. Returns the job id the UI polls with.
-    `state` is the synthetic region or an LA state; both carry `lock`, `plans` and `plan_status`."""
+    `state` is the synthetic region or an LA state; both carry `lock`, `plans` and `plan_status`.
+    `on_done(output)` runs once the plans are verified and before the job is marked done (the LA routes use it to stamp
+    each plan with who may approve it and to write the decision record)."""
     job_id = uuid.uuid4().hex[:8]
     JOBS[job_id] = {"status": "running", "log": JobLog(), "output": None, "started": time.time()}
     if first_line:
         JOBS[job_id]["log"]("system", first_line)
-    threading.Thread(target=_run, args=(job_id, state), daemon=True).start()
+    threading.Thread(target=_run, args=(job_id, state, on_done), daemon=True).start()
     return job_id
 
 
-def _run(job_id: str, state):
+def _run(job_id: str, state, on_done=None):
     job = JOBS[job_id]
     try:
         out = run_team(state, job["log"])
         with state.lock:
             state.plans = {p["id"]: p for p in out["plans"]}
             state.plan_status = {p["id"]: "pending" for p in out["plans"]}
+        if on_done:
+            on_done(out)
         job["output"] = out
         job["status"] = "done"
     except Exception as e:  # noqa: BLE001

@@ -507,6 +507,32 @@ class _Planner:
             out.append("cascade_agent pushed to re-close the operator-opened line; coordinator flagged it for operator confirmation since it reverses a manual switch.")
         return out
 
+    def stations(self):
+        """Wind agent (LA): check the weather the model ran on against what the airport stations measured this hour."""
+        from ..la import sensors
+
+        try:
+            chk = sensors.check(self.state, offline=True)
+        except Exception:  # noqa: BLE001  the station check is context for the operator; it never blocks planning
+            return
+        if not chk["reporting"]:
+            self.say("wind_agent", "no weather station reported this hour: the model's weather is unchecked")
+            self.find("wind_agent", "stations", "no weather station reported this hour", "the model's weather could not be checked against a measurement", 2)
+            return
+        low = [r for r in chk["stations"] if r["flag"] == "model_low"]
+        dry = [r for r in chk["stations"] if r["drier"]]
+        self.say("wind_agent", f"weather stations: {chk['agree']} of {chk['reporting']} agree with the model's gusts"
+                               + (f"; {len(low)} measured stronger gusts than the model used" if low else ""))
+        for r in low:
+            self.find("wind_agent", r["name"], "measured gusts stronger than the model's",
+                      f"station measured {r['measured']['gust_ms']} m/s, the model used {r['model']['gust_ms']} m/s", 3)
+        for r in dry:
+            self.find("wind_agent", r["name"], "air drier than the model assumed",
+                      f"station measured {r['measured']['rh_pct']:.0f}% humidity, the model used {r['model']['rh_pct']:.0f}%", 2)
+        if not low and not dry:
+            self.find("wind_agent", "stations", "weather stations agree with the model",
+                      f"{chk['agree']} of {chk['reporting']} within {chk['tolerance']['gust_ms']:g} m/s on gusts", 1)
+
     def storm(self) -> tuple[str, dict | None]:
         """Wind agent (LA replays): read the calibrated storm-damage model; returns a situation sentence + crew staging."""
         st = self.state
@@ -525,6 +551,7 @@ class _Planner:
             self.say("wind_agent", "most likely to be knocked down: " + ", ".join(f"{t['id']} ({t['p_damage']:.2f})" for t in tops[:3]))
         self.find("wind_agent", "network", "storm damage " + ("ABOVE alarm" if above else "below alarm"),
                   f"index {sd['index']:.2f} / alarm {sd['alarm']:.2f}", 2 if above else 1)
+        self.stations()
         staging = {"storm_index": sd["index"], "alarm": sd["alarm"], "above_alarm": above,
                    "pre_stage_crews_near": [{"line": t["id"], "name": t["name"], "p_damage": t["p_damage"]} for t in tops]}
         sent = (f" Storm-damage index {sd['index']:.2f} is ABOVE its alarm ({sd['alarm']:.2f}): pre-stage restoration crews near "

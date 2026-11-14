@@ -100,6 +100,11 @@ def _rows() -> tuple[dict, ...]:
     return tuple(osm + _costar_rows())
 
 
+def rows() -> tuple[dict, ...]:
+    """Every building row, OpenStreetMap first, then CoStar when its file is present."""
+    return _rows()
+
+
 @lru_cache(maxsize=1)
 def by_bus() -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}

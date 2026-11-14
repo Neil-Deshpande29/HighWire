@@ -292,25 +292,37 @@ class LAState:
 
         sim = sim or self.sim
         g = self.grid
-        alarm = D.calibration()["fire"]["line_alarm"]
         L = [sim["lines"][b["id"]] for b in g.branches]
-        hot = sorted([k for k, l in enumerate(L) if l["energized"] and l["fire_risk"] >= alarm and not g.branches[k]["cable"]],
-                     key=lambda k: -L[k]["fire_risk"])
-        wx, h = self.wx, self.hour_idx
-        wdir = wx["wind_direction_10m"][h]
+        hot = self.hot_points(sim)
         rows, pts = [], []
-        for n, k in enumerate(hot[:limit]):
+        for n, (k, lat, lon, wf) in enumerate(hot[:limit]):
             b = g.branches[k]
-            lat, lon = np.array(b["geometry"]).mean(0)[:2]
-            wf = float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
-            pts.append((float(lat), float(lon), wf))
+            pts.append((lat, lon, wf))
             row = {"id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "risk": round(L[k]["fire_risk"], 3),
-                   "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(float(lat), float(lon), wf)}
+                   "gust": L[k]["gust_ms"], "rh": L[k]["rh_pct"], "downwind": C.downwind(lat, lon, wf)}
             row["greenery"] = G.line_greenery(b["id"])  # from cached aerial photos; None until the line has photos
             if n < CUT_IMPACT_LINES:
                 row["if_cut"] = self.cut_impact(b["id"], sim.get("actions"))
             rows.append(row)
         return rows, pts, len(hot)
+
+    def hot_points(self, sim: dict | None = None) -> list[tuple[int, float, float, float]]:
+        """Every live overhead line at or above the fire alarm in `sim`, riskiest first, as
+        (branch index, lat, lon, wind-from degrees) at the line's midpoint: where its downwind cone starts."""
+        sim = sim or self.sim
+        g = self.grid
+        alarm = D.calibration()["fire"]["line_alarm"]
+        L = [sim["lines"][b["id"]] for b in g.branches]
+        hot = sorted([k for k, l in enumerate(L) if l["energized"] and l["fire_risk"] >= alarm and not g.branches[k]["cable"]],
+                     key=lambda k: -L[k]["fire_risk"])
+        wx = self.wx
+        wdir = wx["wind_direction_10m"][self.hour_idx]
+        out = []
+        for k in hot:
+            lat, lon = np.array(g.branches[k]["geometry"]).mean(0)[:2]
+            wf = float(wdir[int(np.abs(wx["lats"] - lat).argmin()), int(np.abs(wx["lons"] - lon).argmin())])
+            out.append((k, float(lat), float(lon), wf))
+        return out
 
     def cut_impact(self, line_id: str, actions=None) -> dict:
         """What loses grid power if this one line is switched off, on top of the current switching and `actions`:
