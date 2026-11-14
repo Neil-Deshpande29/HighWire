@@ -287,3 +287,48 @@ select { font: inherit; }
 .warn-chip:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .warn-list { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; line-height: 1.35; }
 .step-clear { font-size: 12.5px; color: #1d6b45; margin: 4px 0; }
+
+/* the agent team: status, the parameters each agent read, and its findings */
+.team { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.team > .eyebrow { margin: 0; }
+.team-agent { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.team-agent:first-of-type { border-top: 0; padding-top: 0; }
+.team-head { display: flex; align-items: baseline; gap: 6px; font-size: 13.5px; }
+.team-state { width: 14px; display: inline-flex; justify-content: center; color: var(--ok); font-weight: 700; }
+.team-agent.err .team-state { color: var(--act); }
+.team-live { font-size: 12px; padding-left: 20px; line-height: 1.35; }
+.team-findings { list-style: none; margin: 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; line-height: 1.35; }
+.team-params { color: var(--ink2); font-variant-numeric: tabular-nums; }
+.team .link { align-self: flex-start; margin-left: 20px; }
+.team .muted.small { padding-left: 20px; }
+
+/* warnings the operator must see before trusting the screen */
+.banner { background: #fff4e5; color: #9a5200; border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.4; box-shadow: var(--shadow); }
+.note.baseline { background: #fff; box-shadow: var(--shadow); color: var(--ink); line-height: 1.4; }
+
+/* situation report: a full page over the map, like Evidence; prints cleanly */
+.report-open { width: 100%; background: #fff; box-shadow: var(--shadow); padding: 9px 14px; font-size: 14px; }
+.report { position: absolute; inset: 0; z-index: 10; overflow-y: auto; background: #f5f5f7; padding: 84px max(24px, calc(50% - 480px)) 48px; }
+.report-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+.report-body { background: #fff; border-radius: var(--r); box-shadow: var(--shadow); padding: 28px 32px; font-size: 14px; line-height: 1.5; }
+.report-body h1 { font-size: 28px; letter-spacing: -0.02em; margin: 0 0 4px; }
+.report-body h2 { font-size: 17px; margin: 22px 0 6px; }
+.report-sub { color: var(--ink2); margin: 0 0 6px; }
+.report-lead { font-size: 16px; font-weight: 600; margin: 4px 0; }
+.report-body ul { margin: 4px 0; padding-left: 20px; }
+.report-body table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; }
+.report-body th { text-align: left; font-weight: 600; color: var(--ink2); border-bottom: 1px solid var(--line); padding: 5px 8px 5px 0; vertical-align: bottom; }
+.report-body td { border-bottom: 1px solid var(--line); padding: 6px 8px 6px 0; vertical-align: top; }
+.report-agent { margin: 6px 0; }
+.kind { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: #f5f5f7; color: var(--ink2); white-space: nowrap; }
+.kind-live { background: rgba(52, 163, 107, 0.14); color: #1d6b45; }
+.kind-modelled { background: rgba(0, 122, 255, 0.1); color: #0a5bc4; }
+.kind-stand-in { background: #fff4e5; color: #9a5200; }
+.kind-missing { background: rgba(255, 59, 48, 0.12); color: #c21d12; }
+@media print {
+  body * { visibility: hidden; }
+  .report-body, .report-body * { visibility: visible; }
+  .report { position: static; padding: 0; background: #fff; overflow: visible; }
+  .report-body { box-shadow: none; padding: 0; }
+  html, body, #root { height: auto; overflow: visible; }
+}

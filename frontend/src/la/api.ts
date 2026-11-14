@@ -31,8 +31,7 @@ export type Hour = {
   lines: { risk: number[]; loading: number[]; temp: number[]; clear: number[]; gust: number[]; rh: number[]; flow: number[] };
   region_index: number; region_alarm: number; line_alarm: number; load_mw: number;
   demand: { LDWP: number; SCE: number }; outages: Record<string, number | null>;
-  over_alarm: { id: string; name: string | null; kv: number; zone: string; risk: number; gust: number; rh: number;
-                downwind?: { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number } }[];
+  over_alarm: TopLine[];
   n_over_alarm: number; max_loading: number; n_overloaded: number;
   weather: { lats: number[]; lons: number[]; gust: number[][]; rh: number[][]; temp: number[][]; dir: number[][]; max_gust: number; min_rh: number; max_temp: number };
   redflag_active: string[]; fires: { id: string; name: string; ignited: boolean; hours_since_ignition: number }[];

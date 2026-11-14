@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Action, Plan } from "../api";
 import ChangesTray from "../ui/ChangesTray";
 import ConditionsPanel from "../ui/ConditionsPanel";
-import { headline, isHeat, mergeAction, offLines, planSentence, startIndex, timeLabel, worstHour } from "../ui/format";
+import { eventLabel, fmtInt, headline, isHeat, mergeAction, offLines, plainViolation, planSentence, startIndex, timeLabel, worstHour } from "../ui/format";
 import LayersMenu, { Legend, type ColorLayer } from "../ui/LayersMenu";
 import LineControls from "../ui/LineControls";
 import LineSearch from "../ui/LineSearch";
 import PlanCard, { planNums } from "../ui/PlanCard";
 import PlanList from "../ui/PlanList";
+import ReportPage, { type InputRow } from "../ui/ReportPage";
 import SituationCard from "../ui/SituationCard";
 import SituationDetails from "../ui/SituationDetails";
 import Timeline from "../ui/Timeline";
@@ -17,11 +18,12 @@ import {
   agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHoverText, riskFrame, sameHour, situationNumbers,
   userPlanFrom, type ApprovedPlan,
 } from "./derive";
-import { usePoll, useSim } from "./hooks";
+import { useBackendOnline, usePoll, useSim } from "./hooks";
 import LAScene, { type Focus, type Layers } from "./LAScene";
 import SitePanel from "./SitePanel";
 
 type Pop = { kind: "line"; bi: number; x: number; y: number } | { kind: "bus"; id: string; x: number; y: number };
+const STALE_AFTER_H = 3; // a live forecast older than this gets a warning banner
 
 /** The one screen: holds the state and wires it to the map and the panels. The rules for what is shown live in
  *  derive.ts, the fetching hooks in hooks.ts, and every panel in ../ui. */
@@ -64,6 +66,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [hover, setHover] = useState<{ bi: number; x: number; y: number } | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
+  const online = useBackendOnline();
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => { la.imagery().then(setImagery).catch(() => setImagery(null)); }, []); // is there an aerial picture to offer?
 
@@ -170,6 +174,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const worst = series ? worstHour(series, kind, i) : null;
   const lineZone = (id: string) => s.branches.find((b) => b.id === id)?.zone;
   const heat = isHeat(kind);
+  const staleHours = !past && ev.fetched_utc ? (Date.now() - new Date(ev.fetched_utc).getTime()) / 3.6e6 : 0;
 
   const numbers = hour && series
     ? situationNumbers({ hour, series, heat, study, past, revealed, sit, nHigh, worst, studySim, onReveal: () => setRevealed(true) })
@@ -209,6 +214,14 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       {jobT && t && !sameHour(jobT, t) && plans.length > 0 && (
         <div className="note">These plans are for {timeLabel(jobT)}. <button className="link" onClick={() => series && setI(series.t_utc.findIndex((x) => sameHour(x, jobT)))}>Go there</button></div>
       )}
+      {out && plans.length > 0 && (
+        <div className="note baseline">
+          <b>If you do nothing:</b> {out.do_nothing.violations.length
+            ? `the physics check finds ${out.do_nothing.violations.length} problem${out.do_nothing.violations.length === 1 ? "" : "s"}. First: ${plainViolation(out.do_nothing.violations[0])}.`
+            : "the physics check finds no problem."}{" "}
+          {out.do_nothing.customers_out ? `${fmtInt(out.do_nothing.customers_out)} customers lose power.` : "No customer loses power."}
+        </div>
+      )}
       {plans.map((p) => (
         <PlanCard key={p.id} plan={p} s={s} sentence={planSentence(p, s, lineZone)} nums={planNums(p, s, isHigh)} selected={selPlan === p.id}
           status={status(p.id)} canApprove={!study && p.result.is_safe && sameHour(jobT, t)}
@@ -245,6 +258,24 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const popLine = pop?.kind === "line" ? s.branches[pop.bi] : null;
   const popBus = pop?.kind === "bus" ? s.buses.find((b) => b.id === pop.id) : null;
   const trayActions = study ? studyActions : staged;
+
+  // ---------------------------------------------------------------- situation report: every feed behind the screen
+  const photos = tops.find((l) => l.greenery)?.greenery;
+  const inputs: InputRow[] = [
+    { name: "Weather", source: past ? "Open-Meteo reanalysis" : "Open-Meteo forecast", kind: past ? "Recorded" : "Live",
+      detail: past ? "what was measured during this event" : `fetched ${ev.fetched_utc ? timeLabel(ev.fetched_utc, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "at an unknown time"}` },
+    { name: "Fire-weather warnings", source: "National Weather Service Red Flag Warnings", kind: "Recorded", detail: "the warnings in force at this hour" },
+    { name: "Outages", source: "EAGLE-I county outage records", kind: "Recorded", detail: past ? "kept hidden until you choose Show what happened" : "not available for the future" },
+    { name: "Demand", source: past ? "EIA-930 hourly demand" : "demand model run on the forecast", kind: past ? "Recorded" : "Modelled", detail: "split between the two balancing areas" },
+    { name: "Grid", source: "OpenStreetMap lines of 66 kV and above", kind: "Modelled", detail: "ratings and impedances are estimated from voltage class" },
+    { name: "Terrain and vegetation height", source: "USGS elevation and LANDFIRE", kind: "Recorded", detail: "sampled at every tower" },
+    { name: "People", source: "2020 Census tracts", kind: "Recorded", detail: "counted within 10 km downwind of a line" },
+    { name: "Buildings", source: "OpenStreetMap hospitals and water plants", kind: "Stand-in", detail: "CoStar property records replace this once connected" },
+    { name: "Aerial photos", source: photos?.source ?? "USDA NAIP", kind: "Stand-in",
+      detail: `${photos?.photo_date ? `flown ${photos.photo_date}; ` : ""}Vexcel imagery replaces this once connected` },
+    { name: "Imagery under the map", source: imagery?.source ?? "none", kind: imagery?.available ? "Recorded" : "Missing",
+      detail: imagery?.available ? `stitched ${imagery.built_utc ? timeLabel(imagery.built_utc, { month: "short", day: "numeric" }) : ""}` : "run make imagery" },
+  ];
 
   return (
     <div className={`screen ${study ? "study" : ""}`}>
@@ -297,8 +328,13 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           onSeek={setI} onPlay={() => setPlaying((p) => !p)} onReveal={() => setRevealed(true)} />}
       </div>
       <aside className="side">
+        {!online && <div className="banner">▲ <b>Can't reach the HighWire backend.</b> The numbers on screen may be out of date. Retrying…</div>}
+        {staleHours >= STALE_AFTER_H && (
+          <div className="banner">▲ <b>This forecast is {Math.round(staleHours)} hours old.</b> Press Refresh in the top bar for the current picture.</div>
+        )}
         {err && <div className="error" onClick={() => setErr(null)}>{err}</div>}
         <SituationCard headline={head} numbers={numbers} details={details} onGetPlans={runCopilot} running={job?.status === "running"} canRun={!!hour} study={study} />
+        <button className="secondary report-open" disabled={!hour} onClick={() => setShowReport(true)}>Situation report</button>
         {(job || bulletinText) && (
           <PlanList job={job} chips={chips} cards={cards} outcome={study ? null : outcome} bulletin={study ? null : bulletinText} noSafe={!!out?.no_safe_option} />
         )}
@@ -307,6 +343,12 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           The AI only proposes; physics checks every plan and nothing switches without your approval.
         </div>
       </aside>
+      {showReport && hour && (
+        <ReportPage title={eventLabel(ev)} when={timeLabel(hour.t_utc, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          basis={past ? "Recorded weather" : "Live forecast"} study={study} headline={head} numbers={numbers} hour={hour} tops={tops}
+          job={job} chips={chips} plans={plans} describe={(p) => planSentence(p, s, lineZone)} nums={(p) => planNums(p, s, isHigh)} statusOf={status}
+          outcome={study ? null : outcome} bulletin={study ? null : bulletinText} inputs={inputs} onClose={() => setShowReport(false)} />
+      )}
     </div>
   );
 }
