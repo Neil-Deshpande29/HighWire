@@ -14,6 +14,7 @@ import threading
 
 from .. import llm as LLM
 from .mock_planner import run_mock
+from .brief import brief_text, build_brief
 from .tools import JobLog, make_tools, verify_output
 
 TIMEOUT_S = float(os.environ.get("AGENT_TIMEOUT_S", "50"))
@@ -112,13 +113,18 @@ def _make_callback(log):
 
 LA_SUBAGENTS = {
     "fire_agent": ("Ignition risk on the real LA grid: lines over the calibrated fire alarm (P(fault) x P(ignition | humidity, "
-                   "LANDFIRE fuel)), which ones are sub-transmission (shut off) vs 220-500 kV corridors (patrol).",
-                   ["get_grid_summary", "get_event_context"]),
+                   "LANDFIRE fuel)), which ones are sub-transmission (shut off) vs 220-500 kV corridors (patrol). For the "
+                   "worst 2-3 lines, call get_site_context(line_id) to say what is on the ground and who is downwind.",
+                   ["get_grid_summary", "get_event_context", "get_site_context"]),
     "wind_agent": ("Storm damage: calibrated wind+rain damage model (which lines are likely to be knocked down, storm index vs "
-                   "alarm, historical accuracy). Recommends crew pre-staging and patrols.", ["get_storm_damage", "get_grid_summary"]),
+                   "alarm, historical accuracy). Recommends crew pre-staging and patrols. For the lines you name, call "
+                   "get_site_context(line_id): road access and vegetation at each photo decide where patrols can actually reach.",
+                   ["get_storm_damage", "get_grid_summary", "get_site_context"]),
     "heat_agent": ("Heat and load: demand, overloaded lines, conductor temperature vs limit.", ["get_grid_summary", "get_weather"]),
-    "brownout_agent": ("Who loses power if lines are switched off: unserved MW, hospitals and water plants on backup.",
-                       ["get_grid_summary", "get_critical_sites"]),
+    "brownout_agent": ("Who loses power if lines are switched off: unserved MW, hospitals and water plants on backup. "
+                       "Weigh that against what a spark would reach: get_site_context(line_id) shows homes and people "
+                       "downwind of the line's riskiest stretches.",
+                       ["get_grid_summary", "get_critical_sites", "get_site_context"]),
 }
 
 LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operator on the REAL Greater Los Angeles transmission grid
@@ -132,20 +138,38 @@ Workflow:
    (do not invent line or bus ids). deenergize_lines shuts a group of lines off as ONE action (PSPS style).
 3. Call simulate_plan for every plan (parallel calls are fine). It is the ONLY way to judge a plan. If is_safe is false,
    read the violations and revise, at most 2 attempts per plan.
-4. Call get_event_context(event_id) and get_validation_summary() once and cite what the history says about trusting the
+4. For the lines your plans switch off or leave energized, the specialists may have quoted get_site_context; you may
+   call it too. Put what is on the ground (homes on the brush edge, poor road access) in "why" and "tradeoffs". It is
+   Gemini's reading of aerial photos: context, never a reason to change a number.
+5. Call get_event_context(event_id) and get_validation_summary() once and cite what the history says about trusting the
    signal (numbers only from those tools). Fire risk drives de-energization; the wind_agent's storm index drives crew
    pre-staging and patrols (mention those in "tradeoffs", they are not grid actions).
-5. Reply with ONLY this JSON (no prose, no code fences):
+6. Reply with ONLY this JSON (no prose, no code fences):
 {"situation":"2 plain-language sentences",
  "plans":[{"id":"P1","title":"short","steps":[{"action":{...},"why":"plain language","raised_by":["fire_agent"]}],
    "tradeoffs":"...","confidence":0.8,"assumptions":["..."],"attempts":1}],
  "disagreements":["fire_agent wanted X; brownout_agent objected because Y; resolved by Z"]}
-If the grid is already safe with no action, return "plans": []. Do not invent numbers: the backend re-simulates every plan."""
+If the grid is already safe with no action, return "plans": []. Do not invent numbers: the backend re-simulates every plan.
+The specialists started from the same situation brief you have below; their findings add detail to it."""
+
+BRIEF_HEADER = ("Situation brief (shared by all agents; start from it instead of re-deriving it; quote its numbers, "
+                "never invent new ones):\n")
 
 
-def _subagent_specs(state, log, table):
-    return [{"name": n, "description": f, "system_prompt": SUB_PROMPT.format(name=n, focus=f), "tools": make_tools(state, log, n, t)}
+def _subagent_specs(state, log, table, extra: str = ""):
+    return [{"name": n, "description": f, "system_prompt": SUB_PROMPT.format(name=n, focus=f) + extra,
+             "tools": make_tools(state, log, n, t)}
             for n, (f, t) in table.items()]
+
+
+def _la_prompts(state, log):
+    """LA path: build the brief once; return (subagent specs, coordinator prompt), both carrying the brief."""
+    brief = build_brief(state)
+    log("coordinator", "situation brief: " + brief["headlines"][0])
+    block = "\n\n" + BRIEF_HEADER + brief_text(brief)
+    subagents = _subagent_specs(state, log, LA_SUBAGENTS, block)
+    prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}." + block
+    return subagents, prompt
 
 
 def _run_llm(state, log) -> dict:
@@ -155,9 +179,9 @@ def _run_llm(state, log) -> dict:
     model = LLM.chat_model(timeout=40, max_retries=1, max_tokens=4096)
     la = hasattr(state, "grid")
     if la:  # LA: only agents that have real data to read, one parallel wave (audit: 5 of 9 were no-ops on LA)
-        subagents = _subagent_specs(state, log, LA_SUBAGENTS)
-        prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}."
-        coord_tools = ["get_candidate_actions", "simulate_plan", "get_event_context", "get_validation_summary", "get_critical_sites"]
+        subagents, prompt = _la_prompts(state, log)
+        coord_tools = ["get_candidate_actions", "simulate_plan", "get_event_context", "get_validation_summary", "get_critical_sites",
+                       "get_site_context"]
     else:
         subagents = _subagent_specs(state, log, SUBAGENTS)
         prompt = COORDINATOR_PROMPT

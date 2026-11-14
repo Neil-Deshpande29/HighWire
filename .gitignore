@@ -19,3 +19,6 @@ __pycache__/
 /package.json
 /package-lock.json
 validation/results/series_storm_2019_2024_*.csv
+
+# NAIP aerial tiles + cached Gemini looks (fetch with: python -m site_agent.naip)
+data/processed/naip/

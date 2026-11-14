@@ -34,6 +34,26 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 
+# v4 fire model ("wind_pressure"): wind load on a conductor or a branch scales with gust^2, so the wind term keeps
+# growing through Santa Ana gust speeds instead of saturating near 10 m/s like the fitted sigmoid did (audit: at all
+# four utility ignitions the old wind factor was 0.98-1.00, so the score could not tell 13 m/s from 35 m/s).
+# GUST_REF is a fixed physical scale, NOT fitted: a round number near design wind speeds for overhead lines.
+GUST_REF = 30.0  # m/s
+
+
+def wind_pressure(gust):
+    """(min(gust, GUST_REF) / GUST_REF)^2: 0 in calm air, 0.25 at 15 m/s, 1 at 30 m/s and above."""
+    g = np.clip(np.asarray(gust, dtype=float), 0.0, GUST_REF)
+    return (g / GUST_REF) ** 2
+
+
+def wind_term(fire_cal: dict, gust):
+    """Wind factor of the blended fire score for the active model (legacy sigmoid or v4 wind pressure)."""
+    if fire_cal.get("model") == "wind_pressure":
+        return wind_pressure(gust)
+    return sigmoid((gust - fire_cal["g50"]) / 2.0)
+
+
 def damage_prob(gust, clr, onset, c50):
     """P(fault) per tower span: wind load on the conductor and nearby vegetation (calibrated on outages, storm.py)."""
     return sigmoid((gust - onset) / 2.0) * (0.5 + 0.5 * sigmoid((c50 - clr) / 1.0))
@@ -328,9 +348,9 @@ def hindcast(grid: LAGrid, wx: dict, hours_idx, ldwp_mw, sce_mw, top: Topology |
         p_fault = damage_prob(W["gust"], clr, st["onset"], st.get("c50", 5.0))
         p_ign = sigmoid((fc["h50"] - W["rh"]) / 5.0) * grid.tfuel_ign[None]
         risk = p_fault * p_ign
-    else:  # legacy v1/v2 blended score, with the per-zone canopy it was calibrated on
+    else:  # blended score (legacy v1/v2, or v4 wind_pressure), with the per-zone canopy it was calibrated on
         clr_z = TH.clearance(sag, theta, grid.tattach[None], grid.trow[None], grid.tcanopy_zone[None])
-        risk = (sigmoid((W["gust"] - fc["g50"]) / 2.0) * sigmoid((fc["h50"] - W["rh"]) / 5.0)
+        risk = (wind_term(fc, W["gust"]) * sigmoid((fc["h50"] - W["rh"]) / 5.0)
                 * (0.5 + 0.5 * sigmoid((fc["c50"] - clr_z) / 1.0)) * grid.tfuel[None])
     energized = on[grid.tb][None]
     risk = risk * energized

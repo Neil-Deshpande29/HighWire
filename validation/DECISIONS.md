@@ -125,3 +125,29 @@ first run are marked **(post-hoc, disclosed)**.
   2019-20 fit / summer-2021 holdout (SCE top-5 peak error -13.1% -> -4.8%) before H2 was evaluated.
 - **LLM provider.** Switched from Anthropic to Google Gemini (`langchain-google-genai`), single factory in `backend/llm.py`.
   Model id is configurable (`GEMINI_MODEL`); the LLM never produces a number shown in the UI.
+
+## v4: fire wind term, Hurst scoring, Gemini site agent
+- **Wind term (post-hoc, disclosed).** An external audit ran the v3 engine at the four utility ignition hours. The legacy
+  wind factor was 0.98-1.00 and the two-step P(fault) 0.87-1.00 at every one, so humidity alone ranked the lines, and
+  humidity thresholds were set by the only training fire (Saddleridge, RH 2-5%). Eaton was a wind fire at RH ~13-18%.
+  v4 replaces the wind sigmoid with wind pressure (gust / 30 m/s)^2, capped at 1. 30 m/s is a fixed physical scale (a
+  round number near overhead-line design wind speeds), not fitted. h50 and c50 are refit on training events with the
+  unchanged objective. Because the form was chosen after looking at test ignitions, V5-V8 are not held out for it.
+- **Default stays legacy (decided after the v4 validation).** With h50/c50 refit on training events, wind_pressure
+  ranked the four ignition lines: Woolsey 1.2% -> 0.4%, Saddleridge (train) 0.6% -> 6.6%, Eaton 10.3% -> 4.2%, Hurst
+  (L171) 4.5% -> 11.1%. The wind term now separates a breeze from a Santa Ana gust, but the humidity half-point still
+  lands at the bottom of its range (10%) because the only training fire burned at 2-5% RH, so wind fires at 13-20% RH
+  stay suppressed. Fix the humidity fit with more fires (CPUC utility-reported ignitions) before adopting it.
+- **Hurst scored on the named circuit.** The SCE incident report names the Eagle Rock-Sylmar 220 kV circuit (OSM line
+  L171). V5 and V8 used the nearest modeled line (L172, Haskell-Sylmar), a different circuit. `fires.yaml` now carries
+  `facility_line: L171`; V5/V8 score the named line when it is in the model and report the nearest line too. On L171 the
+  gust-only baseline ranks Hurst far higher (top ~3% vs ~29%), which also changes the baseline, not just the model.
+- **Known data gaps behind the wind problem (not fixed here).** None of the 8 ASOS stations is in a mountain zone (median
+  27 km from a mountain tower), so the gust correction and nudging are only checked off the fire terrain. On Eaton night the
+  grid gust was 24-43% below station peaks (KBUR 37 vs 21 m/s, KWHP 35 vs 22 m/s); Woolsey and Saddleridge matched within
+  ~3 m/s. Next: fire-zone stations (RAWS / SCE), HRRR 3 km winds, and CPUC utility-reported ignitions to fit the fire
+  thresholds on fires rather than outage spikes.
+- **Gemini site agent (`site_agent/`).** NAIP aerial photo (Planetary Computer, keyless) of each alarmed line's most
+  fire-prone tower, described by Gemini as categorical fields + two sentences; digits are stripped; cross-checks against
+  LANDFIRE and Census are shown to the operator. Never a physics input. The co-pilot's fire_agent reads facts and cached
+  descriptions only, so planning never waits on a live vision call.

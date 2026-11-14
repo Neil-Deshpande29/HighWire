@@ -49,7 +49,7 @@ def series_index():
                     * g.tfuel_ign[None])
         else:
             clr_z = TH.clearance(sag, theta, g.tattach[None], g.trow[None], g.tcanopy_zone[None])
-            risk = (E.sigmoid((W["gust"] - fc["g50"]) / 2) * E.sigmoid((fc["h50"] - W["rh"]) / 5)
+            risk = (E.wind_term(fc, W["gust"]) * E.sigmoid((fc["h50"] - W["rh"]) / 5)
                     * (0.5 + 0.5 * E.sigmoid((fc["c50"] - clr_z) / 1)) * g.tfuel[None])
         ri[idx] = (risk * g.tspan_km[None]).sum(1)
         gmax[idx] = s["wind_gusts_10m"][idx].reshape(len(idx), -1).max(1)

@@ -76,6 +76,8 @@ def _event_part(grid, cal, eid="E3"):
             dist = np.hypot(grid.tlat - f["lat"], (grid.tlon - f["lon"]) * cosl) * 111.0
             dist[~overhead[grid.tb]] = np.inf
             li = int(grid.tb[int(np.argmin(dist))])
+            if f.get("facility_line") in grid.lix:  # the line the incident report names (same rule as V5)
+                li = grid.lix[f["facility_line"]]
             pos = int(np.where(idx_oh == li)[0][0])
             risk, gust = r["line_risk"][h][idx_oh], r["line_gust"][h][idx_oh]
             ranks.append({"fire": f["name"], "line": grid.branches[li]["id"], "model_top_pct": pct_rank(risk, pos),

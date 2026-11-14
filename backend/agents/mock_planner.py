@@ -32,6 +32,31 @@ ASSUMPTIONS = {
 }
 
 
+def _site(state, line_id: str):
+    """Cached site-agent context for an LA line (photos + Gemini's description if one was made), else None."""
+    if not hasattr(state, "grid"):
+        return None
+    try:
+        from site_agent import agent as SA
+
+        return SA.compact(SA.describe(line_id, state.eid, t=state.t_utc.isoformat(), use_llm=False, fetch=False))
+    except Exception:  # noqa: BLE001  context only: never let it break planning
+        return None
+
+
+def _site_phrase(s) -> str:
+    """One short clause from the site context, or ''."""
+    if not s:
+        return ""
+    if s.get("line_summary"):
+        return f" Site agent (aerial photos): {s['line_summary']}"
+    seen = [p for p in s["photos"] if p.get("seen")]
+    edge = [p["photo"] for p in seen if p.get("wildland_urban_edge")]
+    if edge:
+        return f" Site agent: homes meet brush at photo {', '.join(map(str, edge))}."
+    return ""
+
+
 class _Planner:
     def __init__(self, state, log: JobLog, pace: float):
         self.state, self.log, self.pace = state, log, pace
@@ -139,6 +164,17 @@ class _Planner:
                                                + (f", {dw['water_plants']} water plant(s)" if dw["water_plants"] else "") + " within 10 km")
                 except Exception:  # noqa: BLE001
                     pass
+                for l in fiery[:2]:  # what is on the ground (site agent, cached Gemini description of aerial photos)
+                    s = _site(st, l)
+                    if s and s.get("line_summary"):
+                        self.say("fire_agent", f"{l} on the ground: {s['line_summary']}")
+                        for d in s["disagreements"][:1]:
+                            self.say("fire_agent", f"{l} data check: {d}")
+                    if s:
+                        poor = [p["photo"] for p in s["photos"] if p.get("access") in ("limited", "none visible")]
+                        if poor:
+                            self.say("wind_agent", f"{l}: road access limited at photo {', '.join(map(str, poor))}; stage patrols "
+                                                   "at the reachable stretches")
         else:
             self.say("fire_agent", "fire weather not present (humidity or wind too low)")
         # cascade
@@ -190,7 +226,8 @@ class _Planner:
                         f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm (worst {max(items)[0]:.2f}).",
                         ["fire_agent", "wind_agent"], f"de-energize {len(ids)} {z} sub-transmission lines")
             for l, rk, v in sorted(fire_lines, key=lambda x: -x[1])[:3]:
-                add({"type": "open_line", "target": l}, f"{v.split(': ', 1)[1]}; de-energize to remove the ignition source.",
+                add({"type": "open_line", "target": l}, f"{v.split(': ', 1)[1]}; de-energize to remove the ignition source."
+                    + _site_phrase(_site(st, l)),
                     ["fire_agent", "wind_agent"], f"de-energize {l}")
         for v in base["violations"]:
             m = re.match(r"Line (\w+): clearance ([\d.]+) m .*\((.*)\)", v)
@@ -459,6 +496,14 @@ class _Planner:
 
     def run(self) -> dict:
         st = self.state
+        if hasattr(st, "grid"):  # LA: start from the shared situation brief
+            try:
+                from .brief import build_brief
+
+                for h in build_brief(st)["headlines"]:
+                    self.say("coordinator", "situation brief: " + h)
+            except Exception:  # noqa: BLE001
+                pass
         base = self.sim([])
         self.analyze(base)
         storm_sent, staging = self.storm()

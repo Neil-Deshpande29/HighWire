@@ -271,6 +271,37 @@ def la_forecast_status():
     return FORECAST_JOB
 
 
+@app.get("/la/site/{line_id}")
+def la_site(line_id: str, event: str | None = None, i: int | None = None):
+    """Site agent: data facts + NAIP aerial photo + Gemini's description (if GEMINI_API_KEY is set) for one line.
+    The description is context for the operator, never an input to the physics."""
+    from site_agent import agent as SA
+
+    if event is not None and event not in LAD.events():
+        raise HTTPException(404, "unknown event")
+    try:
+        return SA.describe(line_id, event, i)
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.get("/la/site/{line_id}/photo/{n}.jpg")
+def la_site_photo(line_id: str, n: int):
+    from fastapi.responses import FileResponse
+
+    from site_agent import facts as SF
+    from site_agent import naip
+
+    try:
+        SF.branch(line_id)  # only real line ids reach the file system
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+    t = naip.cached_tile(line_id, n) if 0 <= n < 8 else None
+    if not t:
+        raise HTTPException(404, "no cached photo (GET /la/site/{line_id} fetches the line's photos)")
+    return FileResponse(t["img"], media_type="image/jpeg")
+
+
 @app.get("/validation")
 def validation():
     return RP.validation_summary()

@@ -123,6 +123,18 @@ files, so the agents can cite the validation but never compute numbers. Without 
 planner runs. That planner was also extended for the LA grid: fire-risk violations, and PSPS groups split by zone and
 voltage tier.
 
+## Gemini site agent (v4)
+
+Click a line under "Lines above the fire alarm" in LA Replay to see up to 4 USDA aerial photos along its most
+fire-prone stretches, what the data says is there (LANDFIRE fuel, Census people and hospitals downwind), Gemini's
+description of each photo (land cover, buildings, vegetation at the tower, wildland-urban edge, road access), and
+every place the description disagrees with the data. The co-pilot's fire, wind and brownout agents and the coordinator
+read the same context. It never changes a number. Details: [`site_agent/README.md`](site_agent/README.md).
+
+```bash
+make site      # fetch photos for every alarmed line, then one Gemini description per line (needs GEMINI_API_KEY)
+```
+
 ## Environment variables
 
 | Var | Default | Meaning |

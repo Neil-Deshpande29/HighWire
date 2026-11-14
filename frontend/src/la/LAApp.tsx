@@ -318,6 +318,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       const ig = new Date(exact).getTime();
       const before = approvedPlan ? new Date(approvedPlan.t).getTime() <= ig : false;
       const sub = c.substation;
+      const which = c.named_in_report ? `named in the incident report for the ${name} fire` : `nearest where the ${name} fire started`;
       if (sub && approvedPlan?.busesOut) {
         const min = Math.round((ig - new Date(approvedPlan.t).getTime()) / 6e4);
         const lead = min < 90 ? `${min} minutes` : `${Math.round(min / 60)} hours`;
@@ -328,8 +329,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           : { text: `The ${name} fire was traced to a circuit fed from ${sub.name}. Your approved plan left that substation powered.` });
       }
       checks.push({ text: c.first_flag_utc
-        ? `The power line nearest where the ${name} fire started (${c.nearest_line}) was flagged as high fire risk at ${timeLabel(c.first_flag_utc, { weekday: "short", hour: "numeric" })}, ${Math.round(c.hours_before ?? 0)} hours before the fire started.`
-        : `The power line nearest where the ${name} fire started (${c.nearest_line}) was not flagged before the fire started. That's a miss on recorded weather.` });
+        ? `The power line ${which} (${c.nearest_line}) was flagged as high fire risk at ${timeLabel(c.first_flag_utc, { weekday: "short", hour: "numeric" })}, ${Math.round(c.hours_before ?? 0)} hours before the fire started.`
+        : `The power line ${which} (${c.nearest_line}) was not flagged before the fire started. That's a miss on recorded weather.` });
       if (approvedPlan && !sub) {
         if (approvedPlan.off.includes(c.nearest_line)) checks.push({ text: before ? `Your approved plan had already turned that line off.` : `Your plan turns that line off, but you approved it after the fire had started.` });
         else if (c.kv >= 180) checks.push({ text: `That line is a ${Math.round(c.kv)} kV import line; plans keep those on and send a patrol instead of switching them off.` });

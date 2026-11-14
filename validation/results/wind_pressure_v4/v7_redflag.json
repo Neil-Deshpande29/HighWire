@@ -1,0 +1,58 @@
+{
+ "check": "V7",
+ "events": {
+  "E1": {
+   "high_risk_line_hours": 84,
+   "inside_red_flag": 84,
+   "red_flag_zone_hours": 990,
+   "zone_hours_with_high_risk_line": 87
+  },
+  "E2": {
+   "high_risk_line_hours": 136,
+   "inside_red_flag": 136,
+   "red_flag_zone_hours": 495,
+   "zone_hours_with_high_risk_line": 79
+  },
+  "E3": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 1536,
+   "zone_hours_with_high_risk_line": 0
+  },
+  "H1": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 0,
+   "zone_hours_with_high_risk_line": 0
+  },
+  "H2": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 0,
+   "zone_hours_with_high_risk_line": 0
+  },
+  "C1": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 0,
+   "zone_hours_with_high_risk_line": 0
+  },
+  "C2": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 0,
+   "zone_hours_with_high_risk_line": 0
+  },
+  "C3": {
+   "high_risk_line_hours": 0,
+   "inside_red_flag": 0,
+   "red_flag_zone_hours": 0,
+   "zone_hours_with_high_risk_line": 0
+  }
+ },
+ "frac_high_risk_inside_red_flag": 1.0,
+ "frac_red_flag_zone_hours_with_high_risk": 0.05494869248593181,
+ "zones_crossing_lines": 31,
+ "headline": "100% of high-risk line-hours fall inside an active Red Flag Warning; 5% of Red Flag zone-hours contain a high-risk line",
+ "baseline": "NWS Red Flag Warnings (independent forecaster judgement)"
+}

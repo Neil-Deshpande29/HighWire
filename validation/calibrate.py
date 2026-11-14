@@ -94,6 +94,12 @@ def risk_from(r, grid, g50, h50, c50):
             * (0.5 + 0.5 * E.sigmoid((c50 - r["_clear_zone"]) / 1.0)) * grid.tfuel[None] * r["energized"][grid.tb][None])
 
 
+def risk_wind_pressure(r, grid, h50, c50):
+    """v4: the legacy blended score with the saturating wind sigmoid replaced by wind pressure (gust/30)^2."""
+    return (E.wind_pressure(r["tower_gust"]) * E.sigmoid((h50 - r["tower_rh"]) / 5.0)
+            * (0.5 + 0.5 * E.sigmoid((c50 - r["_clear_zone"]) / 1.0)) * grid.tfuel[None] * r["energized"][grid.tb][None])
+
+
 def risk_two_step(r, grid, h50, storm):
     """v3: P(fault | wind, vegetation; storm model fit on outages) x P(ignition | RH, LANDFIRE fuel)."""
     p_fault = E.damage_prob(r["tower_gust"], r["_clear"], storm["onset"], storm.get("c50", 5.0))
@@ -158,22 +164,30 @@ def fit_fire(gust_cal, storm):
         [{"g50": g, "h50": h, "c50": c} for g, h, c in itertools.product([6, 8, 10, 12, 14, 16, 18, 20], [10, 15, 20, 25, 30, 35, 40], [5, 7, 9, 11, 13])])
     two_cfg, two_alarm, two_line, two_sum = _search(
         runs, grid, lambda r, h50: risk_two_step(r, grid, h50, storm), [{"h50": h} for h in (5, 10, 15, 20, 25, 30, 35, 40, 50)])
+    wp_cfg, wp_alarm, wp_line, wp_sum = _search(
+        runs, grid, lambda r, h50, c50: risk_wind_pressure(r, grid, h50, c50),
+        [{"h50": h, "c50": c} for h, c in itertools.product([10, 15, 20, 25, 30, 35, 40], [5, 7, 9, 11, 13])])
     rule_two = grid.landfire and two_sum["best_auc"] >= leg_sum["best_auc"] - 0.05
     forced = CFG.get("fire_model", "auto")
     use_two = rule_two if forced == "auto" else forced == "two_step"
-    if use_two:
+    if forced == "wind_pressure":
+        params = {"model": "wind_pressure", **wp_cfg, "g50": None, "gust_ref": E.GUST_REF, "region_alarm": wp_alarm,
+                  "line_alarm": wp_line}
+        chosen_sum = wp_sum
+    elif use_two:
         params = {"model": "two_step", "h50": two_cfg["h50"], "region_alarm": two_alarm, "line_alarm": two_line,
                   "g50": None, "c50": storm.get("c50", 5.0)}
         chosen_sum = two_sum
     else:
         params = {"model": "legacy", **leg_cfg, "region_alarm": leg_alarm, "line_alarm": leg_line}
         chosen_sum = leg_sum
-    summary = {"chosen": params, "two_step_accepted": bool(use_two), "two_step_passed_training_rule": bool(rule_two),
+    summary = {"chosen": params, "two_step_accepted": bool(use_two and forced != "wind_pressure"), "two_step_passed_training_rule": bool(rule_two),
                "config_override": forced if forced != "auto" else None,
                "objective": "max hit rate on training wind-event outage-spike hours (alarm = 98th pct of control-week RI); tie-break: AUC spike-hours vs control-hours, then peak/alarm margin",
                "acceptance_rule": "two-step used unless its training AUC < legacy training AUC - 0.05 (set before any test result)",
                "legacy": {"chosen": {**leg_cfg, "region_alarm": leg_alarm, "line_alarm": leg_line}, **leg_sum},
                "two_step": {"chosen": {**two_cfg, "region_alarm": two_alarm, "line_alarm": two_line}, **two_sum},
+               "wind_pressure": {"chosen": {**wp_cfg, "gust_ref": E.GUST_REF, "region_alarm": wp_alarm, "line_alarm": wp_line}, **wp_sum},
                **{k: chosen_sum[k] for k in ("spike_hours", "best_hit_rate", "best_auc", "best_margin", "n_configs", "top10")}}
     return params, summary
 
@@ -280,7 +294,8 @@ def main():
     print("storm:", storm, "LOYO", round(storm_sum["loyo_auc_chosen"], 3), "vs gust", round(storm_sum["loyo_auc_gust_baseline_k6"], 3))
     fire, fire_sum = fit_fire(gust_cal, storm)
     print("fire:", fire, "| legacy train hit/auc", round(fire_sum["legacy"]["best_hit_rate"], 3), round(fire_sum["legacy"]["best_auc"], 3),
-          "| two-step train hit/auc", round(fire_sum["two_step"]["best_hit_rate"], 3), round(fire_sum["two_step"]["best_auc"], 3))
+          "| two-step train hit/auc", round(fire_sum["two_step"]["best_hit_rate"], 3), round(fire_sum["two_step"]["best_auc"], 3),
+          "| wind-pressure train hit/auc", round(fire_sum["wind_pressure"]["best_hit_rate"], 3), round(fire_sum["wind_pressure"]["best_auc"], 3))
     cal = {"gust": gust_cal, "fire": fire, "load": load_model, "storm": storm, "nudge": nudge, "trained_on": TRAIN,
            "load_fit_years": CFG["load_model"]["fit_years"], "storm_fit_years": CFG["series"]["calibrate_years"],
            "vegetation": "LANDFIRE 2016 (EVH, FBFM40)" if E.LAGrid().landfire else "per-zone constants"}

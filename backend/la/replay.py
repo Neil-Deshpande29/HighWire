@@ -202,9 +202,10 @@ def fire_checks(eid: str, d: dict) -> list[dict]:
     named = [b for b in D.grid()["buses"] if b["kind"] == "substation" and b["name"] and not b["name"].startswith("Substation")]
     out = []
     for c in (_json("v5_ignition") or {}).get("cases", []):
-        if c["event"] != eid or c["nearest_line"] not in ids:
+        line = c.get("scored_line") or c["nearest_line"]  # V5 scores the line an incident report names, if it is in the model
+        if c["event"] != eid or line not in ids:
             continue
-        k = ids.index(c["nearest_line"])
+        k = ids.index(line)
         ig = pd.Timestamp(c["ignition_utc"])
         ig_h = np.datetime64(ig.tz_convert("UTC").tz_localize(None).floor("h"), "h")
         before = d["time"] <= ig_h
@@ -213,7 +214,8 @@ def fire_checks(eid: str, d: dict) -> list[dict]:
         # the substation feeding the igniting circuit, when the official facility text names one on our grid
         fac = (c.get("facility") or "").lower()
         sub = next(({"id": b["id"], "name": b["name"]} for b in named if b["name"].lower() in fac), None)
-        out.append({"facility": c.get("facility"), "substation": sub, "fire": c["fire"], "ignition_utc": ig.isoformat(), "nearest_line": c["nearest_line"], "kv": c["nearest_line_kv"],
+        out.append({"facility": c.get("facility"), "substation": sub, "fire": c["fire"], "ignition_utc": ig.isoformat(), "nearest_line": line, "kv": c.get("scored_line_kv", c["nearest_line_kv"]),
+                    "named_in_report": line != c["nearest_line"],
                     "distance_km": round(c["distance_km"], 1), "first_flag_utc": first.isoformat() if first is not None else None,
                     "hours_before": round((ig - first).total_seconds() / 3600, 1) if first is not None else None,
                     "top_pct": c["model_top_pct"], "n_lines": c["n_lines"], "split": c["split"], "caveat": c.get("caveat")})
