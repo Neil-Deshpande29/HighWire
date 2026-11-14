@@ -1,9 +1,11 @@
 """Rule-based fallback planner. Same output shape and log style as the LLM team, so the demo always works.
 
-1. Each "agent" reads the physics and writes findings (templated).
+1. Each "agent" reads the physics and writes findings (templated). The toy region has nine agents; the LA grid has
+   four (fire, wind, heat, brownout), and nothing is said there that its engine does not compute.
 2. Coordinator repairs a plan greedily, one violation at a time (shows rejected attempts with exact violations).
 3. Small brute force over candidate actions (cap ~500 sims) for alternatives.
-4. Rank safe plans by unserved MW, then number of actions.
+4. Rank safe plans by unserved MW, then number of actions. Two plans with the same effect are never both returned;
+   on LA a lone plan is re-tried with one shut-off line left on, and the log says so when nothing safe differs.
 """
 from __future__ import annotations
 
@@ -23,6 +25,11 @@ except Exception:  # noqa: BLE001
 
 PACE_S = float(os.environ.get("MOCK_PACE", "0.12"))
 MAX_SIMS = 500
+ALT_SIMS = 20  # single-line exceptions tried when looking for a second plan (LA sim ~0.07 s)
+LA_AGENTS = ("fire_agent", "wind_agent", "heat_agent", "brownout_agent")  # the LA team; the toy region has nine
+OFF_TYPES = ("open_line", "deenergize_lines")
+# The toy region's fixed fire marks. LA reads its one line alarm from calibration (backend/la/data.py calibration()).
+TOY_FIRE_ALARM, TOY_FIRE_SEVERE = 0.3, 0.7
 
 ASSUMPTIONS = {
     "Normal": ["Conditions stay as forecast for the next 3 hours"],
@@ -60,8 +67,9 @@ def _site_phrase(s) -> str:
 class _Planner:
     def __init__(self, state, log: JobLog, pace: float):
         self.state, self.log, self.pace = state, log, pace
+        self.la = hasattr(state, "grid")  # real LA grid (LAState) rather than the synthetic toy region
         self.sims = 0
-        self.max_sims = 150 if hasattr(state, "grid") else MAX_SIMS  # LA sim ~0.07 s (profiled), so 3-action combos fit
+        self.max_sims = 150 if self.la else MAX_SIMS  # LA sim ~0.07 s (profiled), so 3-action combos fit
         self.findings: dict[str, list] = {}
 
     def say(self, agent, msg):
@@ -78,8 +86,17 @@ class _Planner:
     def find(self, agent, target, issue, evidence, severity):
         self.findings.setdefault(agent, []).append({"target": target, "issue": issue, "evidence": evidence, "severity": severity})
 
+    def by(self, agents: list[str]) -> list[str]:
+        """Who raised a step. LA has no cascade, flood, water or atmosphere agent; what they would raise there
+        (overloads, re-closing) is the brownout agent's remit."""
+        if not self.la:
+            return agents
+        return [a for a in agents if a in LA_AGENTS] or ["brownout_agent"]
+
     # ------------------------------------------------------------------ phase 1+2: agents read the physics
     def analyze(self, base):
+        if self.la:
+            return self.analyze_la(base)
         st, sim = self.state, base
         L = sim["lines"]
         closed = [l for l in L if L[l]["energized"]]
@@ -95,10 +112,6 @@ class _Planner:
         h = self.findings["heat_agent"][0]
         self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
         # wind
-        if any("gust_ms" in L[l] for l in closed):
-            for l in sorted(closed, key=lambda l: -L[l].get("gust_ms", 0))[:3]:
-                if L[l]["gust_ms"] >= 12:
-                    self.find("wind_agent", l, "strong gusts on the line", f"gust {L[l]['gust_ms']} m/s at the worst tower; fire risk {L[l]['fire_risk']:.2f}", 3 if L[l]["gust_ms"] >= 20 else 2)
         blown = sorted(closed, key=lambda l: -abs(L[l]["blowout_m"]))[:3]
         for l in blown:
             wx = st.weather[st.lines[l]["zone"]]
@@ -146,35 +159,12 @@ class _Planner:
         tot = sim["totals"]
         self.say("brownout_agent", f"{tot['unserved_mw']} MW unserved; heaviest line {loaded[0]} at {L[loaded[0]]['loading_pct']}%")
         # fire
-        fiery = sorted([l for l in closed if L[l]["fire_risk"] >= 0.3], key=lambda l: -L[l]["fire_risk"])
+        fiery = sorted([l for l in closed if L[l]["fire_risk"] >= TOY_FIRE_ALARM], key=lambda l: -L[l]["fire_risk"])
         for l in fiery:
-            self.find("fire_agent", l, "ignition risk", f"fire index {L[l]['fire_risk']}, clearance {L[l]['clearance_m']} m", 3 if L[l]["fire_risk"] >= 0.7 else 2)
+            self.find("fire_agent", l, "ignition risk", f"fire index {L[l]['fire_risk']}, clearance {L[l]['clearance_m']} m",
+                      3 if L[l]["fire_risk"] >= TOY_FIRE_SEVERE else 2)
         if fiery:
             self.say("fire_agent", "ignition risk on " + ", ".join(f"{l} ({L[l]['fire_risk']:.2f})" for l in fiery[:4]))
-            if hasattr(st, "grid"):  # consequence layer (context only): what is downwind of the riskiest line
-                try:
-                    from ..la import replay
-
-                    ov = replay.hour(st.eid, t=st.t_utc.isoformat())["over_alarm"]
-                    top = next((x for x in ov if x["id"] == fiery[0]), ov[0] if ov else None)
-                    if top and top.get("downwind"):
-                        dw = top["downwind"]
-                        self.say("fire_agent", f"if {top['id']} sparks, the wind carries fire toward ~{dw['people']:,} people"
-                                               + (f", {dw['hospitals']} hospital(s)" if dw["hospitals"] else "")
-                                               + (f", {dw['water_plants']} water plant(s)" if dw["water_plants"] else "") + " within 10 km")
-                except Exception:  # noqa: BLE001
-                    pass
-                for l in fiery[:2]:  # what is on the ground (site agent, cached Gemini description of aerial photos)
-                    s = _site(st, l)
-                    if s and s.get("line_summary"):
-                        self.say("fire_agent", f"{l} on the ground: {s['line_summary']}")
-                        for d in s["disagreements"][:1]:
-                            self.say("fire_agent", f"{l} data check: {d}")
-                    if s:
-                        poor = [p["photo"] for p in s["photos"] if p.get("access") in ("limited", "none visible")]
-                        if poor:
-                            self.say("wind_agent", f"{l}: road access limited at photo {', '.join(map(str, poor))}; stage patrols "
-                                                   "at the reachable stretches")
         else:
             self.say("fire_agent", "fire weather not present (humidity or wind too low)")
         # cascade
@@ -190,6 +180,75 @@ class _Planner:
         else:
             self.say("flood_agent", "no energized equipment in water")
 
+    def analyze_la(self, base):
+        """The LA team reads the physics: fire, wind, heat and brownout only. The LA engine has no flood, ground-report,
+        blowout or N-1 model, so nothing is said or recorded for those. Every number is from the state or calibration."""
+        from ..la.consequence import LENGTH_KM
+
+        st, L = self.state, base["lines"]
+        closed = [l for l in L if L[l]["energized"]]
+        self.say("coordinator", f"{st.scenario}: reading this hour's physics for the fire, wind, heat and brownout agents")
+        # heat
+        for l in sorted(closed, key=lambda l: -L[l]["temp_c"])[:2]:
+            ln = st.lines[l]
+            sev = 3 if L[l]["temp_c"] > ln["max_temp_c"] else (2 if L[l]["temp_c"] > 45 else 1)
+            self.find("heat_agent", l, "conductor heating",
+                      f"{L[l]['temp_c']} C (limit {ln['max_temp_c']:.0f} C) at {L[l]['amps']:.0f} A, {ln['zone']} zone air "
+                      f"{st.weather[ln['zone']]['air_temp_c']} C, sag {L[l]['sag_m']} m", sev)
+        h = self.findings["heat_agent"][0]
+        self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
+        # wind
+        for n, l in enumerate(sorted(closed, key=lambda l: -L[l]["gust_ms"])[:3]):
+            evidence = f"gust {L[l]['gust_ms']} m/s at the worst tower; fire index {L[l]['fire_risk']:.2f}"
+            if L[l]["gust_ms"] >= 12:
+                self.find("wind_agent", l, "strong gusts on the line", evidence, 3 if L[l]["gust_ms"] >= 20 else 2)
+            if n < 2:
+                self.say("wind_agent", f"{l}: {evidence}")
+        # brownout
+        loaded = sorted(closed, key=lambda l: -L[l]["loading_pct"])[:2]
+        for l in loaded:
+            self.find("brownout_agent", l, "line loading", f"{L[l]['loading_pct']}% of rating ({L[l]['flow_mw']:.0f} MW)",
+                      3 if L[l]["loading_pct"] > 100 else (2 if L[l]["loading_pct"] > 70 else 1))
+        self.say("brownout_agent", f"{base['totals']['unserved_mw']} MW unserved; heaviest line {loaded[0]} at "
+                                   f"{L[loaded[0]]['loading_pct']}%")
+        # fire: the calibrated line alarm, then the consequence layer (context only, never a physics input)
+        alarm = D.calibration()["fire"]["line_alarm"]
+        # the state's own verdict decides which lines are flagged (fire_lines compares the rounded index, so it can add one)
+        verdicts = (re.match(r"(?:Line|Patrol) (\w+): fire risk", v) for v in base["violations"] + base["watch"])
+        flagged = {m.group(1) for m in verdicts if m}
+        rows = [row for row in st.fire_lines(base, limit=len(L))[0] if row["id"] in flagged]
+        if not rows:
+            self.say("fire_agent", f"no energized overhead line reaches the fire alarm ({alarm:.2f})")
+            return
+        for row in rows:  # a sub-transmission line over the alarm is a shut-off violation, a bulk line a patrol item
+            self.find("fire_agent", row["id"], "fire index at or over the alarm",
+                      f"fire index {row['risk']} vs alarm {alarm}; gust {row['gust']} m/s, RH {row['rh']:.0f}%",
+                      3 if L[row["id"]]["violations"] else 2)
+        self.say("fire_agent", f"{len(rows)} line(s) at or over the fire alarm ({alarm:.2f}); highest fire index: "
+                               + ", ".join(f"{r['id']} ({r['risk']:.2f})" for r in rows[:4]))
+        most = max(rows, key=lambda r: r["downwind"]["people"])
+        dw = most["downwind"]
+        if dw["people"]:
+            self.say("fire_agent", f"most people downwind of a flagged line: {most['id']}, about {dw['people']:,} people "
+                                   f"in its {LENGTH_KM:.0f} km downwind cone"
+                                   + (f", {dw['hospitals']} hospital(s)" if dw["hospitals"] else "")
+                                   + (f", {dw['water_plants']} water plant(s)" if dw["water_plants"] else ""))
+        else:
+            self.say("fire_agent", "no homes are counted in the downwind cone of any flagged line")
+        if rows[0] is not most and not rows[0]["downwind"]["people"]:
+            self.say("fire_agent", f"{rows[0]['id']} has the highest fire index; no homes are counted in its downwind cone")
+        for row in rows[:2]:  # what is on the ground (site agent: cached description of aerial photos, never a live call)
+            l, s = row["id"], _site(st, row["id"])
+            if s and s.get("line_summary"):
+                self.say("fire_agent", f"{l} on the ground: {s['line_summary']}")
+                for d in s["disagreements"][:1]:
+                    self.say("fire_agent", f"{l} data check: {d}")
+            if s:
+                poor = [p["photo"] for p in s["photos"] if p.get("access") in ("limited", "none visible")]
+                if poor:
+                    self.say("wind_agent", f"{l}: road access limited at photo {', '.join(map(str, poor))}; stage patrols "
+                                           "at the reachable stretches")
+
     # ------------------------------------------------------------------ candidates
     def candidates(self, base):
         st, L = self.state, base["lines"]
@@ -198,7 +257,15 @@ class _Planner:
         def add(action, why, raised_by, label):
             key = (action["type"], action["target"], action.get("mw"))
             if key not in {(c["action"]["type"], c["action"]["target"], c["action"].get("mw")) for c in cands}:
-                cands.append({"action": action, "why": why, "raised_by": raised_by, "label": label})
+                cands.append({"action": action, "why": why, "raised_by": self.by(raised_by), "label": label})
+
+        def group_site(ids):
+            """Site phrase of the worst line in a grouped shut-off that has a cached description, naming that line."""
+            for l in sorted(ids, key=lambda l: -L[l]["fire_risk"]):
+                phrase = _site_phrase(_site(st, l))
+                if phrase:
+                    return phrase.replace(" Site agent", f" Site agent on {l}", 1)
+            return ""
 
         overloaded = [l for l in L if L[l]["energized"] and L[l]["loading_pct"] > 100]
         fire_lines = []
@@ -212,7 +279,8 @@ class _Planner:
             if len(ids_all) >= 2:
                 add({"type": "deenergize_lines", "target": "all sub-transmission lines over fire alarm", "targets": ids_all},
                     f"PSPS-style shutoff of all {len(ids_all)} sub-transmission line(s) above the calibrated fire alarm "
-                    f"(worst {max(rk for _, rk, _ in fire_lines):.2f}); bulk import corridors stay on and are patrolled.",
+                    f"(worst {max(rk for _, rk, _ in fire_lines):.2f}); bulk import corridors stay on and are patrolled."
+                    + group_site(ids_all),
                     ["fire_agent", "wind_agent"], f"PSPS: de-energize all {len(ids_all)} flagged sub-transmission lines")
             by_zone = {}
             for l, rk, _ in fire_lines:
@@ -223,7 +291,8 @@ class _Planner:
                     if len(ids) < 2:
                         continue  # a single line is covered by the individual open_line candidates below
                     add({"type": "deenergize_lines", "target": f"{z} sub-transmission lines over fire alarm", "targets": ids},
-                        f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm (worst {max(items)[0]:.2f}).",
+                        f"PSPS-style shutoff of the {len(ids)} {z} sub-transmission line(s) above the fire alarm "
+                        f"(worst {max(items)[0]:.2f})." + group_site(ids),
                         ["fire_agent", "wind_agent"], f"de-energize {len(ids)} {z} sub-transmission lines")
             for l, rk, v in sorted(fire_lines, key=lambda x: -x[1])[:3]:
                 add({"type": "open_line", "target": l}, f"{v.split(': ', 1)[1]}; de-energize to remove the ignition source."
@@ -308,7 +377,7 @@ class _Planner:
         if excess <= 0:
             excess = abs(L["flow_mw"]) * 0.15  # temperature-limited: relieve ~15%
         used = {c["action"]["target"] for c in plan if c["action"]["type"] == "shed_load"}
-        if hasattr(st, "grid"):
+        if self.la:
             # LA grid: pick the non-critical load whose shedding relieves this line most (PTDF sensitivity)
             g = st.grid
             top, *_ = st._topology([c["action"] for c in plan])
@@ -348,7 +417,8 @@ class _Planner:
                 return {"action": {"type": "dispatch_gen", "target": imp_rec["id"], "mw": new},
                         "why": f"The shutoff pushes imports from {imp_rec['name'].replace('Import @ ', '')} through {lid} ({L['loading_pct']:.0f}%); "
                                f"redispatch that import point from {inj:.0f} to {new:.0f} MW and bring the rest in through the main import bus.",
-                        "raised_by": ["cascade_agent", "brownout_agent"], "label": f"cut import at {imp_rec['name'].replace('Import @ ', '')} to {new:.0f} MW"}
+                        "raised_by": self.by(["cascade_agent", "brownout_agent"]),
+                        "label": f"cut import at {imp_rec['name'].replace('Import @ ', '')} to {new:.0f} MW"}
             key, b, served = best
             gain = key[0]
             mw = float(round(min(served, excess * 1.15 / gain), 0)) or 1.0
@@ -364,7 +434,7 @@ class _Planner:
         return {"action": {"type": "shed_load", "target": b, "mw": mw},
                 "why": f"The shutoff reroutes power onto {lid} ({L['loading_pct']:.0f}%); rotate {mw:.0f} MW of non-critical load at {name} to bring it back within rating"
                        + (f" ({crit}'s feeder stays on)." if crit else "."),
-                "raised_by": ["brownout_agent", "cascade_agent"], "label": f"shed {mw:.0f} MW at {name}"}
+                "raised_by": self.by(["brownout_agent", "cascade_agent"]), "label": f"shed {mw:.0f} MW at {name}"}
 
     def _fix_for(self, violation, cands, plan):
         used = {(c["action"]["type"], c["action"]["target"]) for c in plan}
@@ -399,6 +469,69 @@ class _Planner:
                 r = self.sim([c["action"] for c in combo])
                 results.append((list(combo), r))
         return results
+
+    @staticmethod
+    def _switching(combo) -> tuple[list[str], frozenset]:
+        """What a plan does: the lines it switches off (in step order) and its other actions."""
+        off, other = {}, set()
+        for c in combo:
+            a = c["action"]
+            if a["type"] == "open_line":
+                off[a["target"]] = None
+            elif a["type"] == "deenergize_lines":
+                off.update(dict.fromkeys(a.get("targets") or []))
+            else:
+                other.add((a["type"], a["target"], a.get("mw")))
+        return list(off), frozenset(other)
+
+    def _same_effect(self, combo_a, r_a, combo_b, r_b) -> bool:
+        """Two plans leave the operator nothing to compare when their other actions match and they switch off the same
+        lines, or one switches off the other's lines plus lines that the other already leaves dead."""
+        (off_a, other_a), (off_b, other_b) = self._switching(combo_a), self._switching(combo_b)
+        if other_a != other_b:
+            return False
+        (small, r_small), (big, _) = sorted(((set(off_a), r_a), (set(off_b), r_b)), key=lambda x: len(x[0]))
+        return small <= big and not any(r_small["lines"][l]["energized"] for l in big - small)
+
+    def shutoff_alternative(self, best, r_best):
+        """Second option for a lone safe LA plan: the same plan with one of its shut-off lines left in service, kept only
+        if physics passes it and fewer customers lose power. Lines with the fewest people downwind are tried first.
+        Returns (combo, result), or None after logging plainly what was tried."""
+        st = self.state
+        off, _ = self._switching(best)
+        rest_steps = [c for c in best if c["action"]["type"] not in OFF_TYPES]
+        people = {row["id"]: row["downwind"]["people"] for row in st.fire_lines(limit=len(st.lines))[0]}
+        found = spared = None
+        failed = 0
+        tried = sorted(off, key=lambda l: people.get(l, 0))[:ALT_SIMS] if len(off) > 1 else []
+        for keep in tried:
+            action = {"type": "deenergize_lines", "target": f"shut-off lines except {keep}",
+                      "targets": [l for l in off if l != keep]}
+            r = self.sim([action] + [c["action"] for c in rest_steps])
+            saved = r_best["totals"]["unserved_mw"] - r["totals"]["unserved_mw"]
+            if not r["is_safe"]:
+                failed += 1
+                if spared is None or saved > spared[0]:
+                    spared = (saved, keep, r["violations"][0])
+            elif r["totals"]["customers_out"] < r_best["totals"]["customers_out"] and (found is None or saved > found[0]):
+                found = (saved, keep, action, r)
+        if found:
+            saved, keep, action, r = found
+            step = {"action": action, "label": f"de-energize {len(off) - 1} of the {len(off)} lines, keep {keep} on",
+                    "why": f"Shut off {len(off) - 1} of the {len(off)} lines and keep {keep} in service: physics passes it "
+                           f"with {keep} at fire index {r['lines'][keep]['fire_risk']:.2f}, and {saved:.0f} MW more load "
+                           "stays on.",
+                    "raised_by": ["fire_agent", "brownout_agent"]}
+            return [step] + rest_steps, r
+        note = ("no safe alternative found among the screened combinations (the rest fail physics, repeat the best plan, "
+                "add to it or drop far more load)")
+        if tried:
+            note += (f"; {len(tried)} of the {len(off)} shut-off lines were also tried left on, one at a time, and {failed} "
+                     "fail physics")
+        if spared and spared[0] > 0:
+            note += f" (keeping {spared[1]} on would spare {spared[0]:.0f} MW, but {spared[2]})"
+        self.say("coordinator", note)
+        return None
 
     # ------------------------------------------------------------------ output
     def plan_json(self, combo, r, attempts):
@@ -438,7 +571,9 @@ class _Planner:
         acts = [c["action"] for c in best_combo]
         r_best = self.sim(acts)
         L = r_best["lines"]
-        risky = [l for l in L if L[l]["energized"] and L[l]["fire_risk"] >= 0.7 and not L[l]["violations"]]
+        # toy region only: LA has one calibrated alarm, and its lines over the alarm that stay on are the watch items below
+        risky = [] if self.la else [l for l in L if L[l]["energized"] and L[l]["fire_risk"] >= TOY_FIRE_SEVERE
+                                    and not L[l]["violations"]]
         for l in risky[:2]:
             r2 = self.sim(acts + [{"type": "open_line", "target": l}])
             if len(acts) >= 3:
@@ -455,7 +590,7 @@ class _Planner:
                 f"fire_agent wanted {l} opened too (fire index {L[l]['fire_risk']:.2f}); brownout_agent objected: {obj}. "
                 f"Resolved: keep {l} energized ({L[l]['clearance_m']} m clearance) and send a patrol."
             )
-        if any(c["action"]["type"] == "deenergize_bus" for c in best_combo) and "B10" in r_best["buses"] and not hasattr(st, "grid"):
+        if any(c["action"]["type"] == "deenergize_bus" for c in best_combo) and "B10" in r_best["buses"] and not self.la:
             hosp = r_best["buses"]["B10"]
             out.append(
                 "flood_agent wanted all coastal substations isolated; brownout_agent objected that Mercy Hospital loses its coastal feeds. "
@@ -463,16 +598,18 @@ class _Planner:
             )
         if r_best.get("watch"):
             out.append(f"fire_agent wanted the {len(r_best['watch'])} bulk 220-500 kV line(s) above the fire alarm de-energized too; "
-                       "brownout_agent objected: they are the import corridors feeding the basin and switching them off risks a regional blackout. "
-                       "Resolved: keep them energized, patrol and monitor them (listed in the bulletin), as utilities do during a PSPS.")
+                       "brownout_agent objected: they are the import corridors feeding the basin, which the safety policy keeps "
+                       "on. Resolved: keep them energized, patrol and monitor them (listed in the bulletin), as utilities do "
+                       "during a PSPS.")
         if any(c["action"]["type"] == "close_line" and c["action"]["target"] in st.operator_opened for c in best_combo):
-            out.append("cascade_agent pushed to re-close the operator-opened line; coordinator flagged it for operator confirmation since it reverses a manual switch.")
+            out.append(f"{self.by(['cascade_agent'])[0]} pushed to re-close the operator-opened line; coordinator flagged it "
+                       "for operator confirmation since it reverses a manual switch.")
         return out
 
     def storm(self) -> tuple[str, dict | None]:
         """Wind agent (LA replays): read the calibrated storm-damage model; returns a situation sentence + crew staging."""
         st = self.state
-        if not hasattr(st, "grid"):
+        if not self.la:
             return "", None
         from ..la import replay
 
@@ -496,7 +633,7 @@ class _Planner:
 
     def run(self) -> dict:
         st = self.state
-        if hasattr(st, "grid"):  # LA: start from the shared situation brief
+        if self.la:  # start from the shared situation brief
             try:
                 from .brief import build_brief
 
@@ -535,9 +672,12 @@ class _Planner:
         def key_of(combo):
             return frozenset((c["action"]["type"], c["action"]["target"], c["action"].get("mw")) for c in combo)
 
+        def twin(combo, r):
+            return any(self._same_effect(combo, r, c2, r2) for c2, r2 in chosen)
+
         for combo, r in ranked:
             key = key_of(combo)
-            if key in seen:
+            if key in seen or twin(combo, r):
                 continue
             # skip supersets of a chosen plan unless the extra switching buys N-1 security
             if any(k <= key and len(r["n1_warnings"]) >= len(kr["n1_warnings"]) for k, kr in seen.items()):
@@ -551,9 +691,14 @@ class _Planner:
                 break
         if len(chosen) == 1:  # give the operator at least one alternative to compare against
             for combo, r in ranked:
-                if key_of(combo) not in seen and r["totals"]["unserved_mw"] <= chosen[0][1]["totals"]["unserved_mw"] + 60:
+                if (key_of(combo) not in seen and not twin(combo, r)
+                        and r["totals"]["unserved_mw"] <= chosen[0][1]["totals"]["unserved_mw"] + 60):
                     chosen.append((combo, r))
                     break
+        if self.la and len(chosen) == 1:  # still alone: try the same shut-off with one line left on, or say none exists
+            alt = self.shutoff_alternative(*chosen[0])
+            if alt:
+                chosen.append(alt)
 
         if not chosen:
             # least-bad: never trade a blackout for fewer violations (>10% of load unserved ranks last)
