@@ -31,10 +31,10 @@
      },
      {
       "fire": "Hurst Fire",
-      "line": "L172",
-      "model_top_pct": 5.307599517490953,
-      "gust_only_top_pct": 29.071170084439085,
-      "line_risk": 0.05851072988839755,
+      "line": "L171",
+      "model_top_pct": 4.583835946924005,
+      "gust_only_top_pct": 2.7744270205066344,
+      "line_risk": 0.05917981114100374,
       "above_line_alarm": false
      }
     ]
@@ -63,10 +63,10 @@
      },
      {
       "fire": "Hurst Fire",
-      "line": "L172",
-      "model_top_pct": 3.3775633293124248,
-      "gust_only_top_pct": 10.373944511459591,
-      "line_risk": 0.1710252798198514,
+      "line": "L171",
+      "model_top_pct": 2.6537997587454765,
+      "gust_only_top_pct": 0.12062726176115801,
+      "line_risk": 0.17640549888212834,
       "above_line_alarm": false
      }
     ]
@@ -95,10 +95,10 @@
      },
      {
       "fire": "Hurst Fire",
-      "line": "L172",
-      "model_top_pct": 86.97225572979494,
-      "gust_only_top_pct": 50.06031363088058,
-      "line_risk": 0.02898437041846284,
+      "line": "L171",
+      "model_top_pct": 2.0506634499396865,
+      "gust_only_top_pct": 0.12062726176115801,
+      "line_risk": 0.1001608000036983,
       "above_line_alarm": false
      }
     ]

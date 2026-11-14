@@ -40,5 +40,6 @@ fires:
     utility_related: suspected
     facility: "SCE Eagle Rock-Sylmar 220 kV transmission circuit (SCE 2025-02-06: equipment 'may be associated' with ignition)"
     facility_voltage_kv: 220
+    facility_line: L171   # OSM "Eagle Rock-Sylmar 220 kV circuit"; the nearest modeled line (L172, Haskell-Sylmar) is a different circuit
     source_url: https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/2025-1-10-eir.pdf
     other_sources: [https://www.foxla.com/news/la-fires-so-cal-edison-report-eaton-fire-hurst-fire-feb-6-2025]

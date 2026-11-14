@@ -12,6 +12,10 @@ series:                       # V4b discrimination over years
 # ignitions worse (Woolsey top 1% -> 5%, Hurst 5% -> 23%) and its E3 shutoff counties no longer matched SCE's (Jaccard
 # 0.75 -> 0.00). Because this choice used test results, V5-V7 are no longer fully held-out for it (disclosed in REPORT).
 # Two-step results are archived in validation/results/two_step_v3/.
+# "wind_pressure" (v4, opt-in): legacy score with its wind sigmoid (saturated near 10 m/s) replaced by (gust / 30 m/s)^2,
+# h50 and c50 refit on TRAINING events only. Kept OFF as the default: at the four utility ignitions it ranked two better
+# and two worse (worst case 11% vs 10%), because the humidity half-point it fits (10%) still comes from the one dry
+# training fire. Its full results: validation/results/wind_pressure_v4/. Legacy v3 (before the Hurst fix): legacy_v3/.
 fire_model: legacy
 load_model:
   fit_years: [2019, 2020, 2021]

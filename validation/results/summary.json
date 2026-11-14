@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-14T15:45:30.674016+00:00",
+ "generated_utc": "2026-11-14T17:40:58.898290+00:00",
  "cards": [
   {
    "id": "V1",
@@ -51,7 +51,7 @@
    "title": "Ignition hindcast",
    "status": "small-sample",
    "headline": "Woolsey Fire top 1%; Eaton Fire top 10%; Hurst Fire top 5%",
-   "baseline": "Gust-only: Woolsey Fire top 4%; Eaton Fire top 1%; Hurst Fire top 29%; random: top 50%",
+   "baseline": "Gust-only: Woolsey Fire top 4%; Eaton Fire top 1%; Hurst Fire top 3%; random: top 50%",
    "plot": null,
    "one_liner": "The line nearest each test ignition ranked in the top 10% of 829 lines at ignition time; 3 cases is far too few for a rate."
   },
@@ -77,7 +77,7 @@
    "id": "V8",
    "title": "Prediction from archived forecasts (no hindsight)",
    "status": "mixed",
-   "headline": "2024 day-ahead storm AUC 0.80; E3 day-1 ignitions: Eaton Fire top 6% (gust-only 2%); Hurst Fire top 3% (gust-only 10%)",
+   "headline": "2024 day-ahead storm AUC 0.80; E3 day-1 ignitions: Eaton Fire top 6% (gust-only 2%); Hurst Fire top 3% (gust-only 0%)",
    "baseline": "Day-ahead forecast gust alone AUC 0.86",
    "plot": null,
    "one_liner": "Using only forecasts an operator had in advance: over 2024 the day-ahead storm index separates the worst outage hours with AUC 0.80 (forecast gust alone 0.86; same index on recorded weather 0.77). For the Jan 2025 Eaton/Hurst storm, the fire alarm was knowable 45 h before LA County outages hit half their peak from the day-1 forecast and 69 h before from the day-2 forecast (exploratory metric; the pre-set 'first spike' metric is distorted by missing outage data before the event). One event and one year: promising, not proof."

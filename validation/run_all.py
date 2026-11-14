@@ -220,7 +220,18 @@ def write_report(cards, timings):
       f"(identity {g['zones']['valley']['windy_rmse_identity']:.2f} m/s vs candidate {g['zones']['valley']['windy_rmse_candidate']:.2f} m/s in the valley), "
       f"so no correction is applied: a = {cal['gust']['a']}, b = {cal['gust']['b']}.")
     f = calsum["fire"]
-    if cal["fire"].get("model") == "two_step":
+    if cal["fire"].get("model") == "wind_pressure":
+        wp, lg = f["wind_pressure"], f["legacy"]
+        w(f"- **Fire model (v4, wind pressure):** the blended score with its wind factor changed from a fitted sigmoid to wind "
+          f"pressure (gust / {cal['fire']['gust_ref']:.0f} m/s)^2, capped at 1. The v3 sigmoid saturated near 10 m/s (wind factor "
+          "0.98-1.00 at all four utility ignitions), so the score could not tell a 13 m/s breeze from a 35 m/s Santa Ana gust. "
+          f"The reference gust is fixed, not fitted. Fit on training events with the same objective: h50 = {cal['fire']['h50']}% RH, "
+          f"c50 = {cal['fire']['c50']} m, region alarm {cal['fire']['region_alarm']:.0f}, line alarm {cal['fire']['line_alarm']:.2f}. "
+          f"Training hit rate {wp['best_hit_rate'] * 100:.0f}% / AUC {wp['best_auc']:.3f} vs legacy {lg['best_hit_rate'] * 100:.0f}% / "
+          f"{lg['best_auc']:.3f}. **The gust^2 form was chosen after an audit looked at the test ignitions, so V5-V8 are not "
+          "held out for this choice; the clean tests are storms after 2026-11-14 and utility-reported ignitions (CPUC).** "
+          "Legacy v3 results are archived in `validation/results/legacy_v3/`.")
+    elif cal["fire"].get("model") == "two_step":
         lg, ts2 = f["legacy"], f["two_step"]
         w(f"- **Fire model (v3, two-step):** P(fault | wind, vegetation) from the storm model x P(ignition | RH, LANDFIRE fuel). Fit on training events: "
           f"RH half-point {cal['fire']['h50']}%, region alarm {cal['fire']['region_alarm']:.0f}, line alarm {cal['fire']['line_alarm']:.2f}. "
@@ -232,6 +243,17 @@ def write_report(cards, timings):
       f"Training hit rate {f['best_hit_rate'] * 100:.0f}% on {sum(f['spike_hours'].values())} outage-spike hours, AUC {f['best_auc']:.2f}. "
       "The optimum sits at the low edge of the search grid for g50 and h50 and the objective is flat there: on training data, very dry air "
       "(RH under ~10%) carries most of the signal.")
+    wp_dir = RES / "wind_pressure_v4"
+    if cal["fire"].get("model") != "wind_pressure" and (wp_dir / "summary.json").exists() and "wind_pressure" in f:
+        wc = {c["id"]: c for c in json.loads((wp_dir / "summary.json").read_text())["cards"]}
+        w(f"- **Wind-pressure fire model (v4, tested, opt-in):** the legacy score with its saturating wind sigmoid replaced by "
+          f"(gust / {f['wind_pressure']['chosen']['gust_ref']:.0f} m/s)^2. Training hit rate {f['wind_pressure']['best_hit_rate'] * 100:.0f}% / "
+          f"AUC {f['wind_pressure']['best_auc']:.3f} (legacy {f['legacy']['best_hit_rate'] * 100:.0f}% / {f['legacy']['best_auc']:.3f}); "
+          f"fitted humidity half-point {f['wind_pressure']['chosen']['h50']}%. Held-out: V5 {wc['V5']['headline']}. It tells strong gusts "
+          "from breezes, but does not rank the ignition lines better while the humidity half-point is fit on one dry training fire, "
+          "so it is not the default (`validation/config.yaml: fire_model: wind_pressure` to switch). Full results: "
+          "`validation/results/wind_pressure_v4/`. The form was chosen after an audit looked at the test ignitions, so it is "
+          "not a held-out result either way.")
     ts_dir = RES / "two_step_v3"
     if cal["fire"].get("model") != "two_step" and (ts_dir / "summary.json").exists():
         tsum = json.loads((ts_dir / "summary.json").read_text())["cards"]
@@ -239,7 +261,7 @@ def write_report(cards, timings):
         w(f"- **Two-step fire model (tested, not used):** P(fault) from the storm model x P(ignition | RH, LANDFIRE fuel). It passed the pre-set "
           f"training rule (training AUC {f['two_step']['best_auc']:.3f} vs legacy {f['legacy']['best_auc']:.3f}), but on held-out data it did worse: "
           f"V5 {tc['V5']['headline']}; V6 {tc['V6']['headline']}; V7 {tc['V7']['headline']} (recall {tc['V7']['baseline']}). "
-          "The product therefore keeps the legacy fire score (`validation/config.yaml: fire_model: legacy`). **This choice was made after seeing test "
+          "v3 therefore kept the legacy fire score instead (`validation/config.yaml: fire_model`). **That choice was made after seeing test "
           "results, so V5-V7 are no longer fully held-out for the fire-model choice.** Full two-step results: `validation/results/two_step_v3/`.")
     w(f"- **Load model:** training MAPE LDWP {calsum['load']['LDWP']['train_mape']:.1f}%, SCE {calsum['load']['SCE']['train_mape']:.1f}% (2019-2021). "
       "v2 adds temperature x time-of-day terms and an inland-heat term, chosen on an internal 2019-20 fit / summer-2021 holdout before H2 was looked at.")
