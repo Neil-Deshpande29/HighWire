@@ -209,3 +209,30 @@ ul.dis { margin: 4px 0; padding-left: 18px; color: #fde68a; font-size: 12px; }
 .staging.alert { border-color: #a78bfa; background: rgba(167, 139, 250, 0.12); }
 button.refresh { margin-top: 6px; width: 100%; font-size: 12px; padding: 5px 8px; border-radius: 8px; border: 1px solid #6d28d9; background: rgba(109, 40, 217, 0.15); color: #ddd6fe; cursor: pointer; }
 button.refresh:disabled { opacity: 0.6; cursor: wait; }
+
+/* site agent panel */
+.card.site { margin-top: 8px; }
+.site-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.site-summary { margin: 0 0 8px; }
+.site-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.site-photo { margin: 0; border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 8px; padding: 6px; }
+.site-photo.worst { border-color: #f59e0b; }
+.site-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; }
+.site-photo .missing { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; text-align: center; }
+.site-photo figcaption { font-size: 12px; margin-top: 4px; }
+.site-photo .tags { margin-top: 4px; }
+.site .checks .check { color: #fbbf24; font-size: 12px; margin-top: 4px; }
+.tag.warn { border-color: #f59e0b; color: #f59e0b; }
+
+/* Situation brief (shared by all co-pilot agents) */
+.card.brief { margin-top: 8px; }
+.brief-head { margin-bottom: 4px; }
+.brief-heads { margin: 0 0 6px; padding-left: 18px; }
+.brief-heads li { margin: 2px 0; overflow-wrap: anywhere; }
+.brief-sec { border-top: 1px solid var(--line); padding: 4px 0; }
+.brief-sec summary { cursor: pointer; font-size: 12.5px; }
+.brief-list { list-style: none; margin: 4px 0 2px; padding: 0; font-size: 12px; }
+.brief-list li { margin: 4px 0; overflow-wrap: anywhere; }
+.brief-list li > b { margin-right: 6px; }
+.brief-list .tags { display: inline; }
+.brief-warn { color: #fbbf24; font-size: 12px; margin-top: 2px; }

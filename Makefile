@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 FETCH = cd data/fetch && ../../$(PY)
 
-.PHONY: data grid calibrate validate forecast test dev all clean-results
+.PHONY: data grid calibrate validate forecast naip site test dev all clean-results
 
 # 1. Download + process every public source (idempotent; skips files already present).
 data:
@@ -41,8 +41,17 @@ validate:
 forecast:
 	$(PY) -m backend.la.forecast
 
+# 6. Gemini site agent: aerial photos (up to 4 per line that ever crosses the fire alarm; ~70 KB each, git-ignored),
+#    then one Gemini description per line (needs GEMINI_API_KEY; without it only the photos are fetched), so the
+#    co-pilot agents can read cached site context.
+naip:
+	$(PY) -m site_agent.naip
+
+site: naip
+	$(PY) -m site_agent.agent --batch
+
 test:
-	$(PY) -m pytest backend -q
+	$(PY) -m pytest backend site_agent -q
 
 dev:
 	./run.sh

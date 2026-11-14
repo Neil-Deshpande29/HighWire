@@ -27,6 +27,8 @@ forecast was last fetched until you refresh it.
 |---|---|---|
 | DC power flow, IEEE 738 conductor temperature, sag, blowout, clearance | `backend/la/engine.py`, `backend/thermal.py` | yes |
 | Fire risk (legacy blended score: gust x dryness x clearance x zone fuel) | `engine.py` `hindcast` | **yes** (`validation/config.yaml: fire_model: legacy`) |
+| Fire risk, wind-pressure variant (gust^2 wind term, v4) | `engine.py` `wind_pressure` | opt-in (`fire_model: wind_pressure`); results in `validation/results/wind_pressure_v4/` |
+| Gemini site agent (aerial photos along alarmed lines, cross-checked) | `site_agent/` | yes: Site agent panel, `get_site_context` for fire/wind/brownout agents + coordinator; context only |
 | Storm damage (wind + rain damage stock, restoration time constant) | `backend/la/storm.py` | yes: map layer, storm index, crew staging |
 | Demand (heat x time of day, inland heat) | `backend/la/load_model.py` | yes: V3, live forecast |
 | Real vegetation heights (LANDFIRE EVH) in clearance | `engine.py` `LAGrid` | yes |
@@ -65,8 +67,8 @@ ignitions in the top 6% of 829. One storm so far; every result, including ties, 
    list live/dead lines near reports in the bulletin.
 2. **Rank plans by people downwind** x risk removed vs customers cut off (`consequence.py` already computes the numbers).
 3. **More nearby data:** OSM schools, nursing homes, fire stations (one Overpass query) into the downwind cone.
-4. **Gemini aerial-photo agent** (needs the key): NAIP tile via Microsoft Planetary Computer for over-alarm lines; text for the
-   plan card only, never a physics input.
+4. **Gemini aerial-photo agent: built in v4 (`site_agent/`).** Set `GEMINI_API_KEY`, run `make site` so the agents get
+   cached descriptions, and hand-label ~30 photos to measure Gemini's land-cover accuracy.
 5. Re-run V8 as the forecast archive grows; consider re-testing the two-step fire model on new storms.
 
 ## Gotchas

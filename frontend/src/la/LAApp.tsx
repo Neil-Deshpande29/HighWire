@@ -4,6 +4,8 @@ import PlanCard, { TEAM_COLOR } from "../components/PlanCard";
 import { la, type Hour, type LAEvent, type LAStatic, type LAView, type Series } from "./api";
 import LAScene from "./LAScene";
 import ModelChart from "./ModelChart";
+import SitePanel from "./SitePanel";
+import BriefPanel from "./BriefPanel";
 
 const KIND_ICON: Record<string, string> = { wind: "💨", heat: "🌡️", control: "🌤️", forecast: "🔮" };
 
@@ -212,6 +214,9 @@ export default function LAApp() {
               ))}
               {hour.n_over_alarm > 8 && <div className="muted small">+{hour.n_over_alarm - 8} more</div>}
             </div>
+            {selected && hour.over_alarm.some((l) => l.id === selected)
+              ? <SitePanel line={selected} eid={eid} i={i} />
+              : <div className="muted small">Click a line to see the aerial photo and what is on the ground there.</div>}
           </section>
         )}
 
@@ -241,6 +246,7 @@ export default function LAApp() {
         {out && (
           <section>
             <h2>Situation</h2><p>{out.situation}</p>
+            {out.brief && <BriefPanel brief={out.brief} />}
             {out.crew_staging && (
               <div className={out.crew_staging.above_alarm ? "staging alert" : "staging"}>
                 <b>💨 Crew pre-staging (wind agent):</b> storm index {out.crew_staging.storm_index.toFixed(2)} vs alarm {out.crew_staging.alarm.toFixed(2)}.{" "}

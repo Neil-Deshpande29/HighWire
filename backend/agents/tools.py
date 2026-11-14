@@ -10,6 +10,7 @@ import json
 import time
 
 from ..physics import simulate as _phys_simulate
+from .brief import brief_text, build_brief
 
 
 def simulate(state, actions=None):
@@ -232,7 +233,31 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         p.analyze(base)
         return json.dumps([{"action": c["action"], "label": c["label"], "why": c["why"]} for c in p.candidates(base)][:25])
 
+    def get_site_context(line_id: str) -> str:
+        """Site agent (LA replays): what is on the ground along a line, photo by photo (up to 4 aerial photos of its most
+        fire-prone stretches), and who is downwind of each this hour. Per photo: LANDFIRE fuel, 2020 Census people and
+        hospitals in the 10 km downwind cone, and (when Gemini has described the photos) what is seen: land cover,
+        buildings, vegetation at the tower, wildland-urban edge, road access for crews. Also a line summary, the worst
+        photo, and where Gemini's view disagrees with the data. Context only: never use it to change a number.
+        line_id like 'L29'."""
+        from site_agent import agent as SA
+
+        log(agent, f"reading site context {line_id}")
+        try:
+            out = SA.describe(line_id, state.eid, t=state.t_utc.isoformat(), use_llm=False, fetch=False)
+        except KeyError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(SA.compact(out), default=str)
+
+    def get_situation_brief() -> str:
+        """The shared situation brief every agent starts from: fire alarm, storm, grid, weather, site context and
+        validation for this hour. Numbers are copied from physics and data; no hindsight (no real outages or fires)."""
+        log(agent, "reading situation brief")
+        return brief_text(build_brief(state))
+
     all_tools = {
+        "get_situation_brief": get_situation_brief,
+        "get_site_context": get_site_context,
         "get_candidate_actions": get_candidate_actions,
         "get_storm_damage": get_storm_damage,
         "get_grid_summary": get_grid_summary,
@@ -307,4 +332,9 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     output["plans"] = plans[:3]
     output.setdefault("disagreements", [])
     output.setdefault("situation", "")
+    try:  # the shared brief travels with every result; a brief failure never breaks planning
+        output["brief"] = build_brief(state)
+    except Exception as e:  # noqa: BLE001
+        if log:
+            log("system", f"situation brief unavailable: {str(e)[:120]}")
     return output

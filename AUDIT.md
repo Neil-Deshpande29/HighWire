@@ -49,7 +49,7 @@ that choice used test results, which REPORT.md discloses. Two-step results: `val
 | Building footprints (Microsoft / Overture) | **DEFERRED** | Multi-GB downloads; Census tract population used as the proxy for now. |
 | More OSM categories (schools, nursing homes, fire stations) | **DEFERRED** | One Overpass query; add to the downwind cone. |
 | Road network, one-way-out neighborhoods | **DEFERRED** | |
-| Gemini vision `site_agent` reading an aerial tile | **DEFERRED** | Most demoable for a Gemini track; NAIP is keyless via Microsoft Planetary Computer. Needs a Gemini key to demo. |
+| Gemini vision `site_agent` reading an aerial tile | **DONE (v4)** | `site_agent/`: up to 4 NAIP photos per alarmed line (its most fire-prone stretches, >= 1.5 km apart, keyless via Planetary Computer), one Gemini call per line, categorical output, numbers withheld, per-photo cross-checks vs LANDFIRE and Census. Fire, wind and brownout agents, the coordinator and the rule-based planner read the cached context. Not yet run with a live key. |
 | Rank plans by consequence-weighted risk removed vs customers cut | **DEFERRED** | Consequence numbers exist per line; planner ranking not changed yet. |
 
 ## 3. Engineering and performance
@@ -103,7 +103,7 @@ temperature 44 ms, tower weather 2 ms). Items that only shave milliseconds were 
 
 1. **Ground reports on LA** (pitch's second half): `LAState.reports_view`, snap reports to LA lines by coordinates, corroboration that is not circular, a corroborated report raising that line's P(fault), and a live/dead list in the responder bulletin.
 2. **Consequence-weighted plan ranking**: rank plans by downwind people x risk removed vs customers cut off.
-3. **Gemini site agent** (needs a key): `get_nearby_context(line_id)` with a NAIP tile (Planetary Computer) for the over-alarm lines only; output is operator context, never a physics input.
+3. ~~Gemini site agent~~ done in v4 (`site_agent/`). Remaining: run `make site` with a key, and hand-label ~30 photos to measure Gemini's land-cover accuracy.
 4. **More consequence data**: OSM schools / nursing homes / fire stations; building footprints if disk allows.
 5. **Bigger prediction test**: extend V8 as the forecast archive grows; add more stations (RAWS) for nudging.
 

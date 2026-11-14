@@ -59,6 +59,27 @@ export type Series = {
          spearman_la: number; exploratory_lead_to_main_surge_h: number | null } | null;
   fires: Fire[]; source: string; now_utc?: string | null;
 };
+export type Downwind = { people: number; hospitals: number; water_plants: number; sites: string[]; toward_deg: number };
+export type SitePoint = {
+  lat: number; lon: number; elev_m: number; zone: string; landfire_fuel?: string; spark_receptivity?: number; veg_height_m?: number;
+  weather?: { gust_ms: number; rh_pct: number; wind_from_deg: number }; downwind?: Downwind;
+};
+export type PhotoLook = { land_cover: string[]; structures: string; vegetation_near_tower: string; wildland_urban_interface: boolean;
+                          access: string; summary: string };
+export type Site = {
+  line: string;
+  facts: {
+    line: string; name: string | null; kv: number; zone: string; length_km: number; n_towers: number; points: SitePoint[];
+    fuel_mix?: Record<string, number>; burnable_share?: number; max_veg_height_m?: number; downwind?: Downwind;
+  };
+  photos: { n: number; point: SitePoint; tile: { item: string; photo_date: string; bbox: number[]; source: string } | null;
+            look: PhotoLook | null; checks: { kind: string; message: string }[] }[];
+  look: { line_summary: string; confidence: string; worst_photo: number | null } | null;
+  look_source: string | null;
+  checks: { kind: string; message: string; photo: number }[];
+  notes: string[];
+  disclaimer: string;
+};
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -83,7 +104,9 @@ export const la = {
   approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
   reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
   refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
+  site: (line: string, eid: string, i: number) => get<Site>(`/la/site/${line}?event=${eid}&i=${i}`),
   forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
 };
 export const resultUrl = (f: string) => `${API}/results/${f}`;
+export const siteImageUrl = (line: string, n: number, item: string) => `${API}/la/site/${line}/photo/${n}.jpg?v=${item}`;
 export type { Plan };
