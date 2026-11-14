@@ -73,10 +73,13 @@ def level(share: float) -> str:
 
 def tile_greenery(tile: dict, path: list) -> dict | None:
     """Vegetated share of the corridor in one photo and how it was measured, or None if the line does not cross it."""
-    if tile.get("nir"):
-        veg, method = infrared_mask(np.asarray(Image.open(tile["nir"]).convert("RGB"))), "infrared"
-    else:
-        veg, method = vegetation_mask(np.asarray(Image.open(tile["img"]).convert("RGB"))), "colour"
+    try:
+        if tile.get("nir"):
+            veg, method = infrared_mask(np.asarray(Image.open(tile["nir"]).convert("RGB"))), "infrared"
+        else:
+            veg, method = vegetation_mask(np.asarray(Image.open(tile["img"]).convert("RGB"))), "colour"
+    except (OSError, ValueError):  # a half-written or corrupt photo is no photo; the measure is context, never a failure
+        return None
     near = corridor_mask(veg.shape, tile["bbox"], path)
     n = int(near.sum())
     if n == 0:

@@ -99,6 +99,7 @@ export type Site = {
             look: PhotoLook | null; checks: { kind: string; message: string }[] }[];
   look: { line_summary: string; confidence: string; worst_photo: number | null } | null;
   look_source: string | null;
+  greenery?: Greenery | null;
   checks: { kind: string; message: string; photo: number }[];
   notes: string[];
   disclaimer: string;
@@ -138,7 +139,8 @@ export const la = {
   approve: (id: string) => post<{ bulletin: { text: string }; state: LAView }>(`/la/plans/${id}/approve`),
   reject: (id: string) => post<unknown>(`/la/plans/${id}/reject`),
   refreshForecast: () => post<{ status: string; error: string | null }>("/la/forecast/refresh"),
-  site: (line: string, eid: string, i: number) => get<Site>(`/la/site/${line}?event=${eid}&i=${i}`),
+  // the site route takes replay events only; on the live forecast ask for the line's photos and facts without an hour
+  site: (line: string, eid: string, i: number) => get<Site>(eid === "FX" ? `/la/site/${line}` : `/la/site/${line}?event=${eid}&i=${i}`),
   forecastStatus: () => get<{ status: string; error: string | null; summary: unknown }>("/la/forecast/status"),
   imagery: () => get<Imagery>("/la/imagery"),
 };
