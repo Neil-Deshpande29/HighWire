@@ -1,6 +1,6 @@
 # Highwire: historical validation report (Greater Los Angeles)
 
-_Generated 2026-11-14 17:40 UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._
+_Generated 2026-11-14 17:50 UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._
 
 **Split (written before any run, `validation/config.yaml`):** train E2, H1, C1, C2; test E1, E3, H2, C3. Multi-year series: calibrate 2019-2021, report 2022-2024.
 
@@ -147,10 +147,10 @@ _Generated 2026-11-14 17:40 UTC by `validation/run_all.py`. Every number below i
 
 **Result.**
 
-- Woolsey Fire (test, utility-related: confirmed), ignition 2018-11-08 22:00:00+00:00: nearest modeled line L249 (66 kV, 0.41 km from origin) ranked top 1.3% of 829 overhead lines (risk 0.33); gust-only rank top 4.0%. Caveat: the igniting facility is a 16 kV distribution circuit, below the 66 kV model floor. [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/investigations-wildfires/sed-investigation-report---woolsey-fire-redacted.pdf)
-- Saddleridge Fire (train, utility-related: suspected), ignition 2019-10-11 03:00:00+00:00: nearest modeled line L171 (220 kV, 0.26 km from origin) ranked top 0.7% of 829 overhead lines (risk 0.38); gust-only rank top 5.3%.  [source](https://abc7.com/sylmar-fire-in-saddleridge-freeway-210/5619488/)
-- Eaton Fire (test, utility-related: confirmed), ignition 2025-01-08 02:00:00+00:00: nearest modeled line L29 (220 kV, 0.28 km from origin) ranked top 10.4% of 829 overhead lines (risk 0.08); gust-only rank top 0.7%. Caveat: the igniting tower carried an idle (de-energized) line; OSM may not map it. [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/eaton-fire-update-1-27-25.pdf)
-- Hurst Fire (test, utility-related: suspected), ignition 2025-01-08 06:00:00+00:00: nearest modeled line L171 (220 kV, 0.64 km from origin) ranked top 4.6% of 829 overhead lines (risk 0.06); gust-only rank top 2.8%.  [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/2025-1-10-eir.pdf)
+- Woolsey Fire (test, utility-related: confirmed), ignition 2018-11-08 22:00:00+00:00: modeled line L249 (nearest overhead line; 66 kV, 0.41 km from origin) ranked top 1.3% of 829 overhead lines (risk 0.33); gust-only rank top 4.0%. Caveat: the igniting facility is a 16 kV distribution circuit, below the 66 kV model floor. [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/investigations-wildfires/sed-investigation-report---woolsey-fire-redacted.pdf)
+- Saddleridge Fire (train, utility-related: suspected), ignition 2019-10-11 03:00:00+00:00: modeled line L171 (nearest overhead line; 220 kV, 0.26 km from origin) ranked top 0.7% of 829 overhead lines (risk 0.38); gust-only rank top 5.3%.  [source](https://abc7.com/sylmar-fire-in-saddleridge-freeway-210/5619488/)
+- Eaton Fire (test, utility-related: confirmed), ignition 2025-01-08 02:00:00+00:00: modeled line L29 (nearest overhead line; 220 kV, 0.28 km from origin) ranked top 10.4% of 829 overhead lines (risk 0.08); gust-only rank top 0.7%. Caveat: the igniting tower carried an idle (de-energized) line; OSM may not map it. [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/eaton-fire-update-1-27-25.pdf)
+- Hurst Fire (test, utility-related: suspected), ignition 2025-01-08 06:00:00+00:00: modeled line L171 (named in the incident report; 220 kV, 0.64 km from origin) ranked top 4.6% of 829 overhead lines (risk 0.06); gust-only rank top 2.8%.  [source](https://www.cpuc.ca.gov/-/media/cpuc-website/divisions/safety-and-enforcement-division/electric-safety-incidents-reported-by-ious/2025-incidents/2025-1-10-eir.pdf)
 - Test median: model top 4.6%, gust-only top 2.8%, random 50%.
 
 **Baseline.** Random rank (50%) and ranking by gust alone.

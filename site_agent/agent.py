@@ -51,8 +51,10 @@ Reply with ONLY this JSON, no prose, no code fences:
  "line_summary": "at most 2 plain sentences, NO numbers, about what would burn along this line and who is close",
  "confidence": one of {confidence}}}"""
 
-NUMBER_WORDS = re.compile(r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|"
-                          r"hundred|hundreds|thousand|thousands|dozen|dozens|million|percent)\b", re.I)
+NUMBER_WORDS = re.compile(r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+                          r"(thir|four|fif|six|seven|eigh|nine)teen|(twen|thir|for|fif|six|seven|eigh|nine)ty|"
+                          r"hundreds?|thousands?|dozens?|millions?|percent|half|halves|quarter|couple|several|"
+                          r"single|double|triple|first|second|third|fourth|fifth)\b", re.I)
 
 
 def _facts_for_prompt(f: dict, idx: list[int]) -> str:
@@ -143,6 +145,15 @@ def cross_check(point: dict, look: dict) -> list[dict]:
     return out
 
 
+def cache_key(tiles: list, have: list[int], f: dict) -> list[str]:
+    """Identity of a description: the photos (id + position) and the exact prompt with its facts. Changing the photos,
+    the prompt wording or the LANDFIRE facts it quotes makes a fresh Gemini call."""
+    import hashlib
+
+    prompt_hash = hashlib.sha1((PROMPT + _facts_for_prompt(f, have)).encode()).hexdigest()[:12]
+    return [tiles[n]["item"] + f"@{n}" for n in have] + [f"prompt:{prompt_hash}"]
+
+
 def _look_cache(line_id: str) -> Path:
     return naip.CACHE / f"{line_id}.look.json"
 
@@ -199,7 +210,7 @@ def describe(line_id: str, event_id: str | None = None, i: int | None = None, us
     if not have:
         out["look_source"] = "none: no photo"
         return out
-    key = [tiles[n]["item"] + f"@{n}" for n in have]
+    key = cache_key(tiles, have, f)
     cache = _look_cache(line_id)
     model = LLM.model_name()
     look: dict | None = None

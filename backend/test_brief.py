@@ -94,3 +94,13 @@ def test_synthetic_state_gets_brief():
     b = build_brief(STATE)
     assert set(b) == KEYS and b["headlines"]
     assert len(brief_text(b)) < 6000
+
+
+def test_brief_names_no_real_fire():
+    """No hindsight: replaying a storm, the brief must not reveal which fires actually started (V5/V8 headlines do)."""
+    from backend.la import data as D
+
+    st = LAState("E3", "2025-01-07T18:00:00+00:00")
+    text = brief_text(build_brief(st)).lower()
+    for f in D.fires().values():
+        assert f["name"].split()[0].lower() not in text, f["name"]

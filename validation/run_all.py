@@ -375,8 +375,10 @@ def write_report(cards, timings):
 
     lines = []
     for c in v5["cases"]:
-        lines.append(f"{c['fire']} ({c['split']}, utility-related: {c['utility_related']}), ignition {c['ignition_utc']}: nearest modeled line {c['nearest_line']} "
-                     f"({c['nearest_line_kv']:.0f} kV, {c['distance_km']:.2f} km from origin) ranked top {c['model_top_pct']:.1f}% of {c['n_lines']} overhead lines "
+        basis = c.get("scored_line_basis", "nearest overhead line")
+        sl, skv = c.get("scored_line", c["nearest_line"]), c.get("scored_line_kv", c["nearest_line_kv"])
+        lines.append(f"{c['fire']} ({c['split']}, utility-related: {c['utility_related']}), ignition {c['ignition_utc']}: modeled line {sl} "
+                     f"({basis}; {skv:.0f} kV, {c['distance_km']:.2f} km from origin) ranked top {c['model_top_pct']:.1f}% of {c['n_lines']} overhead lines "
                      f"(risk {c['line_risk']:.2f}); gust-only rank top {c['gust_only_top_pct']:.1f}%. {('Caveat: ' + c['caveat'] + '.') if c['caveat'] else ''} "
                      f"[source]({c['source_url']})")
     section("V5", "Ignition hindcast",

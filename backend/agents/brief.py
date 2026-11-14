@@ -29,7 +29,9 @@ import json
 
 MAX_LINES = 8
 SUBTRANSMISSION_MAX_KV = 180.0  # same tier split as backend/la/state.py
-TRUST_CHECKS = ("V4b", "V5", "V7", "V8")  # what history says about trusting the fire / storm signals
+# What history says about trusting the fire / storm signals. Only checks whose headlines name no real event: V5 and V8
+# name the ignitions (Eaton, Hurst, ...), which would tell agents replaying those storms that a fire is coming.
+TRUST_CHECKS = ("V4b", "V7")
 
 
 def _r(x, nd=1):
@@ -39,10 +41,21 @@ def _r(x, nd=1):
         return None
 
 
+def _site_cache_stamp() -> float:
+    """Newest site-agent description on disk, so a description made after the brief was cached refreshes it."""
+    try:
+        from site_agent import naip
+
+        return max((p.stat().st_mtime for p in naip.CACHE.glob("*.look.json")), default=0.0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def build_brief(state) -> dict:
     """The situation brief for an LA replay state (cached on the state). Synthetic states get a minimal brief."""
     cache = state.__dict__.get("_brief")
-    key = (getattr(state, "eid", None), str(getattr(state, "t_utc", "")), tuple(getattr(state, "operator_opened", [])))
+    key = (getattr(state, "eid", None), str(getattr(state, "t_utc", "")), tuple(getattr(state, "operator_opened", [])),
+           _site_cache_stamp())
     if cache and cache[0] == key:
         return cache[1]
     brief = _build_la(state) if hasattr(state, "grid") else _build_synthetic(state)

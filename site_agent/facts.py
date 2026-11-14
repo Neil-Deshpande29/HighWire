@@ -85,10 +85,11 @@ def fire_points(line_id: str, k: int = MAX_POINTS, min_km: float = MIN_SPACING_K
     m = np.where(t["tb"] == _index()[line_id])[0]
     zf = np.array([ZONE_FUEL[z] for z in t["zone"][m]])
     rec = t["recept"][m] if "recept" in t else np.ones(len(m))
-    score = rec * zf * 1e4 + t["elev"][m]
+    fuel = np.round(rec * zf, 6)
+    order = np.lexsort((-t["elev"][m], -fuel))  # by fuel score, then elevation (lexsort: last key is primary)
     coslat = np.cos(np.radians(34.0))
     picked: list[int] = []
-    for j in np.argsort(-score):
+    for j in order:
         cand = int(m[j])
         if all(np.hypot((t["lat"][cand] - t["lat"][p]) * 110.54, (t["lon"][cand] - t["lon"][p]) * 111.32 * coslat) >= min_km
                for p in picked):

@@ -102,6 +102,34 @@ def test_cross_check_flags_homes_census_misses_and_ignores_unknown():
     assert A.cross_check(p, photo(structures="unknown")) == []
 
 
+def _key(line):
+    """Cache key exactly as describe() computes it for the fake tiles (photo ids naip_<n>)."""
+    f = F.line_facts(line)
+    have = list(range(len(f["points"])))
+    return A.cache_key([{"item": f"naip_{n}"} for n in have], have, f)
+
+
+def test_number_words_are_withheld():
+    for s in ["Roughly sixty homes border the tower.", "Homes sit thirteen streets away.", "Half the slope is brush.",
+              "A couple of houses back onto brush.", "The first ridge is bare."]:
+        look, notes = A.sanitize({"photos": [photo(summary=s)], "line_summary": s}, 1)
+        assert look["photos"][0]["summary"] == "" and look["line_summary"] == "" and notes, s
+
+
+def test_photo_points_rank_fuel_before_elevation():
+    t = F._towers()
+    m = np.where(t["tb"] == F._index()["L29"])[0]
+    fuel = np.round((t["recept"][m] if "recept" in t else 1) * np.array([F.ZONE_FUEL[z] for z in t["zone"][m]]), 6)
+    first = F.fire_points("L29", k=1)[0]
+    assert fuel[list(m).index(first)] == fuel.max()
+
+
+def test_cache_key_changes_with_the_prompt(monkeypatch):
+    k1 = _key("L29")
+    monkeypatch.setattr(A, "PROMPT", A.PROMPT + " ")
+    assert _key("L29") != k1
+
+
 # ------------------------------------------------------------------ describe(): photos, Gemini, cache
 @pytest.fixture
 def tiles(tmp_path, monkeypatch):
@@ -135,8 +163,7 @@ def test_cached_description_is_reused_without_a_new_call(tiles):
     n = len(F.line_points("L29"))
     look = {"photos": [A.sanitize_photo(photo(), []) for _ in range(n)], "worst_photo": 2, "line_summary": "Brush to the homes.",
             "confidence": "high"}
-    key = [f"naip_{k}@{k}" for k in range(n)]
-    (tiles / "L29.look.json").write_text(json.dumps({"photos_key": key, "model": LLM.model_name(), "look": look, "notes": []}))
+    (tiles / "L29.look.json").write_text(json.dumps({"photos_key": _key("L29"), "model": LLM.model_name(), "look": look, "notes": []}))
     chat = FakeChat("should not be called")
     out = A.describe("L29", "E3", 10, chat=chat, fetch=False)
     assert chat.calls == [] and "cached" in out["look_source"] and out["look"]["worst_photo"] == 2
@@ -196,7 +223,7 @@ def test_agent_tool_and_rule_planner_use_cached_context(tiles):
     n = len(F.line_points("L29"))
     look = {"photos": [A.sanitize_photo(photo(), []) for _ in range(n)], "worst_photo": 1,
             "line_summary": "Homes back onto dense brush.", "confidence": "high"}
-    (tiles / "L29.look.json").write_text(json.dumps({"photos_key": [f"naip_{k}@{k}" for k in range(n)], "model": LLM.model_name(),
+    (tiles / "L29.look.json").write_text(json.dumps({"photos_key": _key("L29"), "model": LLM.model_name(),
                                                       "look": look, "notes": []}))
     st = LAState("E3", "2025-01-08T02:00:00+00:00")
     log = JobLog()
