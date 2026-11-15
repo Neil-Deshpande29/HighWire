@@ -291,7 +291,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     spell.current = { eid, called: true, trouble: troubleNow };
     if (opT && sameHour(opT, t)) return; // this hour is already analysed, or being analysed
     const when = timeLabel(t, { weekday: "short", hour: "numeric" });
-    setNotice(first ? `The watch turned red at ${when}. The agents were called; the text alert is under the bell.`
+    setNotice(first ? `The watch turned red at ${when}. The agents were called.`
       : `It got worse by ${when}: ${troubleNow} line${troubleNow === 1 ? "" : "s"} in trouble. The agents were called again.`);
     try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Rewire: the risk watch is red", { body: watch.reasons[0] ?? "" }); } catch { /* no system notification here */ }
     runCopilot();

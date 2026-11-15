@@ -151,6 +151,8 @@ up, no safe plan yet, or thin evidence. It is a rule of thumb, not a probability
 `backend/notify.py` sends a text through LangChain's `TwilioAPIWrapper` when a line is at very high fire risk, when the
 storm model says a line is likely to be knocked down, and when a plan that turns lines off is approved. The orchestrator
 also has a `send_alert` tool for the same cases. One text per line per condition per six-hour window, three lines at most.
+**Alerts are off by default**: nothing is sent until the switch under the bell is turned on (it lasts until the
+server restarts) or `ALERTS_ON=1` is set in `.env`.
 Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` and `ALERT_PHONE` in `.env`. If any is missing, or
 the from-number is not a real number, alerts run as a dry run: the bell in the top bar lists each one as "would have
 sent". The bell also has a "Send test text" button and an on/off switch.

@@ -108,6 +108,18 @@ def test_the_rule_based_orchestrator_uses_the_tool_under_the_same_rule(woolsey, 
     assert {e["source"] for e in N.ALERTS} == {"agent"} and len(twilio) == len(N.ALERTS)
 
 
+def test_alerts_are_off_unless_switched_on(monkeypatch, twilio):
+    monkeypatch.delenv("ALERTS_ON", raising=False)
+    assert N._on_at_start() is False  # a fresh server texts nobody
+    monkeypatch.setenv("ALERTS_ON", "1")
+    assert N._on_at_start() is True
+    monkeypatch.setitem(N.STATE, "on", False)
+    assert N.send("Rewire ALERT: anything") is None and twilio == [] and N.status()["alerts"] == [] and N.status()["on"] is False
+    with pytest.raises(HTTPException):
+        R.alerts_test()
+    assert R.alerts_switch(R.AlertSwitchIn(on=True))["on"] is True and N.send("Rewire test", source="test")["status"] == "sent" and len(twilio) == 1
+
+
 def test_the_switch_and_the_test_button(twilio):
     assert R.alerts_test()["alerts"][0]["source"] == "test" and len(twilio) == 1
     assert R.alerts_switch(R.AlertSwitchIn(on=False))["on"] is False
