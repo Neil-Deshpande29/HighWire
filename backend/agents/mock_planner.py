@@ -16,7 +16,7 @@ import re
 import time
 
 from ..physics import simulate
-from .tools import MAX_STEPS, JobLog, summarize_result, verify_output
+from .tools import MAX_STEPS, JobLog, emit, findings_path, summarize_result, verify_output
 
 try:
     from ..la import data as D
@@ -29,6 +29,16 @@ HEAT_MOVES = MAX_STEPS  # most moves the coordinator strings together on a heat 
 ALT_SIMS = 20  # single-line exceptions tried when looking for a second plan (LA sim ~0.07 s)
 LA_AGENTS = ("fire_agent", "wind_agent", "heat_agent", "brownout_agent", "buildings_agent")  # the LA team; the toy region has nine
 OFF_TYPES = ("open_line", "deenergize_lines")
+# When the orchestrator calls each specialist (the rules; the AI team is told the same in its prompt):
+NEAR_ALARM = 0.6  # fire: any line at or above this share of the fire alarm, or a Red Flag warning in force
+WIND_ONSET_MS = 12.0  # wind: gusts on any line at or above this (where the storm-damage model starts to count wind)
+HEAT_LOADING_PCT = 70.0  # heat: any line above this share of its rating, or a heat-wave event
+CUTS_LOAD = ("open_line", "deenergize_lines", "shed_load", "deenergize_bus")  # brownout: a candidate action that can cut demand
+AGENT_NAMES = {"fire_agent": "Fire", "wind_agent": "Wind", "heat_agent": "Heat", "brownout_agent": "Brownout", "buildings_agent": "Buildings"}
+AGENT_TOOLS = {"fire_agent": ("get_grid_summary", "get_site_context"), "wind_agent": ("get_storm_damage", "get_grid_summary"),
+               "heat_agent": ("get_grid_summary", "get_weather"), "brownout_agent": ("get_grid_summary", "get_critical_sites"),
+               "buildings_agent": ("get_building_impact",)}  # what each one reads, named as the AI team's tools are
+DISPATCH = "/plan/dispatch.md"
 # The toy region's fixed fire marks. LA reads its one line alarm from calibration (backend/la/data.py calibration()).
 TOY_FIRE_ALARM, TOY_FIRE_SEVERE = 0.3, 0.7
 
@@ -127,9 +137,32 @@ class _Planner:
         self.sims = 0
         self.max_sims = 150 if self.la else MAX_SIMS  # LA sim ~0.07 s (profiled), so 3-action combos fit
         self.findings: dict[str, list] = {}
+        self.vfs: dict[str, str] = log.vfs if hasattr(log, "vfs") else {}  # the run's shared files
+        self.called: set[str] | None = None  # the specialists the orchestrator called; None before routing (and on the toy region)
+        self.said: dict[str, list[str]] = {}  # what each called specialist has to say, until its turn
+        self.reported = False
 
     def say(self, agent, msg):
+        if self.called is not None and agent in LA_AGENTS:
+            if agent not in self.called:
+                return  # not called this hour: it says nothing
+            if not self.reported:
+                self.said.setdefault(agent, []).append(msg)
+                return
         self.log(agent, msg)
+        if self.pace:
+            time.sleep(self.pace)
+
+    def event(self, agent, msg, kind, /, **meta):
+        emit(self.log, agent, msg, kind, **meta)
+        if self.pace:
+            time.sleep(self.pace)
+
+    def write(self, agent, path, content):
+        if hasattr(self.log, "write"):
+            self.log.write(agent, path, content)
+        else:
+            self.vfs[path] = content
         if self.pace:
             time.sleep(self.pace)
 
@@ -140,7 +173,94 @@ class _Planner:
         return simulate(self.state, actions)
 
     def find(self, agent, target, issue, evidence, severity):
+        if self.called is not None and agent in LA_AGENTS and agent not in self.called:
+            return
         self.findings.setdefault(agent, []).append({"target": target, "issue": issue, "evidence": evidence, "severity": severity})
+
+    # ------------------------------------------------------------------ routing: who is needed this hour, and why
+    def route(self, base, cands) -> dict[str, tuple[bool, str]]:
+        """The orchestrator's first step on the LA grid: decide which specialists this hour needs, by plain rules,
+        write the decision to the shared files and say it. Returns {agent: (called, reason)}."""
+        st, L = self.state, base["lines"]
+        on = [l for l in L if L[l]["energized"]]
+        alarm = D.calibration()["fire"]["line_alarm"]
+        near = [l for l in on if L[l]["fire_risk"] >= NEAR_ALARM * alarm and not st.lines[l].get("cable")]
+        redflag = 0
+        try:
+            from .brief import build_brief
+
+            redflag = int((build_brief(st).get("weather") or {}).get("n_redflag_active") or 0)
+        except Exception:  # noqa: BLE001
+            pass
+        gust = max((L[l]["gust_ms"] for l in on), default=0.0)
+        busy = [l for l in on if L[l]["loading_pct"] > HEAT_LOADING_PCT]
+        heat_event = False
+        try:
+            from ..la import replay
+
+            heat_event = replay.event_meta(st.eid).get("kind") == "heat"
+        except Exception:  # noqa: BLE001
+            pass
+        cutting = [c for c in cands if c["action"]["type"] in CUTS_LOAD]
+        n_buildings = 0
+        try:
+            from ..la import buildings as B
+
+            n_buildings = B.summary()["n"] if hasattr(st, "cut_impact") else 0
+        except Exception:  # noqa: BLE001
+            pass
+        plural = lambda n, one, many: one if n == 1 else many  # noqa: E731
+        decision = {
+            "fire_agent": (bool(near or redflag),
+                           (f"{len(near)} {plural(len(near), 'line is', 'lines are')} near or over the fire alarm" if near
+                            else f"{redflag} Red Flag {plural(redflag, 'warning', 'warnings')} in force" if redflag
+                            else "no line is near the fire alarm and no Red Flag warning is in force")),
+            "wind_agent": (gust >= WIND_ONSET_MS,
+                           f"gusts reach {gust:.0f} m/s" if gust >= WIND_ONSET_MS else f"gusts stay under {WIND_ONSET_MS:.0f} m/s"),
+            "heat_agent": (bool(busy or heat_event),
+                           (f"{len(busy)} {plural(len(busy), 'line is', 'lines are')} above {HEAT_LOADING_PCT:.0f}% of rating" if busy
+                            else "this is a heat-wave event" if heat_event else f"no line above {HEAT_LOADING_PCT:.0f}% of its rating")),
+            "brownout_agent": (bool(cutting),
+                               (f"{len(cutting)} possible {plural(len(cutting), 'move', 'moves')} would cut power to someone" if cutting
+                                else "no move on the table cuts anyone's power")),
+            "buildings_agent": (bool(n_buildings and cutting),
+                                (f"{n_buildings:,} building records are loaded and a cut is on the table" if n_buildings and cutting
+                                 else "no cut is on the table" if n_buildings else "no building records are loaded")),
+        }
+        self.called = {a for a, (yes, _) in decision.items() if yes}
+        for a, (yes, why) in decision.items():
+            self.event("coordinator", f"{'calling' if yes else 'not calling'} {AGENT_NAMES[a]}: {why}", "route", agent=a, called=yes, reason=why)
+        self.write("coordinator", DISPATCH, "# Who the orchestrator called this hour\n\n" + "\n".join(
+            f"- {a}: {'CALL' if yes else 'SKIP'} - {why}" for a, (yes, why) in decision.items()) + "\n")
+        return decision
+
+    def report(self) -> None:
+        """Each called specialist takes its turn: it starts, reads, says what it found, writes its findings to the
+        shared files, and is done. Then the orchestrator lists the findings and reads each one."""
+        import json
+
+        order = [a for a in LA_AGENTS if a in (self.called or ())]
+        for a in order:
+            self.event(a, "started", "spawn", agent=a)
+        self.reported = True
+        for a in order:
+            for tool in AGENT_TOOLS[a]:
+                self.event(a, f"reading {tool.removeprefix('get_').replace('_', ' ')}", "tool", agent=a, tool=tool)
+            lines = self.said.get(a, [])
+            for msg in lines:
+                self.say(a, msg)
+            found = self.findings.get(a, [])
+            self.write(a, findings_path(a), json.dumps({
+                "agent": a, "lines": sorted({f["target"] for f in found if f["target"] in self.state.lines}),
+                "findings": found, "summary": lines}, indent=1))
+            self.write(a, findings_path(a, "md"), f"# {AGENT_NAMES[a]} agent\n\n" + ("\n".join(f"- {m}" for m in lines) or "- nothing to report") + "\n")
+            self.event(a, f"wrote {findings_path(a)}", "agent_done", agent=a, findings=len(found))
+        self.event("coordinator", "ls /findings", "tool", agent="coordinator", tool="ls")
+        for a in order:
+            if hasattr(self.log, "read"):
+                self.log.read("coordinator", findings_path(a))
+                if self.pace:
+                    time.sleep(self.pace)
 
     def by(self, agents: list[str]) -> list[str]:
         """Who raised a step. LA has no cascade, flood, water or atmosphere agent; what they would raise there
@@ -165,8 +285,9 @@ class _Planner:
             wx = st.weather[ln["zone"]]
             sev = 3 if L[l]["temp_c"] > ln["max_temp_c"] else (2 if L[l]["temp_c"] > 45 else 1)
             self.find("heat_agent", l, "conductor heating", f"{L[l]['temp_c']} C at {L[l]['amps']:.0f} A, air {wx['air_temp_c']} C, sag {L[l]['sag_m']} m", sev)
-        h = self.findings["heat_agent"][0]
-        self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
+        if self.findings.get("heat_agent"):
+            h = self.findings["heat_agent"][0]
+            self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
         # wind
         blown = sorted(closed, key=lambda l: -abs(L[l]["blowout_m"]))[:3]
         for l in blown:
@@ -251,8 +372,9 @@ class _Planner:
             self.find("heat_agent", l, "conductor heating",
                       f"{L[l]['temp_c']} C (limit {ln['max_temp_c']:.0f} C) at {L[l]['amps']:.0f} A, {ln['zone']} zone air "
                       f"{st.weather[ln['zone']]['air_temp_c']} C, sag {L[l]['sag_m']} m", sev)
-        h = self.findings["heat_agent"][0]
-        self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
+        if self.findings.get("heat_agent"):
+            h = self.findings["heat_agent"][0]
+            self.say("heat_agent", f"{h['target']} hottest conductor: {h['evidence']}")
         # wind
         for n, l in enumerate(sorted(closed, key=lambda l: -L[l]["gust_ms"])[:3]):
             evidence = f"gust {L[l]['gust_ms']} m/s at the worst tower; fire index {L[l]['fire_risk']:.2f}"
@@ -812,9 +934,15 @@ class _Planner:
             except Exception:  # noqa: BLE001
                 pass
         base = self.sim([])
+        cands = None
+        if self.la:  # the orchestrator decides who is needed before anyone is called
+            cands = [] if base["is_safe"] else self.candidates(base)
+            self.route(base, cands)
         self.analyze(base)
         self.buildings(base)
         storm_sent, staging = self.storm()
+        if self.la:
+            self.report()
         if base["is_safe"]:
             self.say("coordinator", "do-nothing case passes every physics check; no switching recommended")
             return {
@@ -826,7 +954,7 @@ class _Planner:
             }
 
         self.say("coordinator", f"{len(base['violations'])} violations to resolve; building candidate plans")
-        cands = self.candidates(base)
+        cands = cands if cands is not None else self.candidates(base)
         self.say("coordinator", f"{len(cands)} candidate actions: " + ", ".join(c["label"] for c in cands))
         fb_combos, fb_used = self.feedback(base, cands)
         g_plan, g_attempts, g_r = self.greedy(base, cands)
@@ -834,7 +962,8 @@ class _Planner:
         self.say("coordinator", "screening alternative combinations with the physics engine")
         results = self.brute_force(cands)
         safe = [(c, r) for c, r in results if r["is_safe"]]
-        self.say("physics", f"screened {len(results)} combinations ({self.sims} simulations): {len(safe)} safe")
+        self.event("physics", f"screened {len(results)} combinations ({self.sims} simulations): {len(safe)} safe", "physics",
+                   screened=len(results), safe=len(safe), simulations=self.sims)
 
         ranked = sorted(safe, key=lambda cr: (cr[1]["totals"]["unserved_mw"], len(cr[1]["n1_warnings"]), len(cr[0])))
         if g_r["is_safe"]:
@@ -906,11 +1035,31 @@ class _Planner:
         }
 
 
-def run_mock(state, log: JobLog, reason: str = "no GEMINI_API_KEY", pace: float | None = None) -> dict:
+def send_alerts(state, log) -> None:
+    """The rule-based orchestrator's use of send_alert, under the rule the AI team is given: only for a line at very
+    high fire risk or very likely to be knocked down, once per line. Operate runs only (state.alerts_on)."""
+    if not getattr(state, "alerts_on", False) or not hasattr(state, "fire_lines"):
+        return
+    try:
+        from .. import notify
+
+        for row in notify.very_high_fire(state)[:notify.MAX_PER_HOUR]:
+            notify.agent_alert(state, f"Rewire ALERT: {row['id']} is at very high fire risk.", log)
+        for top in notify.likely_out(state)[:notify.MAX_PER_HOUR]:
+            notify.agent_alert(state, f"Rewire ALERT: {top['id']} is very likely to be knocked down by this storm.", log)
+    except Exception:  # noqa: BLE001  a text never breaks a run
+        pass
+
+
+def run_mock(state, log: JobLog, reason: str = "no GEMINI_API_KEY", pace: float | None = None, alerts: bool = True) -> dict:
     log("system", f"rule-based planner ({reason})")
     p = _Planner(state, log, PACE_S if pace is None else pace)
     out = p.run()
     out["mode"] = "mock"
     out = verify_output(state, out, log)
-    log("coordinator", f"done: {len(out['plans'])} plan(s) ready for operator review")
+    out["vfs"] = dict(p.vfs)
+    if alerts:
+        send_alerts(state, log)
+    emit(log, "coordinator", f"done: {len(out['plans'])} plan(s) ready for operator review", "plans",
+         plans=[{"id": q["id"], "safe": bool(q["result"]["is_safe"])} for q in out["plans"]])
     return out

@@ -324,6 +324,13 @@ def la_copilot_run(body: LARunIn):
         LA["state"] = st
         SCREEN.update(event=st.eid, t=st.t_utc.isoformat())  # the agents are on this hour: so is the strip
         _strip_refresh()
+        st.alerts_on = True  # an Operate run: the code triggers fire now, and the orchestrator may use send_alert
+        try:
+            from . import notify
+
+            notify.on_hour(st)
+        except Exception:  # noqa: BLE001  a text never breaks a run
+            pass
     hour = st.t_utc.isoformat()
 
     def stamp(out: dict, log_entries: list[dict]):
@@ -390,6 +397,12 @@ def la_approve(plan_id: str, body: LARoleIn | None = None):
             st.bulletin = la_bulletin(st, plan)
     finally:
         _strip_refresh()  # and settles on what the system now holds
+    try:
+        from . import notify
+
+        notify.on_approval(st, plan)  # a text when the approved plan turns lines off
+    except Exception:  # noqa: BLE001
+        pass
     hour = st.t_utc.isoformat()
     REC.add("approved", f"Plan {plan_id.lstrip('P')} approved by the {role}.", role=role, event=st.eid, hour_utc=hour, plan=plan_id,
             authority=auth["level"], reasons=auth["reasons"], customers_out=plan["result"]["customers_out"],
@@ -462,6 +475,9 @@ def la_reset():
     """Start the session over: forget the Operate state (plans, approvals, bulletin) and clear the record."""
     LA["state"], LA["study"] = None, None
     _strip_refresh()  # nothing is switched off any more
+    from . import notify
+
+    notify.reset()
     REC.clear()
     REC.add("reset", "Session reset: plans, approvals and the earlier record were cleared.")
     return {"entries": REC.entries()}
@@ -470,6 +486,38 @@ def la_reset():
 @router.get("/la/state")
 def la_state():
     return LA["state"].view() if LA["state"] else {}
+
+
+# --------------------------------------------------------------------------- text alerts (backend/notify.py)
+class AlertSwitchIn(BaseModel):
+    on: bool = True
+
+
+@router.get("/alerts")
+def alerts_list():
+    """The bell: every text sent or (in a dry run) that would have been sent, newest first, and whether alerts are on."""
+    from . import notify
+
+    return notify.status()
+
+
+@router.post("/alerts/test")
+def alerts_test():
+    """Send one test text to ALERT_PHONE, or record it as a dry run when Twilio is not fully set up."""
+    from . import notify
+
+    if not notify.STATE["on"]:
+        raise HTTPException(400, "Alerts are switched off.")
+    notify.send("Rewire test: text alerts are working.", source="test", why="test")
+    return notify.status()
+
+
+@router.post("/alerts/switch")
+def alerts_switch(body: AlertSwitchIn):
+    from . import notify
+
+    notify.STATE["on"] = bool(body.on)
+    return notify.status()
 
 
 # --------------------------------------------------------------------------- the LED strip follows the system

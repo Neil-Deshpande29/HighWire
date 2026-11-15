@@ -18,12 +18,13 @@ from .. import llm as LLM
 from ..textguard import guard
 from .mock_planner import run_mock
 from .brief import brief_text, build_brief
-from .tools import JobLog, _grid_ids, make_tools, verify_output
+from .mock_planner import AGENT_NAMES, DISPATCH, send_alerts
+from .tools import JobLog, _grid_ids, emit, findings_path, make_tools, verify_output
 
 
 def _timeout_s() -> float:
     """Read per run, so AGENT_TIMEOUT_S can be changed without re-importing the module."""
-    return float(os.environ.get("AGENT_TIMEOUT_S", "50"))
+    return float(os.environ.get("AGENT_TIMEOUT_S", "75"))
 
 
 SUBAGENTS = {
@@ -37,6 +38,15 @@ SUBAGENTS = {
     "cascade_agent": ("N-1 security: which single line trip would overload others or island load.", ["get_grid_summary"]),
     "flood_agent": ("Energized equipment in floodwater; exposure of the hospital and water plant.", ["get_grid_summary", "get_critical_sites"]),
 }
+
+LA_SUB_PROMPT = """You are {name} on a power-grid storm co-pilot team. Your focus: {focus}
+Call each of your tools at most once. Then call write_file twice:
+1. file_path "/findings/{name}.json", content this compact JSON:
+{{"agent":"{name}","findings":[{{"target":"L220","issue":"short","evidence":"words from tool output","severity":1}}]}}
+severity: 1 watch, 2 act soon, 3 act now. At most 4 findings. "target" is one line or substation id from tool output.
+In "issue" and "evidence" copy the identifiers and words from tool output; do not write numbers.
+2. file_path "/findings/{name}.md", content two to four short plain lines saying the same in words.
+Then reply with exactly: wrote /findings/{name}.json"""
 
 SUB_PROMPT = """You are {name} on a power-grid storm co-pilot team. Your focus: {focus}
 Call each of your tools at most once, then reply with ONLY compact JSON, no prose:
@@ -101,24 +111,76 @@ def _task_text(output) -> str:
     return _text_of(getattr(output, "content", output))
 
 
+_ROUTE_LINE = re.compile(r"^\W*(\w+_agent)\W+(CALL|SKIP)\b\W*(.*)$", re.I)
+
+
+def _file_text(data) -> str:
+    """deepagents keeps a file as text or as {"content": text or lines}; either way, its text."""
+    c = data.get("content") if isinstance(data, dict) else data
+    return "\n".join(c) if isinstance(c, list) else "" if c is None else str(c)
+
+
 def _make_callback(log, names=None):
+    """Turns the team's tool calls into the log's structured events (the live agent graph is drawn from these alone)
+    and mirrors every file the agents write into the run's shared files."""
     from langchain_core.callbacks import BaseCallbackHandler
+
+    def ev(agent, message, kind, /, **meta):  # events are for a log that keeps them; a plain line log gets none of these
+        if getattr(log, "structured", False):
+            log(agent, message, kind, **meta)
 
     class TaskLogger(BaseCallbackHandler):
         def __init__(self):
             self.runs = {}
+            self.spawned: list[str] = []
+            self.routed: set[str] = set()
 
-        def on_tool_start(self, serialized, input_str, *, run_id=None, inputs=None, **kw):
-            if (serialized or {}).get("name") != "task":
-                return
+        @staticmethod
+        def _args(input_str, inputs) -> dict:
             data = inputs or {}
             if not data:
                 try:
                     data = json.loads(input_str)
                 except Exception:  # noqa: BLE001
                     data = {}
+            return data if isinstance(data, dict) else {}
+
+        def _route(self, text: str):
+            for line in text.splitlines():
+                m = _ROUTE_LINE.match(line.strip())
+                if m and m.group(1) in AGENT_NAMES and m.group(1) not in self.routed:
+                    agent, called = m.group(1), m.group(2).upper() == "CALL"
+                    why, held = _words(m.group(3), names)
+                    why = "" if held else why[:120]
+                    self.routed.add(agent)
+                    ev("coordinator", f"{'calling' if called else 'not calling'} {AGENT_NAMES[agent]}" + (f": {why}" if why else ""),
+                         "route", agent=agent, called=called, reason=why)
+
+        def on_tool_start(self, serialized, input_str, *, run_id=None, inputs=None, **kw):
+            name, data = (serialized or {}).get("name"), self._args(input_str, inputs)
+            if name == "write_file":
+                path, text = str(data.get("file_path") or ""), _file_text(data.get("content"))
+                m = re.match(r"^/findings/(\w+)\.\w+$", path)
+                writer = m.group(1) if m and m.group(1) in AGENT_NAMES else "coordinator"
+                if hasattr(log, "write"):
+                    log.write(writer, path, text)
+                if path == DISPATCH:
+                    self._route(text)
+                return
+            if name == "read_file":
+                if hasattr(log, "read"):
+                    log.read("coordinator", str(data.get("file_path") or ""))
+                return
+            if name == "ls":
+                ev("coordinator", f"ls {data.get('path') or '/'}", "tool", agent="coordinator", tool="ls")
+                return
+            if name != "task":
+                return
             sub = data.get("subagent_type", "subagent")
             self.runs[run_id] = sub
+            if sub in AGENT_NAMES and sub not in self.spawned:
+                self.spawned.append(sub)
+                ev(sub, "started", "spawn", agent=sub)
             desc, _ = _words(data.get("description"), names)
             log("coordinator", f"-> {sub}: {desc[:110]}" if desc else f"-> {sub}")
 
@@ -126,10 +188,12 @@ def _make_callback(log, names=None):
             sub = self.runs.pop(run_id, None)
             if not sub:
                 return
-            try:
-                data = _parse_json(_task_text(output))
+            wrote = findings_path(sub) in (getattr(log, "vfs", None) or {})
+            try:  # its findings: the file it wrote, or (an agent that answered inline) its reply
+                data = json.loads(log.vfs[findings_path(sub)]) if wrote else _parse_json(_task_text(output))
             except Exception:  # noqa: BLE001  never echo unparsed model text: it can state numbers
                 log(sub, "returned no readable findings")
+                ev(sub, "finished without a findings file" if not wrote else f"wrote {findings_path(sub)}", "agent_done", agent=sub, wrote=wrote)
                 return
             f = data.get("findings") if isinstance(data, dict) else None
             f = [item for item in f if isinstance(item, dict)] if isinstance(f, list) else []
@@ -144,6 +208,16 @@ def _make_callback(log, names=None):
                 log(sub, f"{line} ({evidence})" if evidence else line)
             if not f:
                 log(sub, "no significant findings")
+            ev(sub, f"wrote {findings_path(sub)}" if wrote else "finished without a findings file", "agent_done",
+                 agent=sub, wrote=wrote, findings=len(f))
+
+        def finish(self):
+            """After the run: an agent the orchestrator never mentioned in its dispatch file still gets its line."""
+            for agent in AGENT_NAMES:
+                if agent not in self.routed:
+                    called = agent in self.spawned
+                    ev("coordinator", f"{'called' if called else 'did not call'} {AGENT_NAMES[agent]}", "route",
+                         agent=agent, called=called, reason="" if called else "the orchestrator did not call it")
 
     return TaskLogger()
 
@@ -175,12 +249,24 @@ LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operat
 are modeled). You never act on the grid: you propose plans and the human operator approves or rejects them. The whole run
 has a 45 second budget, so be brief.
 
+You and the specialists share a virtual file system (write_file, read_file, ls). Context moves through those files,
+not through long replies.
+
 Workflow:
-1. In ONE message call the `task` tool 5 times in parallel: fire_agent, wind_agent, heat_agent, brownout_agent,
-   buildings_agent.
-   Description: "Assess current conditions and return your findings JSON."
-2. Call get_candidate_actions() once. Build up to 3 plans of at most 3 actions each, using ONLY actions from that list
-   (do not invent line or bus ids). deenergize_lines shuts a group of lines off as ONE action (PSPS style).
+0. ROUTE. From the situation brief below, decide which specialists this hour needs: fire_agent (a line near or over
+   the fire alarm, or a Red Flag warning in force), wind_agent (strong gusts or a storm-damage index near its alarm),
+   heat_agent (a line heavily loaded or overloaded, or a heat event), brownout_agent (a plan is likely to cut power to
+   someone), buildings_agent (lines are likely to be switched off). Call write_file once with file_path
+   "/plan/dispatch.md" and one line per specialist, all five, exactly like:
+   fire_agent: CALL - reason in words
+   heat_agent: SKIP - reason in words
+1. In ONE message call the `task` tool once for each specialist you marked CALL, in parallel, and no others.
+   Description: "Assess current conditions and write your findings files."
+   Each one writes /findings/<agent>.json and /findings/<agent>.md and replies only "wrote /findings/<agent>.json".
+2. Call ls with path "/findings", then read_file for each .json file there. Then call get_candidate_actions() once.
+   Build up to 3 plans of at most 3 actions each, using ONLY actions from that list (do not invent line or bus ids).
+   deenergize_lines shuts a group of lines off as ONE action (PSPS style). In every step, "raised_by" lists the
+   findings file(s) the step came from, for example ["/findings/fire_agent.json"]; cite only files that ls showed.
 3. Call simulate_plan for every plan (parallel calls are fine). It is the ONLY way to judge a plan. If is_safe is false,
    read the violations and revise, at most 2 attempts per plan.
 4. For the lines your plans switch off or leave energized, the specialists may have quoted get_site_context; you may
@@ -202,8 +288,8 @@ BRIEF_HEADER = ("Situation brief (shared by all agents; start from it instead of
                 "but do not repeat them in your reply):\n")
 
 
-def _subagent_specs(state, log, table, extra: str = ""):
-    return [{"name": n, "description": f, "system_prompt": SUB_PROMPT.format(name=n, focus=f) + extra,
+def _subagent_specs(state, log, table, extra: str = "", prompt: str | None = None):
+    return [{"name": n, "description": f, "system_prompt": (prompt or SUB_PROMPT).format(name=n, focus=f) + extra,
              "tools": make_tools(state, log, n, t)}
             for n, (f, t) in table.items()]
 
@@ -213,7 +299,7 @@ def _la_prompts(state, log):
     brief = build_brief(state)
     log("coordinator", "situation brief: " + brief["headlines"][0])
     block = "\n\n" + BRIEF_HEADER + brief_text(brief)
-    subagents = _subagent_specs(state, log, LA_SUBAGENTS, block)
+    subagents = _subagent_specs(state, log, LA_SUBAGENTS, block, LA_SUB_PROMPT)
     prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}." + block
     from ..la import feedback as F
 
@@ -240,13 +326,26 @@ def _run_llm(state, log) -> dict:
         subagents = _subagent_specs(state, log, SUBAGENTS)
         prompt = COORDINATOR_PROMPT
         coord_tools = ["get_grid_summary", "get_critical_sites", "simulate_plan"]
-    agent = create_deep_agent(model=model, tools=make_tools(state, log, "coordinator", coord_tools), system_prompt=prompt,
-                              subagents=subagents)
-    log("coordinator", f"model {model_name}: planning with {len(subagents)} specialist agents")
+    tools = make_tools(state, log, "coordinator", coord_tools)
+    if la and getattr(state, "alerts_on", False):  # Operate runs only: the orchestrator may text the on-call operator
+        from .. import notify
+
+        tools = tools + [notify.alert_tool(state, log)]
+        prompt += ("\n\nYou also have send_alert(message). Use it ONLY when a specialist's findings file reports a line at very "
+                   "high fire risk or very likely to be knocked down by the storm, at most once per line.")
+    agent = create_deep_agent(model=model, tools=tools, system_prompt=prompt, subagents=subagents)
+    log("coordinator", f"model {model_name}: the orchestrator decides which of {len(subagents)} specialist agents to call")
+    watch = _make_callback(log, _grid_ids(state))
     result = agent.invoke(
         {"messages": [{"role": "user", "content": f"Scenario: {state.scenario}. Assess the grid and propose plans."}]},
-        config={"callbacks": [_make_callback(log, _grid_ids(state))], "recursion_limit": 120},
+        config={"callbacks": [watch], "recursion_limit": 150},
     )
+    if la:
+        watch.finish()
+        vfs = getattr(log, "vfs", None)
+        if vfs is not None:  # anything in the team's file system the callback did not see being written
+            for path, data in (result.get("files") or {}).items():
+                vfs.setdefault(path, _file_text(data))
     return _parse_json(_text_of(result["messages"][-1]))
 
 
@@ -287,13 +386,27 @@ def run_team(state, log: JobLog) -> dict:
         return out
 
     gate = {"open": True}
+    first = len(getattr(log, "entries", ()))  # where this run's own lines start
 
-    def gated(agent, message):  # once we fall back, late LLM lines are dropped
-        if gate["open"]:
-            log(agent, message)
+    class Gated:  # once we fall back, late LLM lines, events and files are dropped
+        vfs = getattr(log, "vfs", None)
+        structured = getattr(log, "structured", False)
 
+        def __call__(self, agent, message, kind=None, /, **meta):
+            if gate["open"]:
+                emit(log, agent, message, kind, **meta)
+
+        def write(self, agent, path, content):
+            if gate["open"] and hasattr(log, "write"):
+                log.write(agent, path, content)
+
+        def read(self, reader, path):
+            if gate["open"] and hasattr(log, "read"):
+                return log.read(reader, path)
+
+    gated = Gated()
     box: dict = {}
-    backup: dict = {"lines": []}
+    backup: dict = {"log": JobLog()}
 
     def worker():
         try:
@@ -303,7 +416,7 @@ def run_team(state, log: JobLog) -> dict:
 
     def backup_worker():
         try:
-            backup["out"] = run_mock(state, lambda a, m: backup["lines"].append((a, m)), "parallel backup", pace=0)
+            backup["out"] = run_mock(state, backup["log"], "parallel backup", pace=0, alerts=False)
         except Exception as e:  # noqa: BLE001
             backup["err"] = e
 
@@ -316,9 +429,19 @@ def run_team(state, log: JobLog) -> dict:
         log("system", why + "; using the rule-based plan computed in parallel")
         bk.join(30)
         if "out" in backup:
-            for a, m in backup["lines"]:
-                log(a, m)
+            if hasattr(log, "entries"):
+                for e in log.entries[first:]:  # the AI team's unfinished attempt stays readable but is not drawn in the graph
+                    e.pop("kind", None), e.pop("meta", None)
+                log.vfs.clear()
+                log.vfs.update(backup["log"].vfs)
+                now = time.time()
+                # the backup ran in an instant: space its lines out so the replay shows them one after another
+                log.entries.extend({**e, "t": round(now + 0.12 * k, 3)} for k, e in enumerate(backup["log"].entries))
+            else:
+                for e in backup["log"].entries:
+                    log(e["agent"], e["message"])
             out = backup["out"]
+            send_alerts(state, log)
         else:
             out = run_mock(state, log, why, pace=0.05)
         out["fallback_reason"] = why
@@ -345,6 +468,9 @@ def run_team(state, log: JobLog) -> dict:
     if not out["plans"] and out["do_nothing"]["violations"]:
         return fall_back("the AI team's answer could not be used: no plan it proposed could be run on this grid")
     out["fallback_reason"] = None
+    out["vfs"] = dict(getattr(log, "vfs", None) or {})
+    emit(log, "coordinator", f"done: {len(out['plans'])} plan(s) ready for operator review", "plans",
+         plans=[{"id": q["id"], "safe": bool(q["result"]["is_safe"])} for q in out["plans"]])
     try:  # crew staging numbers always come from the calibrated storm model, never from the LLM
         from .mock_planner import _Planner
 

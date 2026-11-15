@@ -31,3 +31,15 @@ def _no_paused_ai_team(monkeypatch):
     from backend.agents import team as T
 
     monkeypatch.setitem(T._PAUSE, "until", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def _no_alerts_left_over():
+    """Text alerts remember what they sent so a line is not alerted twice. Each test starts with nothing remembered,
+    alerts switched on, and (see the repo-root conftest.py) no Twilio settings, so nothing is ever sent."""
+    from backend import notify
+
+    notify.reset()
+    notify.STATE["on"] = True
+    yield
+    notify.reset()

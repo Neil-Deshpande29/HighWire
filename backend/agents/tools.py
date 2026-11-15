@@ -7,6 +7,7 @@ Also holds `verify_output`: the backend re-runs physics on every plan and overwr
 from __future__ import annotations
 
 import json
+import re
 import math
 import time
 
@@ -36,12 +37,47 @@ TEAMS = {
 }
 
 
+EVENT_KINDS = ("route", "spawn", "vfs_write", "vfs_read", "tool", "agent_done", "physics", "plans")
+
+
 class JobLog:
+    """What a run says while it works, and the files its agents share.
+
+    Every entry has a time, who spoke and a message. An entry may also be a structured event, with a `kind` (one of
+    EVENT_KINDS) and `meta`: the screen draws the live agent graph from these alone. `vfs` is the run's virtual file
+    system: path -> text. Specialists write their findings there and the orchestrator reads them back."""
+
+    structured = True  # it keeps events (kind, meta), not only lines
+
     def __init__(self):
         self.entries: list[dict] = []
+        self.vfs: dict[str, str] = {}
 
-    def __call__(self, agent: str, message: str):
-        self.entries.append({"t": round(time.time(), 2), "agent": agent, "team": TEAMS.get(agent, "system"), "message": message})
+    def __call__(self, agent: str, message: str, kind: str | None = None, /, **meta):
+        e = {"t": round(time.time(), 3), "agent": agent, "team": TEAMS.get(agent, "system"), "message": message}
+        if kind:
+            e["kind"], e["meta"] = kind, meta
+        self.entries.append(e)
+
+    def write(self, agent: str, path: str, content: str):
+        self.vfs[path] = content
+        self(agent, f"wrote {path}", "vfs_write", agent=agent, path=path, bytes=len(content.encode()))
+
+    def read(self, reader: str, path: str) -> str | None:
+        self(reader, f"read {path}", "vfs_read", reader=reader, path=path)
+        return self.vfs.get(path)
+
+
+def emit(log, agent: str, message: str, kind: str | None = None, /, **meta):
+    """Log a structured event on a JobLog; on a plain two-argument log (tests, the silent backup run) just the line."""
+    try:
+        log(agent, message, kind, **meta)
+    except TypeError:
+        log(agent, message)
+
+
+def findings_path(agent: str, ext: str = "json") -> str:
+    return f"/findings/{agent}.{ext}"
 
 
 # --------------------------------------------------------------------------- data views (pure)
@@ -161,7 +197,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
     def get_grid_summary() -> str:
         """Current grid: every line (status, flow, loading %, conductor temp, sag, tree clearance, fire risk,
         violations) and every substation (load, served/unserved MW, flooded). Also totals and N-1 warnings."""
-        log(agent, "reading grid summary")
+        emit(log, agent, "reading grid summary", "tool", tool="get_grid_summary")
         cache = state.__dict__.setdefault("_summary_cache", {})
         key = id(state.sim)  # computed once per grid state, shared by every agent in the run
         if key not in cache:
@@ -172,21 +208,21 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
     def get_weather() -> str:
         """Current weather per zone (ridge, valley, coast): air temp, wind, gust, wind direction
         (degrees the wind blows toward), humidity, solar, flood level. Also the load multiplier."""
-        log(agent, "reading zone weather")
+        emit(log, agent, "reading zone weather", "tool", tool="get_weather")
         return json.dumps({"scenario": state.scenario, "load_multiplier": state.load_multiplier, "zones": state.weather})
 
     def get_reports() -> str:
         """Ground reports from residents and 911, each snapped to a line or substation, with
         corroborated=true when the physics also flags that asset."""
         reps = state.reports_view()
-        log(agent, f"reading {len(reps)} ground reports ({sum(r['corroborated'] for r in reps)} corroborated)")
+        emit(log, agent, f"reading {len(reps)} ground reports ({sum(r['corroborated'] for r in reps)} corroborated)", "tool", tool="get_reports")
         return json.dumps(
             [{k: r.get(k) for k in ("id", "text", "kind", "severity", "line", "bus", "corroborated")} for r in reps]
         )
 
     def get_critical_sites() -> str:
         """Hospital and water plant: their feeding lines, backup hours, and whether they are served."""
-        log(agent, "checking critical sites")
+        emit(log, agent, "checking critical sites", "tool", tool="get_critical_sites")
         return json.dumps(critical_sites(state))
 
     def simulate_plan(actions_json: str) -> str:
@@ -223,7 +259,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         """Headline numbers of the historical validation checks that say how far to trust the fire and storm signals
         (the same checks as the situation brief), with their baselines, read from validation/results.
         Cite these when explaining how much to trust the model. You do not compute them."""
-        log(agent, "reading validation summary")
+        emit(log, agent, "reading validation summary", "tool", tool="get_validation_summary")
         return json.dumps(_trusted_cards())
 
     def get_event_context(event_id: str = "", t: str = "") -> str:
@@ -232,7 +268,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         (EAGLE-I). Always this run's event and hour: the arguments are ignored and nothing after this hour is shown."""
         from ..la import replay
 
-        log(agent, f"reading this hour's context ({state.eid} {state.t_utc:%Y-%m-%d %H:%M} UTC)")
+        emit(log, agent, f"reading this hour's context ({state.eid} {state.t_utc:%Y-%m-%d %H:%M} UTC)", "tool", tool="get_event_context")
         ctx = replay.hour_context(state.eid, state.t_utc.isoformat())
         if state.is_modified():
             ctx["note"] = "As recorded for this hour; Study conditions and operator switching are in the situation brief."
@@ -246,7 +282,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         Use it to recommend crew pre-staging and patrols."""
         from ..la import replay
 
-        log(agent, "reading storm-damage model")
+        emit(log, agent, "reading storm-damage model", "tool", tool="get_storm_damage")
         ctx = replay.hour_context(state.eid, state.t_utc.isoformat())
         val = {c["id"]: {k: c[k] for k in ("headline", "baseline", "status")} for c in _trusted_cards()}
         out = {"storm": ctx["storm_damage"], **{k: ctx[k] for k in ("customers_out_this_hour",) if k in ctx}, "validation": val}
@@ -257,7 +293,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         rule-based planner. Build plans ONLY from these actions (you may combine up to 3)."""
         from .mock_planner import _Planner
 
-        log(agent, "reading candidate actions")
+        emit(log, agent, "reading candidate actions", "tool", tool="get_candidate_actions")
         p = _Planner(state, lambda *a, **k: None, 0)
         base = p.sim([])
         p.analyze(base)
@@ -272,7 +308,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         line_id like 'L29'."""
         from site_agent import agent as SA
 
-        log(agent, f"reading site context {line_id}")
+        emit(log, agent, f"reading site context {line_id}", "tool", tool="get_site_context")
         try:
             out = SA.describe(line_id, state.eid, t=state.t_utc.isoformat(), use_llm=False, fetch=False)
         except KeyError as e:
@@ -282,7 +318,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
     def get_situation_brief() -> str:
         """The shared situation brief every agent starts from: fire alarm, storm, grid, weather, site context and
         validation for this hour. Numbers are copied from physics and data; no hindsight (no real outages or fires)."""
-        log(agent, "reading situation brief")
+        emit(log, agent, "reading situation brief", "tool", tool="get_situation_brief")
         return brief_text(build_brief(state))
 
     def get_building_impact(line_ids_json: str) -> str:
@@ -299,7 +335,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
             ids = [str(x) for x in json.loads(line_ids_json)][:12]
         except (ValueError, TypeError):
             return json.dumps({"error": "pass a JSON list of line ids, e.g. [\"L558\", \"L226\"]"})
-        log(agent, f"comparing what {len(ids)} line(s) feed, by building tier")
+        emit(log, agent, f"comparing what {len(ids)} line(s) feed, by building tier", "tool", tool="get_building_impact")
         out = {}
         for lid in ids:
             if lid not in state.lines:
@@ -317,7 +353,7 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         before ranking plans and say in "tradeoffs" how a plan answers it. Empty when nothing was rejected yet."""
         from ..la import feedback as F
 
-        log(agent, "reading operator feedback from earlier rejections")
+        emit(log, agent, "reading operator feedback from earlier rejections", "tool", tool="get_operator_feedback")
         return json.dumps(F.summary())
 
     all_tools = {
@@ -391,6 +427,18 @@ def _strs(x) -> list[str]:
 
 def _agents(x) -> list[str]:
     return [a for a in _strs(x) if a in TEAMS]
+
+
+def _raised(x, files: dict | None) -> dict:
+    """Who raised a plan step, and the findings files it came from. A step may name agents or their files
+    ("/findings/fire_agent.json"). When the run kept shared files, only agents whose file exists are kept, so a plan
+    never cites findings nobody wrote."""
+    named = [re.sub(r"^/findings/(\w+)\.\w+$", r"\1", s) for s in _strs(x)]
+    agents = list(dict.fromkeys(a for a in named if a in TEAMS))
+    if files is None:
+        return {"raised_by": agents}
+    agents = [a for a in agents if findings_path(a) in files]
+    return {"raised_by": agents, "raised_from": [findings_path(a) for a in agents]}
 
 
 def _number(x) -> float | int | None:
@@ -503,6 +551,7 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     not an object, has no actions or names something this grid does not have is dropped, never simulated."""
     model = output.get("mode") != "mock"
     names = _grid_ids(state) if model else set()
+    files = getattr(log, "vfs", None) or None  # the run's shared files, when the run kept any
     if model:
         for k in [k for k in output if k not in OUTPUT_KEYS]:
             del output[k]
@@ -549,7 +598,7 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         if model:
             held.append(_guard_labels(actions, names))
         p["title"] = title or _code_title(actions)
-        p["steps"] = [{"action": a, "why": why or (_code_why(a, base) if model else ""), "raised_by": _agents(s.get("raised_by"))}
+        p["steps"] = [{"action": a, "why": why or (_code_why(a, base) if model else ""), **_raised(s.get("raised_by"), files)}
                       for s, a, (why, _) in zip(steps, actions, whys)]
         if hasattr(state, "step_impacts"):  # LA grid: what each step cuts off, the five heaviest named. Code picks them.
             for step, built in zip(p["steps"], state.step_impacts(actions)):
@@ -574,7 +623,7 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         plans.append(p)
         if log:
             verdict = "safe" if r["is_safe"] else f"NOT SAFE ({r['violations'][0]})"
-            log("physics", f"backend re-verified {p['id']}: {verdict}")
+            emit(log, "physics", f"backend re-verified {p['id']}: {verdict}", "physics", plan=p["id"], safe=bool(r["is_safe"]))
     # safe plans first, then fewer violations, then the plan that cuts off less critical buildings (a hospital outranks
     # an office), then less unserved load, fewer actions
     load = max(base["totals"].get("load_mw", 1.0), 1.0)
