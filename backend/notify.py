@@ -8,6 +8,9 @@ Two ways in, one function out (`send`), so both obey the same on/off switch, the
      from the physics.
   2. The orchestrator's `send_alert(message)` tool (`alert_tool`), for very high risk findings only.
 
+Alerts are OFF by default. Switch them on with the bell's switch (until the server restarts) or with ALERTS_ON=1 in
+.env. While they are off nothing is sent and nothing is recorded.
+
 Settings come from the environment (.env, read by backend/llm.py): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
 TWILIO_FROM_NUMBER and ALERT_PHONE (who gets the texts). If any is missing, or the from-number is still a placeholder,
 nothing is sent: the message is kept and shown on screen as "would have sent" (a dry run). On a Twilio trial account
@@ -39,7 +42,13 @@ TRIAL_SKIP = "Twilio trial account: only the red-watch, approval and test texts 
 _trial = {"on": False}  # learned from Twilio's first refusal
 
 ALERTS: list[dict] = []  # newest last: {n, at_utc, message, source, status, why}
-STATE = {"on": True}
+def _on_at_start() -> bool:
+    """Alerts are off until someone switches them on: with the bell's switch for this run of the server, or with
+    ALERTS_ON=1 in .env to start switched on. Nothing texts a phone unless it was asked to."""
+    return (os.environ.get("ALERTS_ON") or "").strip().lower() in ("1", "true", "on", "yes")
+
+
+STATE = {"on": _on_at_start()}
 _seen: set[str] = set()
 _lock = threading.Lock()
 _PHONE = re.compile(r"^\+\d{8,15}$")
