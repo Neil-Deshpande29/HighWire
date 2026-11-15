@@ -82,7 +82,7 @@ export default function PlayerBar({ series, kind, title, live, i, playing, speed
       </div>
       <div className="player-side">
         <div className="segmented small" role="group" aria-label="Playback speed">
-          {SPEEDS.map((s) => <button key={s} className={speed === s ? "on" : ""} aria-pressed={speed === s} onClick={() => onSpeed(s)}>{s}x</button>)}
+          {SPEEDS.map((s) => <button key={s} className={speed === s ? "on" : ""} aria-pressed={speed === s} title={`One hour every ${(3.5 / s).toFixed(s === 1 ? 1 : 2).replace(/0$/, "")} seconds`} onClick={() => onSpeed(s)}>{s}x</button>)}
         </div>
         {canReveal && !revealed && <button className="bar-btn" onClick={onReveal}>What really happened</button>}
         <span className={`badge-live ${live ? "live" : "replay"}`}><span className={`live-dot ${live ? "live" : "replay"}`} />{live ? "Live" : "Replay"}</span>
