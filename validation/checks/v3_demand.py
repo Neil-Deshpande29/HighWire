@@ -41,7 +41,7 @@ def run(eid="H2"):
         out["by_ba"][ba] = {"model": metrics(pred[ba], act, idx), "baseline_last_week": metrics(base, act, idx)}
         loc = idx.tz_convert("America/Los_Angeles").tz_localize(None)
         ax.plot(loc, act, "k-", lw=1.5, label="actual (EIA-930)")
-        ax.plot(loc, pred[ba], "-", lw=1.2, label=f"Highwire weather model (MAPE {out['by_ba'][ba]['model']['mape_pct']:.1f}%)")
+        ax.plot(loc, pred[ba], "-", lw=1.2, label=f"Rewire weather model (MAPE {out['by_ba'][ba]['model']['mape_pct']:.1f}%)")
         ax.plot(loc, base, ":", lw=1, label=f"same hour last week (MAPE {out['by_ba'][ba]['baseline_last_week']['mape_pct']:.1f}%)")
         ax.set_title(f"{ba} hourly demand, {ev['name']}", fontsize=9)
         ax.set_ylabel("MW")

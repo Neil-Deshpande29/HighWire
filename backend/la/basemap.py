@@ -1,7 +1,7 @@
 """Aerial imagery under the map: one stitched picture of the region, drawn on the terrain when the layer is on.
 
 Three sources, picked in this order, then `make imagery` builds the picture:
-  1. HIGHWIRE_BASEMAP_URL (+ HIGHWIRE_BASEMAP_NAME) in .env: any XYZ tile address; it may contain a key.
+  1. REWIRE_BASEMAP_URL (+ REWIRE_BASEMAP_NAME) in .env: any XYZ tile address; it may contain a key.
   2. VEXCEL_API_KEY in .env: Vexcel aerial imagery through its API (backend/la/vexcel.py). Where the key has no
      coverage (the hackathon key stops near 34.32 N) the public USGS picture shows through, and the metadata says so.
   3. Neither: the USGS National Map imagery service (public domain, no key).
@@ -46,9 +46,9 @@ SURROUND_DARK = 0.3  # how far the surroundings are pushed toward black, so the 
 
 
 def source() -> dict:
-    url = os.environ.get("HIGHWIRE_BASEMAP_URL")
+    url = os.environ.get("REWIRE_BASEMAP_URL") or os.environ.get("HIGHWIRE_BASEMAP_URL")  # old name still read
     if url:
-        return {"name": os.environ.get("HIGHWIRE_BASEMAP_NAME", "custom imagery"), "url": url}
+        return {"name": os.environ.get("REWIRE_BASEMAP_NAME") or os.environ.get("HIGHWIRE_BASEMAP_NAME") or "custom imagery", "url": url}
     if vexcel.key():
         return {"name": vexcel.NAME, "url": None}  # read through the Vexcel API, not a tile address
     return {"name": "USGS National Map", "url": USGS}

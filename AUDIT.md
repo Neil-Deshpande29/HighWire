@@ -1,6 +1,6 @@
-# Highwire audit: status of every item
+# Rewire audit: status of every item
 
-Written for: the Highwire team. Audits the external review ("Ignition mechanism", "Consequence layer",
+Written for: the Rewire team. Audits the external review ("Ignition mechanism", "Consequence layer",
 "Engineering and performance", "Pitch vs build") against the code on branch `v2-storm-forecast`.
 
 Legend: **DONE** (fixed and validated), **PARTIAL**, **DEFERRED** (worth doing, not done yet; see "To finish"),

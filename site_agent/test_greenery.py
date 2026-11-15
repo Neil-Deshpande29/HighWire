@@ -50,7 +50,7 @@ def test_levels():
 def photo_dir(tmp_path, monkeypatch):
     """A temp photo cache for line L220, laid out exactly as naip.py writes it."""
     monkeypatch.setattr(naip, "CACHE", tmp_path)
-    monkeypatch.delenv("HIGHWIRE_IMAGERY", raising=False)
+    monkeypatch.delenv("REWIRE_IMAGERY", raising=False)
     G._measure.cache_clear()
     lat, lon = facts.branch("L220")["geometry"][len(facts.branch("L220")["geometry"]) // 2][:2]
 
@@ -88,7 +88,7 @@ def test_infrared_wins_when_the_provider_has_it(photo_dir):
 
 def test_imagery_switch_names_its_providers(monkeypatch):
     assert imagery.provider() is naip
-    monkeypatch.setenv("HIGHWIRE_IMAGERY", "vexcel")
+    monkeypatch.setenv("REWIRE_IMAGERY", "vexcel")
     with pytest.raises(KeyError, match="vexcel"):
         imagery.provider()  # not registered until its key and docs exist; fail loudly, never fall back silently
 

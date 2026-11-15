@@ -1,9 +1,9 @@
-# Highwire
+# Rewire
 
 _Fall 2026 HackPrinceton submission._
 
 During storms, grid operators decide which power lines to reroute or shut off, while residents and 911 report downed
-wires one call at a time. Highwire is a team of AI agents that reads what the weather is physically doing to the wires,
+wires one call at a time. Rewire is a team of AI agents that reads what the weather is physically doing to the wires,
 then hands the operator a short, ranked list of plans. **A deterministic physics engine tests every plan before the
 operator sees it**, and the AI never switches anything on its own.
 
@@ -57,7 +57,7 @@ One view of the real LA grid at one moment, styled like a light-mode map app. Th
 - **Timeline** (bottom). Play/pause, drag to scrub, one plain curve: power lines at high fire risk each hour (the
   busiest line's % of rating on heat waves), with a "now" marker for the forecast. On past events, real ignitions stay
   hidden (no spoilers) until you approve a plan or click **Show what happened**; then the fire start appears on the map
-  and timeline, plus a **Did Highwire get it right?** box. It leads with the substation that fed the circuit that started
+  and timeline, plus a **Did Rewire get it right?** box. It leads with the substation that fed the circuit that started
   the fire (read from the official facility record) and whether your approved plan cut its power, then when the line
   nearest the origin was first flagged, its rank at the ignition hour (V5), the caveats, and the real outage peak.
 - **Study mode** (purple tint). A sandbox on top of the current moment. A **Conditions** panel scales wind, humidity,

@@ -196,7 +196,7 @@ def write_report(cards, timings):
     calsum = r("calibration_summary")
     L = []
     w = L.append
-    w("# Highwire: historical validation report (Greater Los Angeles)")
+    w("# Rewire: historical validation report (Greater Los Angeles)")
     w("")
     w(f"_Generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._")
     w("")
@@ -306,8 +306,8 @@ def write_report(cards, timings):
              f"max |difference| {v1['c_sweep']['max_abs_err_c']:.3f} C (tolerance 2 C) -> {'PASS' if v1['c_sweep']['pass'] else 'FAIL'}.",
              f"CIGRE TB 601 Example B via linerate: ampacity {a['linerate']['ampacity_a']:.0f} A vs published 1504 A ({a['ampacity_error_pct']:.2f}%); "
              f"convective {a['linerate']['convective_w_m']:.1f} vs 172.1 W/m; radiative {a['linerate']['radiative_w_m']:.1f} vs 54 W/m.",
-             f"Our IEEE 738 on the same Example B inputs: {a['highwire_ieee738_ampacity_same_inputs_a']:.0f} A (different standard; informational).",
-             f"IEEE 738 Annex B convection at 100.7 C: ours {v1['b_ieee738_annex_b']['highwire']:.2f} W/m vs published 83.06 W/m."],
+             f"Our IEEE 738 on the same Example B inputs: {a['rewire_ieee738_ampacity_same_inputs_a']:.0f} A (different standard; informational).",
+             f"IEEE 738 Annex B convection at 100.7 C: ours {v1['b_ieee738_annex_b']['rewire']:.2f} W/m vs published 83.06 W/m."],
             "The reference implementation and the published worked examples.", v1["plot"], cards[0]["one_liner"])
 
     ts = v2["test_summary"]

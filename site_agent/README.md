@@ -4,7 +4,7 @@ For a line above the fire alarm, the site agent shows the operator **what is on 
 fire-prone tower and **who is downwind**. Gemini describes a USDA NAIP aerial photo; the data (LANDFIRE, Census, OSM)
 supplies every number. Where the two disagree, the panel says so.
 
-It is a self-contained folder. The rest of Highwire uses it in two places only:
+It is a self-contained folder. The rest of Rewire uses it in two places only:
 - `GET /la/site/{line_id}?event=E3&i=10` (and `/la/site/{line_id}/photo.jpg`): the **Site agent** panel under
   "Lines above the fire alarm" in the LA Replay tab (click a line).
 - `get_site_context(line_id)`: a tool for the co-pilot's `fire_agent`. It reads facts and any **cached** Gemini

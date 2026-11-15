@@ -16,12 +16,12 @@
   },
   "ampacity_error_pct": 0.07070188966610387,
   "pass": true,
-  "highwire_ieee738_ampacity_same_inputs_a": 1515.0203572064106,
+  "rewire_ieee738_ampacity_same_inputs_a": 1515.0203572064106,
   "note": "IEEE 738 and CIGRE 601 are different standards; our IEEE number on CIGRE inputs is informational."
  },
  "b_ieee738_annex_b": {
   "published_convective": 83.061,
-  "highwire": 83.00867359618768,
+  "rewire": 83.00867359618768,
   "pass": true
  },
  "c_sweep": {

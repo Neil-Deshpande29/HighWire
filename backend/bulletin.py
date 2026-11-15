@@ -38,7 +38,7 @@ def synthetic_bulletin(state, plan: dict) -> dict:
     ]
     ts = _now()
 
-    lines_txt = [f"GRID CO-PILOT RESPONDER BULLETIN  {ts}", f"Scenario: {state.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
+    lines_txt = [f"REWIRE RESPONDER BULLETIN  {ts}", f"Scenario: {state.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
     lines_txt.append("LINES SWITCHED OFF BY OPERATOR:")
     lines_txt += [f"  - {o['id']}  {o['area']}" for o in off] or ["  - none"]
     lines_txt.append("LINES STILL ENERGIZED WITH GROUND REPORTS (assume LIVE):")
@@ -64,7 +64,7 @@ def la_bulletin(st, plan: dict) -> dict:
     """Bulletin for the real LA grid: lines switched off, lines still energized above the fire alarm, sites on backup."""
     sim = st.sim
     ts = _now()
-    lines = [f"HIGHWIRE RESPONDER BULLETIN  {ts}", f"{'Forecast' if st.eid == 'FX' else 'Replay'}: {st.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
+    lines = [f"REWIRE RESPONDER BULLETIN  {ts}", f"{'Forecast' if st.eid == 'FX' else 'Replay'}: {st.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
     lines.append("LINES SWITCHED OFF BY OPERATOR:")
     off = [st.lines[l] for l in st.operator_opened if l in st.lines]
     lines += [f"  - {l['id']} {l['kv']:.0f} kV {l['zone']}{(' (' + l['name'] + ')') if l['name'] else ''}" for l in off[:40]] or ["  - none"]

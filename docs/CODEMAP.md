@@ -1,6 +1,6 @@
-# HighWire code map
+# Rewire code map
 
-HighWire is a wildfire and grid co-pilot for Greater Los Angeles (commit 66cdd65, 2026-11-14).
+Rewire is a wildfire and grid co-pilot for Greater Los Angeles (commit 66cdd65, 2026-11-14).
 Public data is turned into a modeled transmission grid: 671 buses, 864 lines, 13,671 tower points.
 Deterministic physics (DC power flow, IEEE 738, sag, blowout, clearance) gives every line a calibrated 0-1 fire index each hour.
 A planner (Gemini deepagents team, or a rule-based fallback) proposes switching plans; `verify_output` re-simulates every plan.

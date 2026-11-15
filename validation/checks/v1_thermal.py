@@ -77,17 +77,17 @@ def run():
     ax[0].scatter(arr[:, 5], arr[:, 6], s=8)
     lim = [arr[:, 5:].min(), arr[:, 5:].max()]
     ax[0].plot(lim, lim, "k--", lw=0.8)
-    ax[0].set(xlabel="linerate IEEE738 conductor temp (C)", ylabel="Highwire IEEE 738 (C)", title=f"{len(arr)}-case sweep")
+    ax[0].set(xlabel="linerate IEEE738 conductor temp (C)", ylabel="Rewire IEEE 738 (C)", title=f"{len(arr)}-case sweep")
     ax[1].hist(err, bins=30)
-    ax[1].set(xlabel="Highwire - linerate (C)", title=f"max |error| {np.abs(err).max():.3f} C (tolerance 2 C)")
+    ax[1].set(xlabel="Rewire - linerate (C)", title=f"max |error| {np.abs(err).max():.3f} C (tolerance 2 C)")
     fig.tight_layout()
     fig.savefig(RES / "v1_thermal.png", dpi=110)
     plt.close(fig)
     res = {"check": "V1", "pass": bool(a_pass and b_pass and c_pass),
            "a_cigre601_example_b": {"published": TB601_B, "linerate": ref, "ampacity_error_pct": a_err, "pass": a_pass,
-                                    "highwire_ieee738_ampacity_same_inputs_a": ours_b,
+                                    "rewire_ieee738_ampacity_same_inputs_a": ours_b,
                                     "note": "IEEE 738 and CIGRE 601 are different standards; our IEEE number on CIGRE inputs is informational."},
-           "b_ieee738_annex_b": {"published_convective": IEEE_B["convective_w_m_at_100_7C"], "highwire": qc_ours, "pass": b_pass},
+           "b_ieee738_annex_b": {"published_convective": IEEE_B["convective_w_m_at_100_7C"], "rewire": qc_ours, "pass": b_pass},
            "c_sweep": {"n_cases": len(arr), "max_abs_err_c": float(np.abs(err).max()), "mean_err_c": float(err.mean()),
                        "tolerance_c": 2.0, "pass": c_pass},
            "headline": f"Our IEEE 738 matches linerate within {np.abs(err).max():.2f} C over {len(arr)} cases",

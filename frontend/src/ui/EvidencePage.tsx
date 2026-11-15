@@ -63,7 +63,7 @@ export default function EvidencePage() {
   return (
     <div className="evidence">
       <div className="ev-head">
-        <h1>Does Highwire get it right?</h1>
+        <h1>Does Rewire get it right?</h1>
         <p>We tuned the models on one set of weather events and on 2019-2021 outages, and tested them on a different set and
           on 2022-2024, a split we fixed before the first run. One caveat: we chose between two fire-score designs after seeing
           test results, so the fire-risk results below are not fully held out. We show the losses along with the wins.</p>
@@ -79,7 +79,7 @@ export default function EvidencePage() {
           how="fed archived forecasts (what anyone could have known at the time) into the same models, with no retuning. One storm so far, and the half-of-peak yardstick was added after seeing the results." />}
         {v7 && <Claim title="Agrees with the National Weather Service" status={st("V7")}
           big={pct(100 * v7.frac_high_risk_inside_red_flag)} bigLabel="of high-risk line-hours were inside a Red Flag Warning"
-          sentence={`When Highwire marks a line as high fire risk, forecasters at the National Weather Service had almost always issued a Red Flag Warning for that area, a judgement made independently of us. We flag far less than they do: ${pct(100 * v7.frac_red_flag_zone_hours_with_high_risk)} of their warning zone-hours held a line we flagged.`}
+          sentence={`When Rewire marks a line as high fire risk, forecasters at the National Weather Service had almost always issued a Red Flag Warning for that area, a judgement made independently of us. We flag far less than they do: ${pct(100 * v7.frac_red_flag_zone_hours_with_high_risk)} of their warning zone-hours held a line we flagged.`}
           how="compared every flagged line-hour in all the replayed storms, heat waves and calm weeks, training ones included, with the official warning areas and times." />}
       </div>
 
@@ -89,7 +89,7 @@ export default function EvidencePage() {
           ({v8.year_2024.auc_gust_day_ahead.toFixed(2)} vs {v8.year_2024.auc_storm_day_ahead.toFixed(2)}, where 0.5 is a coin flip and 1 is perfect).</li>}
         {v4b && <li>On recorded weather for 2022-2024, the storm-damage score only ties that same gust-only rule
           ({v4b.features.storm_index?.auc_report.toFixed(2)} vs {v4b.features.baseline_max_gust?.auc_report.toFixed(2)}).</li>}
-        {gustWins.length > 0 && <li>{`Ranking lines by wind gust alone, with no model, placed the line higher than Highwire did for ${gustWins.length} of the ${test.length} test fires (${test.map((c) => `${short(c.fire)}: gust alone top ${pct(c.gust_only_top_pct)}, Highwire top ${pct(c.model_top_pct)}`).join("; ")})${gustMedian}.`}</li>}
+        {gustWins.length > 0 && <li>{`Ranking lines by wind gust alone, with no model, placed the line higher than Rewire did for ${gustWins.length} of the ${test.length} test fires (${test.map((c) => `${short(c.fire)}: gust alone top ${pct(c.gust_only_top_pct)}, Rewire top ${pct(c.model_top_pct)}`).join("; ")})${gustMedian}.`}</li>}
         {warn != null && preset != null && preset < 0 && <li>{`The ${Math.round(warn)}-hour warning counts to the hour outages reached half their peak, a yardstick we added after seeing the results. Against the one we set beforehand (the first sustained rise in outages), the same day-old forecast raised the alarm ${Math.round(-preset)} hours too late; outage records from just before that storm are mostly missing, which distorts that measure.`}</li>}
         {v5 && <li>Only {v5.n_test_cases} test fires exist in our area and period, too few to call this a statistic.</li>}
         {card("V6") && <li>Matching the utility's actual shutoffs: {card("V6")!.headline}.</li>}

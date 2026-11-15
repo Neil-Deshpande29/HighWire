@@ -39,7 +39,7 @@ def fetch(chunk=50):
         r = requests.get(URL, params={"latitude": ",".join(str(p[0]) for p in part), "longitude": ",".join(str(p[1]) for p in part),
                                       "hourly": ",".join(VARS), "past_days": PAST_DAYS, "forecast_days": FORECAST_DAYS,
                                       "timezone": "GMT", "wind_speed_unit": "ms"},
-                         headers={"User-Agent": "highwire-hackathon-research/0.1"}, timeout=120)
+                         headers={"User-Agent": "rewire-hackathon-research/0.1"}, timeout=120)
         r.raise_for_status()
         d = r.json()
         out += d if isinstance(d, list) else [d]

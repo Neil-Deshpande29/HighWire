@@ -21,20 +21,20 @@ def _use_tmp(monkeypatch, tmp_path):
 
 
 def test_default_source_is_public_and_another_provider_is_one_setting(monkeypatch):
-    monkeypatch.delenv("HIGHWIRE_BASEMAP_URL", raising=False)
+    monkeypatch.delenv("REWIRE_BASEMAP_URL", raising=False)
     monkeypatch.delenv("VEXCEL_API_KEY", raising=False)
     assert BM.source() == {"name": "USGS National Map", "url": BM.USGS}
     monkeypatch.setenv("VEXCEL_API_KEY", "k")
     assert BM.source() == {"name": "Vexcel", "url": None}  # a Vexcel key alone is enough
-    monkeypatch.setenv("HIGHWIRE_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}?key=SECRET")
-    monkeypatch.setenv("HIGHWIRE_BASEMAP_NAME", "Vexcel")
+    monkeypatch.setenv("REWIRE_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}?key=SECRET")
+    monkeypatch.setenv("REWIRE_BASEMAP_NAME", "Vexcel")
     assert BM.source()["name"] == "Vexcel" and "{z}" in BM.source()["url"]
 
 
 def test_build_stitches_the_region_and_saves_no_address_or_key(monkeypatch, tmp_path):
     _use_tmp(monkeypatch, tmp_path)
-    monkeypatch.setenv("HIGHWIRE_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}?key=SECRET")
-    monkeypatch.setenv("HIGHWIRE_BASEMAP_NAME", "Vexcel")
+    monkeypatch.setenv("REWIRE_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}?key=SECRET")
+    monkeypatch.setenv("REWIRE_BASEMAP_NAME", "Vexcel")
     asked = []
 
     def fake(url):  # each tile is one flat colour that encodes its column and row
@@ -66,7 +66,7 @@ def test_vexcel_picture_falls_back_where_the_key_has_no_coverage(monkeypatch, tm
     """Vexcel answers the southern areas, refuses the northern ones, and returns black for a strip: the public
     picture shows through in both, and neither the key nor an address is saved."""
     _use_tmp(monkeypatch, tmp_path)
-    monkeypatch.delenv("HIGHWIRE_BASEMAP_URL", raising=False)
+    monkeypatch.delenv("REWIRE_BASEMAP_URL", raising=False)
     monkeypatch.setenv("VEXCEL_API_KEY", "SECRET-KEY")
     asked = []
 
