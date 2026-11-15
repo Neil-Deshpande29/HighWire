@@ -71,10 +71,10 @@ export function lineHealth(s: LAStatic, hour: Hour, lines: SimResult["lines"] | 
 /** What a switch does to the lines that stay on: power reroutes, so some carry more. `shifted` lists them, most first. */
 export type Impact = { shifted: { bi: number; id: string; before: number; after: number }[]; overloaded: number; text: string };
 const SHIFT_FROM = 3; // percentage points of rating; smaller changes are noise
-export function lineImpact(s: LAStatic, base: SimResult | null, sim: SimResult | null): Impact | null {
+export function lineImpact(s: LAStatic, base: SimResult | null, sim: SimResult | null, skip: Set<string> = new Set()): Impact | null {
   if (!base || !sim) return null;
   const shifted = s.branches.map((b, bi) => ({ bi, id: b.id, before: base.lines.loading[bi], after: sim.lines.loading[bi] }))
-    .filter((x) => base.lines.energized[x.bi] && sim.lines.energized[x.bi] && x.after - x.before >= SHIFT_FROM)
+    .filter((x) => !skip.has(x.id) && base.lines.energized[x.bi] && sim.lines.energized[x.bi] && x.after - x.before >= SHIFT_FROM)
     .sort((a, b) => b.after - b.before - (a.after - a.before));
   const overloaded = shifted.filter((x) => x.after > 100 && x.before <= 100).length;
   const top = shifted[0];

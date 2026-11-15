@@ -258,7 +258,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // When the team is done, the screen opens on its pick and the map moves to the lines that plan touches.
   const jobOut = job?.status === "done" ? job.output : null;
   useEffect(() => {
-    if (!jobOut) return;
+    if (!jobOut || (!study && approvedPlan)) return; // after an approval the plan is not offered again
     const ps = distinctPlans(jobOut.plans);
     const pick = ps.find((p) => p.result.is_safe) ?? ps[0];
     setSelPlan(pick ? pick.id : null); setPeek(false);
@@ -269,7 +269,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const handSim = study ? (studyActions.length ? studySim : null) : staged.length ? stagedSim : null; // your own switches
   const changeSim = previewSim && sameHour(previewSim.t_utc, t) ? previewSim : handSim && sameHour(handSim.t_utc, t) ? handSim : null;
   const baseSim = changeSim && changeSim === previewSim ? nothingSim : study ? studyBase : opSim;
-  const impact = useMemo(() => lineImpact(s, baseSim, changeSim), [s, baseSim, changeSim]);
+  // a line you put a limit on reads a higher share of its (now lower) rating without carrying any more power: leave it out
+  const limited = useMemo(() => new Set([...(study ? studyActions : staged), ...(selPlanObj?.actions ?? [])].filter((a) => a.type === "limit_line").map((a) => a.target)), [study, studyActions, staged, selPlanObj]);
+  const impact = useMemo(() => lineImpact(s, baseSim, changeSim, limited), [s, baseSim, changeSim, limited]);
   // move the map out to the lines that pick up the load, so the effect of a switch can be seen as well as read
   const showImpact = impact?.shifted.length ? () => setFocus({ ...riskFrame(s, impact.shifted.slice(0, 6).map((x) => x.id), 40), key: Date.now() }) : undefined;
   const impactOnMap = useMemo(() => (impact?.shifted ?? []).slice(0, 6).map((x) => ({ bi: x.bi, text: `+${Math.round(x.after - x.before)}%` })), [impact]);

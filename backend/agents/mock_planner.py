@@ -346,7 +346,8 @@ class _Planner:
                     # load onto its neighbours. Putting a path back, then trimming demand where it relieves the line
                     # most, are the gentler moves, so they are tried first.
                     used = {(c["action"]["type"], c["action"]["target"]) for c in plan}
-                    back = [c for c in cands if c["action"]["type"] == "close_line" and (c["action"]["type"], c["action"]["target"]) not in used]
+                    back = [c for c in cands if c["action"]["type"] in ("close_line", "dispatch_gen")  # moves that cut nobody off
+                            and (c["action"]["type"], c["action"]["target"]) not in used]
                     fix = (back[0] if back else None) or self._relief_for(v, r, plan)
                 fix = fix or self._fix_for(v, cands, plan) or self._relief_for(v, r, plan)
                 if fix:
