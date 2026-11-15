@@ -1,4 +1,4 @@
-# Highwire region definition: Greater Los Angeles.
+# Rewire region definition: Greater Los Angeles.
 name: la
 title: Greater Los Angeles
 bbox: {lat_min: 33.70, lat_max: 34.45, lon_min: -118.95, lon_max: -117.70}

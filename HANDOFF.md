@@ -1,4 +1,4 @@
-# Highwire handoff
+# Rewire handoff
 
 Where the project stands, how to run it, what is proven, and what to do next. Last updated 2026-11-14.
 
@@ -47,7 +47,7 @@ forecast was last fetched until you refresh it.
 | Outage timing | V4b: storm index AUC 0.81 vs gust-only 0.82 (tie). V8 2024: 0.80 vs forecast gust 0.86 (**loses**) |
 | Weather inputs | V2: gust RMSE 3.4 -> 2.5 m/s with live-station nudging |
 
-Pitch line that holds up: *"Highwire runs real physics on tomorrow's forecast. On the forecast issued the day before
+Pitch line that holds up: *"Rewire runs real physics on tomorrow's forecast. On the forecast issued the day before
 the 2025 Eaton fire, it flagged the danger about two days before outages peaked and ranked the lines near both
 ignitions in the top 6% of 829. One storm so far; every result, including ties, is published."*
 

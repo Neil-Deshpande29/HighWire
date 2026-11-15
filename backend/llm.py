@@ -1,6 +1,6 @@
 """One place that decides which LLM the app talks to (Google Gemini via LangChain).
 
-Reads highwire/.env on import. The key is GEMINI_API_KEY (or GOOGLE_API_KEY); get one free at
+Reads the repo's .env on import. The key is GEMINI_API_KEY (or GOOGLE_API_KEY); get one free at
 https://aistudio.google.com/apikey. Without a key every LLM feature falls back to deterministic code, so the app
 and all validation numbers work identically offline. The LLM never computes a number shown in the UI: physics does.
 """

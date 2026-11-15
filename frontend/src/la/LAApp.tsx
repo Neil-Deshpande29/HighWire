@@ -338,7 +338,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const optionSentence = (o: Option) => (o.kind === "nothing" ? "Leave every line on." : planSentence(o.plan!, s, lineZone));
   const plansElsewhere = !!jobT && !!t && !sameHour(jobT, t) && done;
 
-  // ---------------------------------------------------------------- "Did Highwire get it right?" (V5 + replay file; never hard-coded)
+  // ---------------------------------------------------------------- "Did Rewire get it right?" (V5 + replay file; never hard-coded)
   const checks = fireChecks(past, series, approvedPlan);
 
   // ---------------------------------------------------------------- line / bus controls
@@ -506,7 +506,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
 
       {/* right: stacked drop-down boxes. Closed, each shows its one fact; the plan starts open because it is the main thing */}
       <aside className="dock right">
-        {!online && <div className="banner">▲ <b>Can't reach the Highwire backend.</b> Numbers may be out of date. Retrying…</div>}
+        {!online && <div className="banner">▲ <b>Can't reach the Rewire backend.</b> Numbers may be out of date. Retrying…</div>}
         {staleHours >= STALE_AFTER_H && <div className="banner">▲ <b>This forecast is {Math.round(staleHours)} hours old.</b> Press Refresh at the top.</div>}
         {sn?.level === "warn" && <div className="banner">▲ {sensorsSentence(sn)} <button className="link" onClick={() => openBox("sensors")}>See the stations</button></div>}
         {err && <div className="error" onClick={() => setErr(null)}>{err}</div>}

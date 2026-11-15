@@ -90,7 +90,7 @@ def _fetch_latest(sid: str) -> dict | None:
 
     try:
         r = requests.get(LIVE_URL.format(id=sid), timeout=8,
-                         headers={"User-Agent": "highwire-hackathon-research/0.1", "Accept": "application/geo+json"})
+                         headers={"User-Agent": "rewire-hackathon-research/0.1", "Accept": "application/geo+json"})
         r.raise_for_status()
         p = r.json()["properties"]
     except Exception:  # noqa: BLE001  any network or format problem means "no report"

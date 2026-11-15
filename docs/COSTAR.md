@@ -1,7 +1,7 @@
-# CoStar, Vexcel and HighWire
+# CoStar, Vexcel and Rewire
 
 The CoStar track asks for at least two of its three data layers (CoStar data extract, Matterport, Vexcel).
-HighWire uses **Vexcel** (live) and the **CoStar data kit** (imported). This page says what each does and how to load it.
+Rewire uses **Vexcel** (live) and the **CoStar data kit** (imported). This page says what each does and how to load it.
 
 ## Vexcel: live
 

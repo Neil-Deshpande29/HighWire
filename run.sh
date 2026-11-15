@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Highwire: starts the backend (port 8000) and frontend (port 5173). Installs nothing; see README for setup.
+# Rewire: starts the backend (port 8000) and frontend (port 5173). Installs nothing; see README for setup.
 set -e
 cd "$(dirname "$0")"
 PY="python"

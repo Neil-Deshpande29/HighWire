@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import jobs, routes_la, routes_synthetic
 from .la import data as LAD
 
-app = FastAPI(title="Highwire")
+app = FastAPI(title="Rewire")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",  # local dev on any port

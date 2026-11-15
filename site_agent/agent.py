@@ -1,7 +1,7 @@
 """Gemini site agent: looks at aerial photos along a line (up to 4, its most fire-prone stretches) and says, in words,
 what is on the ground at each, plus one line-level summary.
 
-Rules (same as the rest of Highwire):
+Rules (same as the rest of Rewire):
   * Gemini describes; it never produces a number the app shows or the physics uses.
   * Its words are cross-checked against the data (Census, LANDFIRE, OSM), photo by photo. Disagreements are shown to
     the operator, not resolved silently.

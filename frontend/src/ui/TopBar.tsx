@@ -19,7 +19,7 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
       <div className="brand">
         <span className="logo" aria-hidden="true">⚡</span>
         <div className="brand-text">
-          <b>Highwire</b>
+          <b>Rewire</b>
           <select className="region" aria-label="Region" value="la" onChange={() => undefined}>
             {REGIONS.map(([id, name]) => <option key={id} value={id} disabled={id !== "la"}>{name}{id !== "la" ? " (not loaded)" : " grid"}</option>)}
           </select>

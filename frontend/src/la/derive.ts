@@ -136,7 +136,7 @@ export function userPlanFrom(staged: Action[], sim: SimResult): Plan {
   };
 }
 
-/** "Did Highwire get it right?": one sentence per fact, from V5 and the replay file; never hard-coded. */
+/** "Did Rewire get it right?": one sentence per fact, from V5 and the replay file; never hard-coded. */
 export function fireChecks(past: boolean, series: Series | null, approvedPlan: ApprovedPlan | null): Check[] {
   const checks: Check[] = [];
   if (!past || !series) return checks;
@@ -165,7 +165,7 @@ export function fireChecks(past: boolean, series: Series | null, approvedPlan: A
       else checks.push({ text: `Your approved plan did not turn that line off.` });
     }
     checks.push({ text: `At the hour the fire started, that line ranked in the top ${Math.max(1, Math.round(c.top_pct))}% of ${c.n_lines} lines by fire risk.` });
-    if (c.caveat?.includes("distribution")) checks.push({ text: `The circuit that sparked is a smaller neighborhood line that public maps don't show, so Highwire works one level up: the lines and substations that feed it.` });
+    if (c.caveat?.includes("distribution")) checks.push({ text: `The circuit that sparked is a smaller neighborhood line that public maps don't show, so Rewire works one level up: the lines and substations that feed it.` });
     if (c.split === "train") checks.push({ text: `We tuned the model on this storm, so it doesn't count as a test.` });
   }
   const peak = Math.max(0, ...series.la_out.filter((v): v is number => v != null));

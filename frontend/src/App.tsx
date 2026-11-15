@@ -22,7 +22,7 @@ export default function App() {
       const linked = new URLSearchParams(window.location.search).get("event"); // a shared link names its event
       setEid(linked && ev.some((e) => e.id === linked && e.has_replay) ? linked
         : ev.some((e) => e.id === "FX") ? "FX" : ev.find((e) => e.kind === "wind" && e.has_replay)?.id ?? ev[0]?.id ?? null);
-    }).catch(() => setErr("Can't reach the Highwire backend on :8000. Start it with ./run.sh"));
+    }).catch(() => setErr("Can't reach the Rewire backend on :8000. Start it with ./run.sh"));
   }, []);
 
   // The live forecast is fetched from Open-Meteo; without network the last saved forecast stays as "Now".

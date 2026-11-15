@@ -13,7 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw"
 PROCESSED = ROOT / "data" / "processed"
-UA = {"User-Agent": "highwire-hackathon-research/0.1 (grid risk validation)"}
+UA = {"User-Agent": "rewire-hackathon-research/0.1 (grid risk validation)"}
 
 try:
     from dotenv import load_dotenv
@@ -24,7 +24,7 @@ except ImportError:
 
 
 def region(name: str | None = None) -> dict:
-    name = name or os.environ.get("HIGHWIRE_REGION", "la")
+    name = name or os.environ.get("REWIRE_REGION") or os.environ.get("HIGHWIRE_REGION") or "la"  # old name still read
     return yaml.safe_load((ROOT / "config" / f"region_{name}.yaml").read_text())
 
 

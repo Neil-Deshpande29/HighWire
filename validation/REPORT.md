@@ -1,4 +1,4 @@
-# Highwire: historical validation report (Greater Los Angeles)
+# Rewire: historical validation report (Greater Los Angeles)
 
 _Generated 2026-11-14 17:50 UTC by `validation/run_all.py`. Every number below is read from `validation/results/*.json`._
 

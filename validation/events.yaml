@@ -1,4 +1,4 @@
-# Highwire validation events. Times are local (America/Los_Angeles) with explicit UTC offsets.
+# Rewire validation events. Times are local (America/Los_Angeles) with explicit UTC offsets.
 # Every fact (start, origin, cause, de-energization) carries a source_url. Fire facts live in
 # data/processed/events/*.yaml; this file holds the windows and the split (see config.yaml).
 events:

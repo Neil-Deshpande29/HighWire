@@ -35,7 +35,7 @@ def sample(layer, pts, tag):
                     r = requests.post(BASE.format(layer), data={
                         "geometry": json.dumps({"points": [[round(float(x), 6), round(float(y), 6)] for x, y in part], "spatialReference": {"wkid": 4326}}),
                         "geometryType": "esriGeometryMultipoint", "returnFirstValueOnly": "true", "f": "json"},
-                        headers={"User-Agent": "highwire-hackathon-research/0.1"}, timeout=120)
+                        headers={"User-Agent": "rewire-hackathon-research/0.1"}, timeout=120)
                     d = r.json()
                     if "samples" in d:
                         return d
