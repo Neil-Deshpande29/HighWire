@@ -167,7 +167,17 @@ def la_imagery():
     from .la import basemap
 
     m = basemap.meta()
-    return {"available": m is not None, **(m or {"source": basemap.source()["name"]})}
+    return {"available": m is not None, **(m or {"source": basemap.source()["name"]}), "surround": basemap.surround()}
+
+
+@router.get("/la/imagery/surround.jpg")
+def la_imagery_surround():
+    """The land and sea around the region, for the space outside the grid's own picture."""
+    from .la import basemap
+
+    if basemap.surround() is None:
+        raise HTTPException(404, "no surroundings yet (run `make imagery`)")
+    return FileResponse(basemap.SURROUND, media_type="image/jpeg")
 
 
 @router.get("/la/imagery/basemap.jpg")
@@ -207,6 +217,7 @@ def _base_state(event: str, t: str | None):
 def _sim_payload(st, actions: list[dict]) -> dict:
     """Plan-result shape + per-line arrays (branch order) + situation numbers, for the map and the changes tray."""
     from .la import consequence as C
+    from .la import costs
     from .la import exposure as X
 
     sim = st.simulate(actions)
@@ -238,6 +249,7 @@ def _sim_payload(st, actions: list[dict]) -> dict:
         # fire_exposure is what not acting leaves downwind of the lines still live at high risk
         "fire_exposure": X.exposed([(lat, lon, wf, g.branches[k]["id"]) for k, lat, lon, wf in hot]),
         "authority": AUTH.assess(sim["is_safe"], sim["totals"]["customers_out"], built["hospitals"]),
+        "cost": costs.outage_cost(sim["totals"]["customers_out"]),  # what the cut costs the customers it reaches, roughly
     }
 
 

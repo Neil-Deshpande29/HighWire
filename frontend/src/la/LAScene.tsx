@@ -50,8 +50,14 @@ function useImagery(url: string | null): THREE.Texture | null {
   return tex;
 }
 
-function Terrain({ s, proj, imagery }: { s: LAStatic; proj: Proj; imagery: string | null }) {
+export type Surround = { url: string; bbox: { lat_min: number; lat_max: number; lon_min: number; lon_max: number } };
+
+function Terrain({ s, proj, imagery, surround }: { s: LAStatic; proj: Proj; imagery: string | null; surround: Surround | null }) {
   const picture = useImagery(imagery);
+  const around = useImagery(surround?.url ?? null);
+  const sb = surround?.bbox;
+  const sw = sb ? proj.x(sb.lon_max) - proj.x(sb.lon_min) : 0, sd = sb ? proj.z(sb.lat_min) - proj.z(sb.lat_max) : 0;
+  const sx = sb ? (proj.x(sb.lon_max) + proj.x(sb.lon_min)) / 2 : 0, sz = sb ? (proj.z(sb.lat_min) + proj.z(sb.lat_max)) / 2 : 0;
   const w = proj.x(s.bbox.lon_max) - proj.x(s.bbox.lon_min), d = proj.z(s.bbox.lat_min) - proj.z(s.bbox.lat_max);
   const cx = (proj.x(s.bbox.lon_max) + proj.x(s.bbox.lon_min)) / 2, cz = (proj.z(s.bbox.lat_min) + proj.z(s.bbox.lat_max)) / 2;
   const geom = useMemo(() => {
@@ -93,13 +99,21 @@ function Terrain({ s, proj, imagery }: { s: LAStatic; proj: Proj; imagery: strin
           ? <meshLambertMaterial key="picture" map={picture} side={THREE.DoubleSide} />
           : <meshLambertMaterial key="palette" vertexColors side={THREE.DoubleSide} />}
       </mesh>
+      {/* the sea inside the region, a shade that sits with the imagery around it */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.004, cz]}>
         <planeGeometry args={[w, d]} />
-        <meshBasicMaterial color="#a7d3f5" />
+        <meshBasicMaterial color={picture ? "#1b2733" : "#a7d3f5"} />
       </mesh>
+      {/* the land and sea around the region: the same imagery, flat and darker, with no lines or dots on it */}
+      {around && sb && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[sx, -0.05, sz]}>
+          <planeGeometry args={[sw, sd]} />
+          <meshBasicMaterial map={around} />
+        </mesh>
+      )}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, -0.4, cz]}>
-        <planeGeometry args={[w * 6, d * 6]} />
-        <meshBasicMaterial color="#e4e8ec" />
+        <planeGeometry args={[w * 12, d * 12]} />
+        <meshBasicMaterial color="#0a0d11" />
       </mesh>
     </>
   );
@@ -276,7 +290,7 @@ function CameraRig({ focus, proj }: { focus: Focus | null; proj: Proj }) {
   useEffect(() => {
     if (!focus || !controls) return;
     const d = Math.max(28, focus.spanKm * 1.15);
-    const tx = proj.x(focus.lon) + d * 0.22, tz = proj.z(focus.lat); // right column covers ~1/4 of the screen
+    const tx = proj.x(focus.lon) + d * 0.04, tz = proj.z(focus.lat); // panels sit on both sides, the right one a little wider
     anim.current = { fT: controls.target.clone(), tT: new THREE.Vector3(tx, 0, tz), fP: camera.position.clone(), tP: new THREE.Vector3(tx, d, tz + d * 0.55), t: 0 };
   }, [focus?.key, controls]); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame((_, dt) => {
@@ -292,11 +306,51 @@ function CameraRig({ focus, proj }: { focus: Focus | null; proj: Proj }) {
   return null;
 }
 
+/** Buttons outside the canvas ask for a move; this turns, tilts or zooms the camera around the point it looks at. */
+export type Nav = { cmd: "in" | "out" | "left" | "right" | "up" | "down"; key: number };
+const MAX_TILT = Math.PI / 2.3;
+function NavRig({ nav }: { nav: Nav | null }) {
+  const camera = useThree((st) => st.camera);
+  const controls = useThree((st) => st.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const anim = useRef<{ from: THREE.Spherical; to: THREE.Spherical; t: number } | null>(null);
+  useEffect(() => {
+    if (!nav || !controls) return;
+    const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    const to = from.clone();
+    if (nav.cmd === "in") to.radius = Math.max(8, from.radius * 0.65);
+    if (nav.cmd === "out") to.radius = Math.min(420, from.radius * 1.5);
+    if (nav.cmd === "left") to.theta = from.theta - Math.PI / 8;
+    if (nav.cmd === "right") to.theta = from.theta + Math.PI / 8;
+    if (nav.cmd === "up") to.phi = Math.max(0.12, from.phi - 0.22);
+    if (nav.cmd === "down") to.phi = Math.min(MAX_TILT, from.phi + 0.22);
+    anim.current = { from, to, t: 0 };
+  }, [nav?.key, controls]); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame((_, dt) => {
+    const a = anim.current;
+    if (!a || !controls) return;
+    a.t = Math.min(1, a.t + dt / 0.35);
+    const e = 1 - Math.pow(1 - a.t, 3);
+    const sph = new THREE.Spherical(a.from.radius + (a.to.radius - a.from.radius) * e, a.from.phi + (a.to.phi - a.from.phi) * e, a.from.theta + (a.to.theta - a.from.theta) * e);
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph));
+    controls.update();
+    if (a.t >= 1) anim.current = null;
+  });
+  return null;
+}
+
+/** Lines that pick up power when something is switched off: a blue halo, widening with the zoom like the lines under it. */
+function ImpactLines({ points }: { points: [number, number, number][] }) {
+  const ref = useZoomWidth(8);
+  return <Line ref={ref as never} points={points} segments color="#59c2ff" lineWidth={8} transparent opacity={0.55} />;
+}
+
 // ---------------------------------------------------------------- main scene
 export type Layers = { wind: boolean; redflag: boolean; hospitals: boolean; labels: boolean; imagery: boolean };
 
-export default function LAScene({ s, hour, colors, layers, imagery, labelIds, selected, dimBuses, showFires, focus, overlay, onHoverLine, onClickLine, onClickBus, onMiss }: {
-  s: LAStatic; hour: Hour | null; colors: string[]; layers: Layers; imagery: string | null; labelIds: string[]; selected: string | null;
+export default function LAScene({ s, hour, colors, layers, imagery, surround, nav, impact, labelIds, selected, dimBuses, showFires, focus, overlay, onHoverLine, onClickLine, onClickBus, onMiss }: {
+  s: LAStatic; hour: Hour | null; colors: string[]; layers: Layers; imagery: string | null; surround: Surround | null; nav: Nav | null;
+  /** lines whose load changed because of a switch: branch index and the label to draw on it ("+18%") */
+  impact: { bi: number; text: string }[]; labelIds: string[]; selected: string | null;
   dimBuses: string[]; showFires: boolean; focus: Focus | null; overlay: RefObject<HTMLDivElement | null>;
   onHoverLine: (bi: number | null, x?: number, y?: number) => void; onClickLine: Pick; onClickBus: (id: string, x: number, y: number) => void; onMiss: () => void;
 }) {
@@ -307,6 +361,8 @@ export default function LAScene({ s, hour, colors, layers, imagery, labelIds, se
   const ext = { x: proj.x(s.bbox.lon_max) - proj.x(s.bbox.lon_min), z: proj.z(s.bbox.lat_min) - proj.z(s.bbox.lat_max) };
   const selIdx = selected ? s.branches.findIndex((b) => b.id === selected) : -1;
   const selSeg = useMemo(() => (selIdx < 0 ? [] : ringSegments(s.branches[selIdx].geometry.map(([la, lo]) => [lo, la] as [number, number]), s, proj, height, 0.35)), [selIdx, s, proj, height]);
+  const impactSeg = useMemo(() => impact.flatMap(({ bi }) => ringSegments(s.branches[bi].geometry.map(([la, lo]) => [lo, la] as [number, number]), s, proj, height, 0.3)),
+    [impact, s, proj, height]);
   const subs = useMemo(() => s.buses.filter((b) => b.kind === "substation").map((b) => ({ id: b.id, lat: b.lat, lon: b.lon })), [s]);
   const hosp = useMemo(() => s.critical_sites.filter((c) => c.type === "hospital").map((c, k) => ({ id: String(k), lat: c.lat, lon: c.lon })), [s]);
   const busById = useMemo(() => new Map(s.buses.map((b) => [b.id, b])), [s]);
@@ -315,12 +371,13 @@ export default function LAScene({ s, hour, colors, layers, imagery, labelIds, se
   return (
     <Canvas camera={{ position: [0, ext.x * 0.55, ext.z * 0.75], fov: 40, far: 3000 }} onPointerMissed={onMiss}>
       <PortalCtx.Provider value={overlay}>
-        <color attach="background" args={["#e9eef3"]} />
+        <color attach="background" args={["#0a0d11"]} />
         <ambientLight intensity={1.6} />
         <directionalLight position={[-80, 120, 30]} intensity={1.1} />
-        <Terrain s={s} proj={proj} imagery={layers.imagery ? imagery : null} />
+        <Terrain s={s} proj={proj} imagery={layers.imagery ? imagery : null} surround={layers.imagery ? surround : null} />
         <PickTolerance />
         {tiers.map((tier, k) => <LineTier key={k} {...tier} colors={colors} onHover={onHoverLine} onClick={onClickLine} />)}
+        {impactSeg.length > 0 && <ImpactLines points={impactSeg} />}
         {selSeg.length > 0 && <SelectedLine points={selSeg} />}
         {hour && layers.wind && <WindArrows hour={hour} proj={proj} height={height} />}
         {hour && layers.redflag && hour.redflag_active.map((u) => (s.redflag_zones[u] ?? []).map((ring, k) => {
@@ -352,6 +409,11 @@ export default function LAScene({ s, hour, colors, layers, imagery, labelIds, se
             </group>
           );
         })}
+        {impact.map(({ bi, text }) => (
+          <Label key={`i${bi}`} position={mid(bi)} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
+            <span className="map-pill shift">{s.branches[bi].id} {text}</span>
+          </Label>
+        ))}
         {layers.labels && labelIds.map((id) => {
           const bi = s.branches.findIndex((b) => b.id === id);
           return bi >= 0 ? (
@@ -362,6 +424,7 @@ export default function LAScene({ s, hour, colors, layers, imagery, labelIds, se
         })}
         <MapControls makeDefault maxPolarAngle={Math.PI / 2.3} minDistance={8} maxDistance={420} screenSpacePanning={false} />
         <CameraRig focus={focus} proj={proj} />
+        <NavRig nav={nav} />
       </PortalCtx.Provider>
     </Canvas>
   );

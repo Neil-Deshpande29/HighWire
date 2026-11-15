@@ -31,8 +31,7 @@ export default function OptionsTable({ options, selected, heat, stale, onSelect 
     ? ["Lines over rating", "Busiest line", "Customers cut off", "Critical sites on backup", "Safe?"]
     : ["Risky lines left on", "People downwind", "Customers cut off", "Critical sites on backup", "Safe?"];
   return (
-    <div className={`card options ${stale ? "stale" : ""}`}>
-      <div className="eyebrow">Your options · click one to see it on the map</div>
+    <div className={`options ${stale ? "stale" : ""}`}>
       <div className="opt-grid opt-head" aria-hidden="true">
         <span />{cols.map((c) => <span key={c}>{c}</span>)}
       </div>
@@ -128,12 +127,12 @@ export function OptionDetail({ option, base, s, sentence, heat, peek, onPeek, on
 }) {
   const sim = option.sim, plan = option.plan;
   return (
-    <div className={`card detail ${option.kind}`}>
+    <div className={`detail ${option.kind}`}>
+      <p className="plan-sentence">{sentence}</p>
       <div className="detail-head">
         <span className="plan-tag">{option.label}</span>
         {option.tag && <em className="opt-tag">{option.tag}</em>}
       </div>
-      <p className="plan-sentence">{sentence}</p>
       {!sim ? <div className="muted small">Checking the physics…</div> : option.kind === "nothing" ? (
         <div className="why-not">{sim.is_safe ? "Safe as it is." : `Not safe: ${sim.n_violations} problem${sim.n_violations === 1 ? "" : "s"}, such as ${plainViolation(sim.violations[0] ?? "")}.`}</div>
       ) : (

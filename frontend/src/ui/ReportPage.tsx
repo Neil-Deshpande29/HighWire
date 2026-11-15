@@ -5,8 +5,8 @@ import type { Option } from "../desk/OptionsTable";
 import { sensorsSentence, type InputRow } from "../desk/sheets";
 import type { Hour, RecordEntry, RiskRegister, Sensors, TopLine } from "../la/api";
 import { buildingsText, fmtInt, fmtPeople, mph, plainAgentText, plainViolation, timeLabel } from "./format";
-import type { AgentChip } from "./PlanList";
-import type { BigNumber } from "./SituationCard";
+import type { AgentChip } from "./TeamPanel";
+import type { BigNumber } from "../la/derive";
 
 const LEVEL: Record<number, string> = { 3: "Act now", 2: "Act soon", 1: "Watch" };
 const AUTH: Record<string, string> = { operator: "Operator", supervisor: "Supervisor sign-off", blocked: "Nobody: fails physics" };

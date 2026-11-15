@@ -16,6 +16,8 @@ def _use_tmp(monkeypatch, tmp_path):
     monkeypatch.setattr(BM, "DIR", tmp_path)
     monkeypatch.setattr(BM, "IMAGE", tmp_path / "basemap.jpg")
     monkeypatch.setattr(BM, "META", tmp_path / "basemap.json")
+    monkeypatch.setattr(BM, "SURROUND", tmp_path / "surround.jpg")
+    monkeypatch.setattr(BM, "SURROUND_META", tmp_path / "surround.json")
 
 
 def test_default_source_is_public_and_another_provider_is_one_setting(monkeypatch):
@@ -90,3 +92,13 @@ def test_vexcel_picture_falls_back_where_the_key_has_no_coverage(monkeypatch, tm
     img = np.asarray(Image.open(BM.path())).astype(int)
     red_minus_blue = img[..., 0] - img[..., 2]
     assert red_minus_blue[-20].mean() > 20 and red_minus_blue[20].mean() < -20  # Vexcel in the south, the public picture in the north
+
+
+def test_surroundings_reach_past_the_region_and_are_darker(monkeypatch, tmp_path):
+    _use_tmp(monkeypatch, tmp_path)
+    assert BM.surround() is None
+    meta = BM.build_surround(zoom=8, fetch=lambda url: Image.new("RGB", (256, 256), (200, 200, 200)))
+    ter = D.terrain()
+    assert meta["bbox"]["lat_min"] < float(np.min(ter["lats"])) and meta["bbox"]["lon_max"] > float(np.max(ter["lons"]))
+    assert BM.surround() == meta and meta["source"] == "USGS National Map"
+    assert np.asarray(Image.open(tmp_path / "surround.jpg")).mean() < 150  # pushed toward black so the region stands out

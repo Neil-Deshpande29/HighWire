@@ -8,7 +8,8 @@ import type { Option } from "./OptionsTable";
 export type InputRow = { name: string; source: string; kind: Kind };
 
 /** A sheet replaces the plans in the right column. Back names where it returns to; the map and the Approve bar stay. */
-export function Sheet({ title, sub, back, onClose, children }: { title: string; sub?: ReactNode; back: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ title, sub, back, onClose, children }: { title: string; sub?: ReactNode; back?: string; onClose?: () => void; children: ReactNode }) {
+  if (!onClose) return <div className="sheet bare">{sub && <div className="muted small">{sub}</div>}{children}</div>; // inside a drop-down box: the box has the title
   return (
     <section className="card sheet">
       <div className="sheet-head">
@@ -36,7 +37,7 @@ export function sensorsSentence(sn: Sensors): string {
   return `All ${sn.reporting} weather stations match the model's wind or are calmer. The risk shown is not understated.`;
 }
 
-export function InputsSheet({ inputs, sensors, back, onClose }: { inputs: InputRow[]; sensors: Sensors | null | "error"; back: string; onClose: () => void }) {
+export function InputsSheet({ inputs, sensors, back, onClose }: { inputs: InputRow[]; sensors: Sensors | null | "error"; back?: string; onClose?: () => void }) {
   const sn = sensors && sensors !== "error" ? sensors : null;
   return (
     <Sheet title="Sensors" sub="Real weather stations, checked against the weather the model used." back={back} onClose={onClose}>
@@ -91,7 +92,7 @@ function RiskLine({ r, onLine }: { r: RiskRow; onLine: (id: string) => void }) {
   );
 }
 
-export function RiskSheet({ reg, back, onLine, onClose }: { reg: RiskRegister | null | "error"; back: string; onLine: (id: string) => void; onClose: () => void }) {
+export function RiskSheet({ reg, back, onLine, onClose }: { reg: RiskRegister | null | "error"; back?: string; onLine: (id: string) => void; onClose?: () => void }) {
   const [sort, setSort] = useState<SortKey>("likelihood");
   const [all, setAll] = useState(false);
   const r = reg && reg !== "error" ? reg : null;
@@ -137,7 +138,7 @@ function Sites({ title, n, empty, children }: { title: string; n: number; empty:
   );
 }
 
-export function AffectedSheet({ option, back, onLine, onClose }: { option: Option; back: string; onLine: (id: string) => void; onClose: () => void }) {
+export function AffectedSheet({ option, back, onLine, onClose }: { option: Option; back?: string; onLine: (id: string) => void; onClose?: () => void }) {
   const sim: SimResult | null = option.sim;
   const out = sim?.buildings_out, exp = sim?.fire_exposure;
   return (
@@ -167,7 +168,7 @@ export function AffectedSheet({ option, back, onLine, onClose }: { option: Optio
 // ---------------------------------------------------------------- the log of decisions
 const KIND_WORD: Record<string, string> = { run: "Asked", plans: "Plans", escalated: "Sent up", approved: "Approved", rejected: "Rejected", bulletin: "Bulletin", report: "Report", reset: "Reset" };
 
-export function RecordSheet({ entries, back, onReset, onClose }: { entries: RecordEntry[] | null; back: string; onReset: () => void; onClose: () => void }) {
+export function RecordSheet({ entries, back, onReset, onClose }: { entries: RecordEntry[] | null; back?: string; onReset: () => void; onClose?: () => void }) {
   const [copied, setCopied] = useState(false);
   const text = (entries ?? []).map((e) => `${e.n}. ${new Date(e.at_utc).toLocaleTimeString("en-US")} [${e.role}] ${e.text}`).join("\n");
   return (

@@ -158,3 +158,21 @@ def test_wind_agent_reports_the_station_check(woolsey):
     out = run_mock(woolsey.copy_for_planning(), JobLog(), pace=0)
     station = [f for f in out["agent_findings"]["wind_agent"] if "station" in f["issue"] or "station" in f["evidence"]]
     assert station, "the wind agent says what the weather stations measured against the model"
+
+
+def test_outage_cost_uses_the_published_rates_and_rounds_to_what_they_support():
+    from backend.la import costs
+
+    assert costs.outage_cost(0)["usd"] == {"8": 0, "24": 0}
+    c = costs.outage_cost(100_000)
+    per_8h = 0.875 * 26.62 + 0.125 * 7708.0  # one average customer, eight hours, one in eight a business
+    assert c["usd"]["8"] == pytest.approx(100_000 * per_8h, rel=0.05) and c["usd"]["24"] > c["usd"]["8"]
+    assert len(str(c["usd"]["8"]).rstrip("0")) <= 2  # two significant figures, no false precision
+    assert c["business_share"] == costs.BUSINESS_SHARE and "LBNL" in c["source"]
+
+
+def test_every_simulation_carries_its_cost(woolsey):
+    flagged = [v.split(":")[0].replace("Line ", "") for v in woolsey.sim["violations"] if "fire risk" in v]
+    cut = R._sim_payload(woolsey, [{"type": "deenergize_lines", "target": "flagged", "targets": flagged}])
+    assert cut["cost"]["customers"] == cut["customers_out"] > 0 and cut["cost"]["usd"]["8"] > 0
+    assert R._sim_payload(woolsey, [])["cost"]["usd"] == {"8": 0, "24": 0}

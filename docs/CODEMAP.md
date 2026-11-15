@@ -268,3 +268,25 @@ marked `from_feedback`; the physics check still decides whether it is safe.
 
 **Runtime data, git-ignored**: `data/processed/imagery/`, `data/processed/vexcel/`, `data/processed/costar/`,
 `data/processed/feedback/`. Tests never touch them (`backend/conftest.py`).
+
+## 12. The control room (2026-11-14, night)
+
+Replaces the layout described in sections 7 and 11. Styles: one dark theme, `frontend/src/theme.css` (`styles.css` and
+`desk/desk.css` are gone); type is Barlow and Barlow Condensed, bundled through `@fontsource`.
+
+- **Top bar** (`ui/TopBar.tsx`): name and region picker, the clock ("Now"), the scenario picker, a slot the timeline
+  is drawn into (`ui/Timeline.tsx`, a keyboard slider), Operate / What-if, Evidence.
+- **Left dock**: the agents. `ui/TeamPanel.tsx` with the live graph (`desk/SynthesisGraph.tsx`, driven by the run's
+  log), the priority ladder, the agent log.
+- **Middle**: the map (`la/LAScene.tsx`), with the surroundings picture (`backend/la/basemap.py build_surround`,
+  `/la/imagery/surround.jpg`), the navigation pad (`desk/NavPad.tsx`), and blue marks on lines that pick up load.
+- **Right dock**: Grid status (`desk/StatusBox.tsx`), The plan (`desk/PlanPanel.tsx`), then Who is affected,
+  What really happened, Risk by line, Sensors, Log.
+- Every box in both docks is a `desk/Section.tsx` drop-down; `boxes` in `la/LAApp.tsx` holds which are open.
+- **Agents first.** In Operate, `LAApp.tsx` starts a run 0.7 s after the clock rests on an hour; What-if waits to be asked.
+- **Impact of a switch.** `lineImpact` in `la/derive.ts` compares the grid before and after (plan preview, your
+  changes, or a what-if switch) and lists the lines whose load rose by 3 points or more.
+- **Cost.** `backend/la/costs.py` adds `cost` to every `/la/simulate` answer: customers cut off times LBNL ICE
+  Calculator 2 rates per interruption. The business share (1 in 8) is an assumption and the screen says so.
+- **Heat days.** `greedy()` in `backend/agents/mock_planner.py` tries moves that cut nobody off, then trimming demand
+  where it relieves the overloaded line most, before switching that line off (up to `HEAT_MOVES`).

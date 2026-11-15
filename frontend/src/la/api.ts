@@ -88,6 +88,8 @@ export type SimResult = {
                max_temp: number; people_downwind: number; hospitals_downwind: number; water_plants_downwind: number };
   top_lines: TopLine[]; conditions: Conditions; t_utc: string;
   fire_exposure: FireExposure; authority: Authority;
+  /** what the cut costs the customers it reaches, in dollars, for an 8-hour and a 24-hour shut-off (backend/la/costs.py) */
+  cost?: { customers: number; usd: Record<string, number>; business_share: number; source: string };
 };
 /** Buildings downwind of the lines still live at high fire risk (backend/la/exposure.py): the cost of not acting. */
 export type FireExposure = {
@@ -143,7 +145,11 @@ export type Site = {
   disclaimer: string;
 };
 /** GET /la/imagery: the stitched aerial picture under the map, if one has been built. */
-export type Imagery = { available: boolean; source: string; built_utc?: string; zoom?: number; coverage?: number; fallback?: string | null };
+export type Imagery = {
+  available: boolean; source: string; built_utc?: string; zoom?: number; coverage?: number; fallback?: string | null;
+  /** the wider picture of the land and sea around the region, when it has been built */
+  surround?: { bbox: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; built_utc: string } | null;
+};
 export type Card = { id: string; title: string; status: string; headline: string; baseline: string; plot: string | null; one_liner: string };
 
 async function get<T>(p: string): Promise<T> {
@@ -194,6 +200,7 @@ export const la = {
   imagery: () => get<Imagery>("/la/imagery"),
 };
 export const imageryUrl = (version: string) => `${API}/la/imagery/basemap.jpg?v=${encodeURIComponent(version)}`;
+export const surroundUrl = (version: string) => `${API}/la/imagery/surround.jpg?v=${encodeURIComponent(version)}`;
 export const resultUrl = (f: string) => `${API}/results/${f}`;
 export const siteImageUrl = (line: string, n: number, item: string) => `${API}/la/site/${line}/photo/${n}.jpg?v=${item}`;
 export type { Action, Authority, Job, Plan };

@@ -6,7 +6,14 @@ export const TZ = "America/Los_Angeles";
 export const mph = (ms: number) => Math.round(ms * 2.237);
 export const degF = (c: number) => Math.round(c * 9 / 5 + 32);
 export const fmtInt = (n: number) => Math.round(n).toLocaleString("en-US");
-export const fmtPeople = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : fmtInt(n));
+/** "$130 million", "$3.5 million", "$420,000": a rough dollar figure in words. */
+export function usd(n: number): string {
+  const short = (x: number) => (x >= 10 ? x.toFixed(0) : x.toFixed(1).replace(/\.0$/, ""));
+  if (n >= 1e9) return `$${short(n / 1e9)} billion`;
+  if (n >= 1e6) return `$${short(n / 1e6)} million`;
+  return `$${fmtInt(n)}`;
+}
+export const fmtPeople =(n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : fmtInt(n));
 
 export const timeLabel = (iso: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric" }) =>
   new Date(iso).toLocaleString("en-US", { timeZone: TZ, ...opts });
@@ -23,6 +30,15 @@ export function eventLabel(e: LAEvent): string {
   return `${e.kind === "heat" ? "Heat wave" : e.name.split("(")[0].trim()} · ${when}`;
 }
 export const inGoTo = (e: LAEvent) => e.kind !== "control" && e.has_replay;
+/** Each event as a scenario the live view can run on: what kind of day it is, then whose conditions feed it. */
+const SCENARIO_LABEL: Record<string, string> = {
+  E1: "Wind storm · Woolsey, Nov 2018", E2: "Wind storm · Saddleridge, Oct 2019",
+  E3: "Wind storm · Eaton and Hurst, Jan 2025", H1: "Heat wave · Aug 2020", H2: "Heat wave · Sep 2022",
+};
+export function scenarioLabel(e: LAEvent): string {
+  if (e.kind === "forecast") return "Today · live forecast";
+  return SCENARIO_LABEL[e.id] ?? `${e.kind === "heat" ? "Heat wave" : "Wind storm"} · ${eventLabel(e)}`;
+}
 
 const ZONE_WORD: Record<string, string> = { mountain: "in the mountains and foothills", valley: "in the valleys", coast: "along the coast", basin: "in the LA basin" };
 

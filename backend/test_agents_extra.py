@@ -173,3 +173,15 @@ def test_vexcel_client_shapes_requests_like_the_quickstart(monkeypatch):
     monkeypatch.delenv("VEXCEL_API_KEY")
     with pytest.raises(RuntimeError):
         V.ortho("POLYGON((0 0,1 0,1 1,0 1,0 0))")
+
+
+def test_on_a_heat_day_the_planner_trims_demand_before_switching_an_overloaded_line_off(grid, no_feedback):
+    st = LAState("H1", "2020-08-14T21:00:00+00:00", grid=grid)  # one line a hair over its rating
+    over = [v for v in st.sim["violations"] if "loading" in v]
+    assert over and not any("fire risk" in v for v in st.sim["violations"])
+    out = run_mock(st.copy_for_planning(), JobLog(), pace=0)
+    best = out["plans"][0]
+    assert best["result"]["is_safe"] and not out.get("no_safe_option")
+    kinds = {s["action"]["type"] for s in best["steps"]}
+    assert "open_line" not in kinds and "shed_load" in kinds  # switching it off would drop its load on its neighbours
+    assert "of its rating" in best["steps"][0]["why"] and "shutoff" not in best["steps"][0]["why"]

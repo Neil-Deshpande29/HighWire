@@ -3,8 +3,9 @@
 import type { Action, CopilotOutput, Plan } from "../api";
 import { fmtInt, fmtPeople, mph, offLines, offTargets, timeLabel } from "../ui/format";
 import type { ColorLayer } from "../ui/LayersMenu";
-import type { AgentChip } from "../ui/PlanList";
-import type { BigNumber } from "../ui/SituationCard";
+import type { Health } from "../desk/StatusBox";
+import type { AgentChip } from "../ui/TeamPanel";
+export type BigNumber = { value: string; label: string; sub?: string; tone?: "act" | "ok" | "muted"; onClick?: () => void; action?: string };
 import type { Branch, Hour, LAStatic, Series, SimResult } from "./api";
 import { C, damageColor, loadColor, riskColor } from "./LAScene";
 
@@ -44,7 +45,7 @@ export function labelledLines(color: ColorLayer, loading: number[], tops: { id: 
 }
 
 /** Where to point the camera for a set of lines: their median midpoint, wide enough for 80% of them. */
-export function riskFrame(s: LAStatic, ids: string[]): { lat: number; lon: number; spanKm: number } {
+export function riskFrame(s: LAStatic, ids: string[], minSpan = 65): { lat: number; lon: number; spanKm: number } {
   const pts = ids.map((id) => s.branches.find((b) => b.id === id)?.geometry).filter(Boolean).map((g) => g![Math.floor(g!.length / 2)]);
   const b = s.bbox;
   if (!pts.length) return { lat: (b.lat_min + b.lat_max) / 2, lon: (b.lon_min + b.lon_max) / 2, spanKm: 150 };
@@ -52,7 +53,35 @@ export function riskFrame(s: LAStatic, ids: string[]): { lat: number; lon: numbe
   const lat = med(pts.map((p) => p[0])), lon = med(pts.map((p) => p[1]));
   const dist = pts.map((p) => Math.hypot((p[0] - lat) * 110.5, (p[1] - lon) * 92)).sort((x, y) => x - y);
   const span = 2.4 * dist[Math.floor(0.8 * (dist.length - 1))];
-  return { lat, lon, spanKm: Math.min(120, Math.max(65, span)) };
+  return { lat, lon, spanKm: Math.min(120, Math.max(minSpan, span)) };
+}
+
+/** How every line is doing right now, counted by level: the status box's indicator and the map's key in one. */
+export function lineHealth(s: LAStatic, hour: Hour, lines: SimResult["lines"] | null, heat: boolean, alarm: number): Health {
+  const h: Health = { normal: 0, elevated: 0, high: 0, off: 0, total: s.branches.length, words: heat ? ["Normal", "Above 80%", "Over rating"] : ["Normal", "Elevated", "High risk"] };
+  s.branches.forEach((b, k) => {
+    if (lines && !lines.energized[k]) { h.off++; return; }
+    const risk = lines?.risk[k] ?? hour.lines.risk[k], load = lines?.loading[k] ?? hour.lines.loading[k];
+    const level = heat ? (load > 100 ? 2 : load >= 80 ? 1 : 0) : b.cable ? 0 : risk >= alarm ? 2 : risk >= 0.6 * alarm ? 1 : 0;
+    if (level === 2) h.high++; else if (level === 1) h.elevated++; else h.normal++;
+  });
+  return h;
+}
+
+/** What a switch does to the lines that stay on: power reroutes, so some carry more. `shifted` lists them, most first. */
+export type Impact = { shifted: { bi: number; id: string; before: number; after: number }[]; overloaded: number; text: string };
+const SHIFT_FROM = 3; // percentage points of rating; smaller changes are noise
+export function lineImpact(s: LAStatic, base: SimResult | null, sim: SimResult | null, skip: Set<string> = new Set()): Impact | null {
+  if (!base || !sim) return null;
+  const shifted = s.branches.map((b, bi) => ({ bi, id: b.id, before: base.lines.loading[bi], after: sim.lines.loading[bi] }))
+    .filter((x) => !skip.has(x.id) && base.lines.energized[x.bi] && sim.lines.energized[x.bi] && x.after - x.before >= SHIFT_FROM)
+    .sort((a, b) => b.after - b.before - (a.after - a.before));
+  const overloaded = shifted.filter((x) => x.after > 100 && x.before <= 100).length;
+  const top = shifted[0];
+  const text = !top ? "No other line picks up extra load: nothing reroutes."
+    : `Power reroutes onto ${shifted.length} other line${shifted.length === 1 ? "" : "s"}. The most affected, ${top.id}, goes from ${Math.round(top.before)}% to ${Math.round(top.after)}% of its rating`
+      + (overloaded ? `, and ${overloaded} line${overloaded === 1 ? " goes" : "s go"} over the limit.` : ".");
+  return { shifted, overloaded, text };
 }
 
 /** The four big numbers on the Situation card. */

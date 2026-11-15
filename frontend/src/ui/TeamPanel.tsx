@@ -1,67 +1,53 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CopilotOutput, Job, Severity } from "../api";
-import SynthesisGraph from "../desk/SynthesisGraph";
+import SynthesisGraph, { type NodeId } from "../desk/SynthesisGraph";
 import type { BuildingRecords } from "../la/api";
 import { kindPlural, plainAgentText } from "./format";
-import type { AgentChip } from "./PlanList";
 
-/** The agent team at work: a graph of how their findings became plans, then for each agent its status, the physical
- *  values it read and what it concluded, then what the coordinator did with them (including your feedback).
+/** Inside the "Agent team" box on the left: a live graph of how the agents' findings become plans, and under it
+ *  whatever the selected node read and concluded. While the team works the panel follows the agent that is busy;
+ *  afterwards it opens on the coordinator's decisions.
  *
  *  Every value here was computed by the physics engine and copied by code. When the plans come from the AI model, its
- *  own free text is left out of this panel; only what it looked at is shown. */
+ *  own free text is left out; only what it looked at is shown. */
+
+export type AgentChip = { id: string; name: string; summary: string };
+export type Ladder = { label: string; rungs: { tier: number; name: string; n: number }[] };
+type Finding = NonNullable<CopilotOutput["agent_findings"]>[string][number];
 
 const LEVEL: Record<number, { sev: Severity; mark: string; word: string }> = {
-  3: { sev: "high", mark: "▲", word: "Act now" },
-  2: { sev: "medium", mark: "◆", word: "Act soon" },
-  1: { sev: "low", mark: "●", word: "Watch" },
+  3: { sev: "high", mark: "▲", word: "Act now" }, 2: { sev: "medium", mark: "◆", word: "Act soon" }, 1: { sev: "low", mark: "●", word: "Watch" },
 };
-const SHOWN = 2; // findings listed before "Show all"
+const SHOWN = 5;
 
-type Finding = NonNullable<CopilotOutput["agent_findings"]>[string][number];
-export type Ladder = { label: string; rungs: { tier: number; name: string; n: number }[] };
-
-function Agent({ chip, job, findings, modelText }: { chip: AgentChip; job: Job; findings: Finding[]; modelText: boolean }) {
+function Findings({ findings, modelText, onLine }: { findings: Finding[]; modelText: boolean; onLine: (id: string) => void }) {
   const [all, setAll] = useState(false);
-  const running = job.status === "running";
-  const lines = job.log.filter((e) => e.agent === chip.id);
-  const state = job.status === "error" ? "err" : running ? (lines.length ? "busy" : "wait") : "done";
   const ranked = [...findings].sort((a, b) => b.severity - a.severity);
-  const shown = all ? ranked : ranked.slice(0, SHOWN);
+  if (!ranked.length) return <p className="muted">Nothing to flag this hour.</p>;
   return (
-    <div className={`team-agent ${state}`}>
-      <div className="team-head">
-        <span className="team-state">{state === "done" ? "✓" : state === "err" ? "!" : <i className="spinner" />}</span>
-        <b>{chip.name}</b>
-        <span className="muted">{state === "done" ? chip.summary : state === "busy" ? "working…" : state === "err" ? "failed" : "waiting"}</span>
-      </div>
-      {running && lines.length > 0 && <div className="team-live muted">{lines[lines.length - 1].message}</div>}
-      {shown.length > 0 && (
-        <ul className="team-findings">
-          {shown.map((f, k) => {
-            const lv = LEVEL[f.severity] ?? LEVEL[1];
-            return (
-              <li key={`${f.target}|${f.issue}|${k}`}>
-                <span className={`sev sev-${lv.sev}`} title={lv.word}>{lv.mark}</span> <b>{f.target}</b> {f.issue}
-                {!modelText && f.evidence && <span className="team-params"> · {plainAgentText(f.evidence).replace(/^./, (c) => c.toLowerCase())}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {ranked.length > SHOWN && (
-        <button className="link small" onClick={() => setAll((a) => !a)}>{all ? "Show fewer" : `Show all ${ranked.length}`}</button>
-      )}
-      {state === "done" && ranked.length === 0 && <div className="muted small">Nothing to flag at this hour.</div>}
-    </div>
+    <>
+      <ul className="team-findings">
+        {(all ? ranked : ranked.slice(0, SHOWN)).map((f, k) => {
+          const lv = LEVEL[f.severity] ?? LEVEL[1];
+          return (
+            <li key={`${f.target}|${f.issue}|${k}`}>
+              <span className={`sev sev-${lv.sev}`} title={lv.word}>{lv.mark}</span>{" "}
+              {/^L\d+$/.test(f.target) ? <button className="link" onClick={() => onLine(f.target)}>{f.target}</button> : <b>{f.target}</b>} {f.issue}
+              {!modelText && f.evidence && <span className="team-params"> · {plainAgentText(f.evidence).replace(/^./, (c) => c.toLowerCase())}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {ranked.length > SHOWN && <button className="link small" onClick={() => setAll((a) => !a)}>{all ? "Show fewer" : `Show all ${ranked.length}`}</button>}
+    </>
   );
 }
 
-/** The Buildings agent's ladder: who is protected first, and how many of each rung a plan puts on backup power. */
-function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder: Ladder | null }) {
+/** The Buildings agent's ladder: who is protected first, and how many of each rung an option cuts off. */
+export function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder: Ladder | null }) {
   return (
     <div className="ladder">
-      <div className="ladder-head"><b>Who is protected first</b><span className="muted">{ladder ? `on backup in ${ladder.label}` : "buildings on record"}</span></div>
+      <div className="ladder-head"><span className="muted">Tier, most protected first</span><span className="muted">{ladder ? `cut off by ${ladder.label}` : "on record"}</span></div>
       {records.ladder.map((t) => {
         const n = ladder ? ladder.rungs.find((r) => r.tier === t.tier)?.n ?? 0 : t.n;
         return (
@@ -73,49 +59,73 @@ function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder:
         );
       })}
       <div className="muted small">
-        {records.costar ? `From CoStar: ${records.costar.toLocaleString("en-US")} properties with ${records.homes.toLocaleString("en-US")} apartment homes. ` : "CoStar kit not loaded yet. "}
-        From OpenStreetMap: {(records.n - records.costar).toLocaleString("en-US")} hospitals and water plants.
+        {records.costar ? `CoStar: ${records.costar.toLocaleString("en-US")} properties, ${records.homes.toLocaleString("en-US")} apartment homes. ` : "CoStar kit not loaded. "}
+        OpenStreetMap: {(records.n - records.costar).toLocaleString("en-US")} hospitals and water plants.
       </div>
     </div>
   );
 }
 
-export default function TeamPanel({ job, chips, records, ladder, shownPlans }: {
-  job: Job; chips: AgentChip[]; records: BuildingRecords | null; ladder: Ladder | null; shownPlans: string[];
+/** Everything the agents wrote while working, newest at the bottom. */
+export function AgentLog({ job }: { job: Job }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight }); }, [job.log.length]);
+  return <div className="log" ref={ref}>{job.log.map((e, k) => <div key={k}><b>{e.agent}</b> {e.message}</div>)}</div>;
+}
+
+export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan, onLine }: {
+  job: Job; chips: AgentChip[]; shownPlans: string[]; selectedPlan: string | null; onPlan: (id: string) => void; onLine: (id: string) => void;
 }) {
-  const out = job.output;
+  const out = job.output, running = job.status === "running";
   const modelText = out?.mode === "llm";
-  const crew = out?.crew_staging;
-  const used = out?.feedback_used ?? [];
+  const [picked, setPicked] = useState<NodeId | null>(null);
+  useEffect(() => { if (running) setPicked(null); }, [running]);
+  // follow the work: the agent that spoke last while running, the coordinator once it is done
+  const last = [...job.log].reverse().find((e) => chips.some((c) => c.id === e.agent) || e.agent === "coordinator" || e.agent === "physics");
+  const focus: NodeId = picked ?? (running ? last?.agent ?? chips[0].id : "coordinator");
+  const chip = chips.find((c) => c.id === focus);
+  const lines = job.log.filter((e) => e.agent === focus);
+  const crew = out?.crew_staging, used = out?.feedback_used ?? [];
+  const planner = !out ? null : out.mode === "llm" ? "AI agent team" : out.fallback_reason ? `Rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "Rule-based planner (no AI key is set)";
   return (
-    <div className="card team">
-      <div className="eyebrow">The agent team{out ? " · how the plans were made" : " · working"}</div>
-      {/* the planner can return two plans that switch the same lines; the graph shows the ones listed above */}
-      {out?.synthesis && <SynthesisGraph g={{ ...out.synthesis, plans: out.synthesis.plans.filter((p) => shownPlans.includes(p.id)) }} />}
-      {chips.map((c) => (
-        <div key={c.id}>
-          <Agent chip={c} job={job} findings={out?.agent_findings?.[c.id] ?? []} modelText={modelText} />
-          {c.id === "buildings_agent" && out && records && <PriorityLadder records={records} ladder={ladder} />}
-        </div>
-      ))}
-      {out && (
-        <div className="team-agent done">
-          <div className="team-head"><span className="team-state">✓</span><b>Coordinator</b><span className="muted">weighed the findings and built the plans</span></div>
-          <ul className="team-findings">
-            {used.map((u, k) => <li key={`u${k}`}><b>Your feedback:</b> "{u.text}" <span className="team-params">→ {u.applied}</span></li>)}
-            {!modelText && out.disagreements.map((d, k) => <li key={k}><b>Disagreement.</b> {plainAgentText(d)}</li>)}
-            {crew && (
-              <li>
-                <b>Repair crews.</b>{" "}
-                {crew.above_alarm
+    <>
+      <SynthesisGraph job={job} chips={chips} shownPlans={shownPlans} selectedPlan={selectedPlan} focus={focus} onFocus={setPicked} onPlan={onPlan} />
+      {job.status === "error" && <div className="error">The agents stopped: {job.error}</div>}
+
+      <div className="team-detail" aria-live="polite">
+        {chip && (
+          <>
+            <h3>{chip.name}</h3>
+            {running
+              ? <p className="team-live">{lines.length ? lines[lines.length - 1].message : "Waiting for its turn."}</p>
+              : <Findings findings={out?.agent_findings?.[chip.id] ?? []} modelText={modelText} onLine={onLine} />}
+          </>
+        )}
+        {focus === "coordinator" && (
+          <>
+            <h3>Coordinator</h3>
+            {running ? <p className="team-live">{lines.length ? lines[lines.length - 1].message : "Waiting for the agents' findings."}</p> : out && (
+              <ul className="team-findings">
+                {used.map((u, k) => <li key={`u${k}`}><b>Your feedback:</b> "{u.text}" <span className="team-params">→ {u.applied}</span></li>)}
+                {!modelText && out.disagreements.map((d, k) => <li key={k}><b>Disagreement settled.</b> {plainAgentText(d)}</li>)}
+                {crew && <li><b>Repair crews.</b> {crew.above_alarm
                   ? `Wind damage is likely: stage crews near ${crew.pre_stage_crews_near.slice(0, 4).map((l) => `${l.line} (${Math.round(l.p_damage * 100)}%)`).join(", ")}.`
-                  : "No need to stage crews yet: wind damage is unlikely."}
-              </li>
+                  : "No need to stage crews yet: wind damage is unlikely."}</li>}
+                {!used.length && !out.disagreements.length && !crew && <li>No disagreements to settle.</li>}
+              </ul>
             )}
-          </ul>
-          {modelText && <div className="muted small">The model's own wording is left out here; values above come from the physics engine.</div>}
-        </div>
-      )}
-    </div>
+          </>
+        )}
+        {focus === "physics" && (
+          <>
+            <h3>Physics check</h3>
+            <p>{lines.length ? `${lines.map((e) => e.message.charAt(0).toUpperCase() + e.message.slice(1)).slice(-3).join(". ")}.` : "Every option the coordinator builds is run through the power-flow and fire models before it can reach you."}</p>
+          </>
+        )}
+        {!running && <p className="muted small">Click any box in the graph to read what it found.</p>}
+      </div>
+
+      {planner && <p className={`muted small planner ${out?.fallback_reason ? "warn" : ""}`}>{planner}. Every number was checked by physics.</p>}
+    </>
   );
 }
