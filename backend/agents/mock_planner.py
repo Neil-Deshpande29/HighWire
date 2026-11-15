@@ -933,6 +933,14 @@ class _Planner:
                     self.say("coordinator", "situation brief: " + h)
             except Exception:  # noqa: BLE001
                 pass
+            try:  # and how fast things are moving: the risk watch's rates of change (past hours only)
+                from ..la import watch
+
+                trend = watch.trend_line(st.eid, st.t_utc.isoformat())
+                if trend:
+                    self.say("coordinator", trend[0].lower() + trend[1:])
+            except Exception:  # noqa: BLE001
+                pass
         base = self.sim([])
         cands = None
         if self.la:  # the orchestrator decides who is needed before anyone is called

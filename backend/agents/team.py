@@ -301,6 +301,15 @@ def _la_prompts(state, log):
     block = "\n\n" + BRIEF_HEADER + brief_text(brief)
     subagents = _subagent_specs(state, log, LA_SUBAGENTS, block, LA_SUB_PROMPT)
     prompt = LA_COORDINATOR_PROMPT + f"\nThis run is event {state.eid} at {state.scenario}." + block
+    try:  # how fast things are moving (the risk watch's rates of change, past hours only): weigh a rising check higher
+        from ..la import watch
+
+        trend = watch.trend_line(state.eid, state.t_utc.isoformat())
+        if trend:
+            log("coordinator", trend[0].lower() + trend[1:])
+            prompt += "\n\n" + trend + " Treat a check that is rising fast as more urgent than its value alone."
+    except Exception:  # noqa: BLE001
+        pass
     from ..la import feedback as F
 
     said = F.as_text()  # what the operator said when rejecting earlier plans: the coordinator's memory across runs

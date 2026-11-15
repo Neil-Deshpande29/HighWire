@@ -104,6 +104,31 @@ Every step is a structured event in the job log (`route`, `spawn`, `vfs_write`, 
 alone, live, with a Replay button. An agent that was called but never started, or never wrote its findings, shows as
 missing, so the graph is also the place to debug a run.
 
+## The risk watch: when to call the agents (2026-11-15)
+
+The agents no longer run by themselves on every hour. They run when the operator presses **Call the agents**, and by
+themselves when the risk watch is red.
+
+The watch (`backend/la/watch.py`) is one cheap equation, worked out for every hour as the clock moves, with no power
+flow and no agents. It takes five hard checks, each as a share of its limit: the riskiest line's fire index against its
+alarm, the busiest line against its rating, the storm-damage index against its alarm, the strongest gust on a line
+against 25 m/s, and the air temperature against 40 C. Each check is also projected two hours ahead from its rate of
+change over the last three hours (past hours only), and counts as the larger of the two. The score is the largest
+check, times 100. Under 60 the light is green, from 60 yellow, from 90 it flashes red.
+
+Red is early on purpose: it means "something is at or near a limit, or heading there fast, have the agents look". It
+can end in a small fix or none. When the watch is red the screen shows a notice, the agents are called, and one text
+goes to the operator. They are called again only if things get clearly worse (lines in trouble where there were none,
+or twice as many). The clock does not stop while they work, and the agents are told the rates of change.
+
+What an approved plan switches off stays off as the clock moves on, until a later approved plan closes it or the
+session is reset. A plan can be approved at its own hour or any later one.
+
+**Overall confidence**, at the top of the agent box, is how sure the system is of its read of the hour, worked out by
+code (`backend/agents/synthesis.py`, `confidence`). Finding trouble does not lower it. It starts at 97% and drops when a
+problem may be missed or understated: a weather station measuring worse than the model, an all-clear while warnings are
+up, no safe plan yet, or thin evidence. It is a rule of thumb, not a probability.
+
 ## Text alerts
 
 `backend/notify.py` sends a text through LangChain's `TwilioAPIWrapper` when a line is at very high fire risk, when the

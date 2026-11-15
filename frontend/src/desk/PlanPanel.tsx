@@ -21,7 +21,7 @@ export default function PlanPanel({ running, done, options, selected, base, s, h
       </>
     );
   }
-  if (!done) return <p className="muted">{study ? "Ask the agents on the left to analyse this what-if." : "The agents analyse each hour as soon as the clock rests on it."}</p>;
+  if (!done) return <p className="muted">{study ? "Ask the agents on the left to analyse this what-if." : "No plan yet. Call the agents, or wait for the watch to turn red."}</p>;
   return (
     <>
       {staleNote && <div className="note warn">{staleNote} {onStale && <button className="link" onClick={onStale}>Go to that hour</button>}</div>}

@@ -33,6 +33,22 @@ function fromFile(json: string | undefined): Finding[] {
   try { const f = JSON.parse(json ?? "").findings; return Array.isArray(f) ? f : []; } catch { return []; }
 }
 
+/** One overall confidence figure for the run, at the very top: how sure the system is of its read of the hour. Worked
+ *  out by code (backend/agents/synthesis.py). Finding trouble is not marked down; a possible missed or understated
+ *  problem is. A rule of thumb, not a probability. */
+function Confidence({ c, running }: { c: { score: number; level: string; reasons: string[] } | undefined; running: boolean }) {
+  if (!c) return <div className="conf wait"><span className="conf-label">Overall confidence</span><b>{running ? "…" : "–"}</b></div>;
+  const pct = Math.round(c.score * 100);
+  return (
+    <div className={`conf ${c.level}`} title="How sure the system is of its read of this hour. A rule of thumb worked out by code, not a probability. Finding trouble does not lower it. It drops when a problem may be missed or understated: a weather station measuring worse than the model, an all-clear while warnings are up, no safe plan yet, or thin evidence.">
+      <span className="conf-label">Overall confidence</span>
+      <b>{pct}%</b>
+      <span className="conf-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></span>
+      <span className="conf-why">{c.reasons.length ? `Lowered because ${c.reasons.join("; ")}.` : "The checks agree; nothing lowered it."}</span>
+    </div>
+  );
+}
+
 function Findings({ findings, modelText, onLine }: { findings: Finding[]; modelText: boolean; onLine: (id: string) => void }) {
   const [all, setAll] = useState(false);
   const ranked = [...findings].sort((a, b) => b.severity - a.severity);
@@ -104,6 +120,7 @@ export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan
   const planner = !out ? null : out.mode === "llm" ? "AI agent team" : out.fallback_reason ? `Rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "Rule-based planner (no AI key is set)";
   return (
     <>
+      <Confidence c={out?.synthesis?.confidence} running={running} />
       <AgentGraph job={job} selectedPlan={selectedPlan} focus={detail ? focus : null} onFocus={(id) => { setPicked(id); setDetail(true); }} onPlan={onPlan} />
       {job.status === "error" && <div className="error">The agents stopped: {job.error}</div>}
 
