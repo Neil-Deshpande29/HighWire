@@ -37,6 +37,10 @@ const STALE_AFTER_H = 3; // a live forecast older than this gets a warning banne
 
 /** The one screen: holds the state and wires it to the map and the panels. The rules for what is shown live in
  *  derive.ts, the fetching hooks in hooks.ts, and every panel in ../ui. */
+/** Play moves one hour of the scenario every PLAY_MS at 1x (2x and 4x divide it). Slow enough that each step reads as a
+ *  new hour of data arriving: the watch, the hazards and the map all have time to change and be seen. */
+const PLAY_MS = 3500;
+
 export default function LAApp({ s, events, eid, mode, version, onMode, onTime }: {
   s: LAStatic; events: LAEvent[]; eid: string; mode: Mode; version: number; onMode: (m: Mode) => void; onTime: (t: string | null) => void;
 }) {
@@ -127,7 +131,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   }, [eid, i, layers.imagery, series]);
   useEffect(() => {
     if (!playing || !series) return;
-    const h = window.setInterval(() => setI((x) => (x + 1 < series.t_utc.length ? x + 1 : (setPlaying(false), x))), 700 / speed);
+    const h = window.setInterval(() => setI((x) => (x + 1 < series.t_utc.length ? x + 1 : (setPlaying(false), x))), PLAY_MS / speed);
     return () => window.clearInterval(h);
   }, [playing, series, speed]);
   useEffect(() => { // leaving Study discards it
