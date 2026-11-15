@@ -24,7 +24,7 @@ except ImportError:
 
 
 def region(name: str | None = None) -> dict:
-    name = name or os.environ.get("REWIRE_REGION") or os.environ.get("HIGHWIRE_REGION") or "la"  # old name still read
+    name = name or os.environ.get("REWIRE_REGION") or "la"
     return yaml.safe_load((ROOT / "config" / f"region_{name}.yaml").read_text())
 
 

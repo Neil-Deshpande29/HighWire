@@ -99,8 +99,7 @@ first run are marked **(post-hoc, disclosed)**.
 
 ## Product
 - The LA replay runs alongside the Phase-1 synthetic "what-if" scenarios (kept as-is). The LA view uses a 3x vertical exaggeration.
-- Project renamed Highwire (folder `highwire/`).
-- Project renamed Rewire (2026-11-14). The GitHub repository keeps its name, and the old `HIGHWIRE_` settings are still read.
+- Project renamed Rewire (2026-11-14), everywhere: code, settings (`REWIRE_*` only) and the GitHub repository.
 
 ## v2 improvements (wind agent, demand model, Gemini)
 - **Why V4b failed before.** The fire index answers "will a line ignite?" (needs dry air); V4b's positives are the worst outage

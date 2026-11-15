@@ -46,9 +46,9 @@ SURROUND_DARK = 0.3  # how far the surroundings are pushed toward black, so the 
 
 
 def source() -> dict:
-    url = os.environ.get("REWIRE_BASEMAP_URL") or os.environ.get("HIGHWIRE_BASEMAP_URL")  # old name still read
+    url = os.environ.get("REWIRE_BASEMAP_URL")
     if url:
-        return {"name": os.environ.get("REWIRE_BASEMAP_NAME") or os.environ.get("HIGHWIRE_BASEMAP_NAME") or "custom imagery", "url": url}
+        return {"name": os.environ.get("REWIRE_BASEMAP_NAME") or "custom imagery", "url": url}
     if vexcel.key():
         return {"name": vexcel.NAME, "url": None}  # read through the Vexcel API, not a tile address
     return {"name": "USGS National Map", "url": USGS}
