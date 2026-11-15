@@ -1,4 +1,6 @@
+import { ACCURACY_10MIN } from "../config";
 import type { LAEvent } from "../la/api";
+import AlertsBell from "./AlertsBell";
 import { inGoTo, scenarioLabel, timeLabel } from "./format";
 
 export type Mode = "operate" | "study";
@@ -6,8 +8,8 @@ export type Mode = "operate" | "study";
 /** Regions the tool could run on. Only Los Angeles has a grid loaded; the others are listed so the place to switch is clear. */
 const REGIONS: [string, string][] = [["la", "Los Angeles"], ["sd", "San Diego"], ["bay", "Bay Area"], ["hou", "Houston"]];
 
-/** The one bar that controls everything: where, when, which scenario, the clock you can scrub, and the mode.
- *  The screen always reads as "now". A scenario replays recorded conditions through the same live view. */
+/** The top bar: where, when, which scenario, the mode, the alert bell. The clock you scrub is the player bar along the
+ *  bottom. The screen always reads as "now". A scenario replays recorded conditions through the same live view. */
 export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onMode, onRefresh, onPage }: {
   events: LAEvent[]; eid: string; t: string | null; mode: Mode; page: "map" | "evidence"; fcBusy: boolean;
   onGoTo: (id: string) => void; onMode: (m: Mode) => void; onRefresh: () => void; onPage: (p: "map" | "evidence") => void;
@@ -43,8 +45,12 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
           </label>
         </>
       )}
-      {/* the map screen draws the timeline into this slot; it stays in place on other pages so the map finds it again */}
-      <div className="tl-slot" id="timeline-slot" style={{ visibility: page === "map" ? undefined : "hidden" }} />
+      <div className="accuracy" title="An estimate. It is a placeholder, not a measured result, and is not one of the validated checks on the Evidence page.">
+        <b>{Math.round(ACCURACY_10MIN * 100)}%</b>
+        <span>accurate over a 10-minute window <em>est.</em></span>
+      </div>
+      <span className="spacer" />
+      <AlertsBell />
       {page === "map" ? (
         <>
           <div className="segmented" role="tablist" aria-label="Mode">

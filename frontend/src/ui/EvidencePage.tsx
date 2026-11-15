@@ -1,3 +1,4 @@
+import { ACCURACY_10MIN } from "../config";
 import { useEffect, useState } from "react";
 import { API } from "../api";
 import { la, resultUrl, type Card, type V5Case } from "../la/api";
@@ -81,6 +82,13 @@ export default function EvidencePage() {
           big={pct(100 * v7.frac_high_risk_inside_red_flag)} bigLabel="of high-risk line-hours were inside a Red Flag Warning"
           sentence={`When Rewire marks a line as high fire risk, forecasters at the National Weather Service had almost always issued a Red Flag Warning for that area, a judgement made independently of us. We flag far less than they do: ${pct(100 * v7.frac_red_flag_zone_hours_with_high_risk)} of their warning zone-hours held a line we flagged.`}
           how="compared every flagged line-hour in all the replayed storms, heat waves and calm weeks, training ones included, with the official warning areas and times." />}
+      </div>
+
+      <div className="estimate-card" role="note">
+        <span className="estimate-tag">Estimate</span>
+        <b>{Math.round(ACCURACY_10MIN * 100)}% accurate over a 10-minute window</b>
+        <p>This figure is a placeholder estimate. It has not been measured and is not one of the validated results on this page.
+          It will be replaced when a measured value exists.</p>
       </div>
 
       <h2>Where we fall short</h2>

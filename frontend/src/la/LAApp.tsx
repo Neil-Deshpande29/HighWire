@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { Action, BuildingsOut, Plan } from "../api";
 import LineSheet, { type LineFinding } from "../desk/LineSheet";
 import NavPad, { type NavCmd } from "../desk/NavPad";
@@ -16,7 +15,7 @@ import LineControls from "../ui/LineControls";
 import LineSearch from "../ui/LineSearch";
 import ReportPage from "../ui/ReportPage";
 import TeamPanel, { AgentLog, PriorityLadder } from "../ui/TeamPanel";
-import Timeline from "../ui/Timeline";
+import PlayerBar from "../ui/PlayerBar";
 import type { Mode } from "../ui/TopBar";
 import {
   imageryUrl, la, NO_CONDITIONS, surroundUrl, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView,
@@ -48,6 +47,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [i, setI] = useState(0);
   const [hour, setHour] = useState<Hour | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1); // how fast Play moves through the hours
   const [revealed, setRevealed] = useState(false);
   const [color, setColor] = useState<ColorLayer>("fire");
   // read once: a shared link reopens the same event, hour and imagery layer
@@ -56,8 +56,6 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [imagery, setImagery] = useState<Imagery | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [nav, setNav] = useState<Nav | null>(null);
-  const [slot, setSlot] = useState<HTMLElement | null>(null); // where the top bar wants the timeline drawn
-  useEffect(() => { setSlot(document.getElementById("timeline-slot")); }, []);
   const pendingFocus = useRef(true);
   const [err, setErr] = useState<string | null>(null);
   // Operate
@@ -84,8 +82,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // the desk: who is acting, which sheet is open, the sensor check, the risk register, the decision record
   const [records, setRecords] = useState<BuildingRecords | null>(null); // which building records are loaded, and the priority ladder
   const [cutOf, setCutOf] = useState<{ key: string; data: BuildingsOut & { customers: number } } | null>(null);
-  // every box in the two docks is a drop-down: which ones are open. The plan and the agent team start open.
-  const [boxes, setBoxes] = useState<Record<string, boolean>>({ plan: true, team: true });
+  // every box in the two docks is a drop-down: which ones are open. Grid status, the agent team and the plan start open;
+  // everything else starts as its one-line summary.
+  const [boxes, setBoxes] = useState<Record<string, boolean>>({ status: true, team: true, plan: true });
   const isOpen = (id: string) => !!boxes[id];
   const toggle = (id: string) => setBoxes((b) => ({ ...b, [id]: !b[id] }));
   const openBox = useCallback((id: string) => setBoxes((b) => (b[id] ? b : { ...b, [id]: true })), []);
@@ -127,9 +126,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   }, [eid, i, layers.imagery, series]);
   useEffect(() => {
     if (!playing || !series) return;
-    const h = window.setInterval(() => setI((x) => (x + 1 < series.t_utc.length ? x + 1 : (setPlaying(false), x))), 700);
+    const h = window.setInterval(() => setI((x) => (x + 1 < series.t_utc.length ? x + 1 : (setPlaying(false), x))), 700 / speed);
     return () => window.clearInterval(h);
-  }, [playing, series]);
+  }, [playing, series, speed]);
   useEffect(() => { // leaving Study discards it
     setStudyActions([]); setCond(NO_CONDITIONS); clearSt(); setStT(null); setSelPlan(null); setPop(null);
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -461,11 +460,12 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <div className="labels" ref={overlay} />
       </div>
       {study && <div className="study-frame" />}
-      {slot && series && createPortal(
-        <Timeline series={series} kind={kind} i={i} playing={playing} revealed={revealed} canReveal={past}
-          onSeek={setI} onPlay={() => setPlaying((p) => !p)} onReveal={() => { setRevealed(true); openBox("happened"); }} />, slot)}
+      {series && ev && (
+        <PlayerBar series={series} kind={kind} title={eventLabel(ev)} live={!past} i={i} playing={playing} speed={speed} revealed={revealed} canReveal={past}
+          onSeek={setI} onPlay={() => setPlaying((p) => !p)} onSpeed={setSpeed} onReveal={() => { setRevealed(true); openBox("happened"); }} />
+      )}
 
-      {/* left: the agents and how they got there */}
+      {/* left: the flow reads top to bottom. The agents work, and their plan sits directly under them */}
       <aside className="dock left">
         <Section title="Agent team" summary={teamSummary} open={isOpen("team")} onToggle={() => toggle("team")}>
           {job ? (
@@ -478,6 +478,28 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
             </>
           )}
         </Section>
+        <Section title="The plan" main summary={planSummary} open={isOpen("plan")} onToggle={() => toggle("plan")}>
+          {!study && outcome && <div className="outcome"><b>Plan approved.</b> {outcome}</div>}
+          {!study && bulletinText && (
+            <details className="drawer">
+              <summary>Bulletin for responders <button className="link" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(bulletinText); }}>Copy</button></summary>
+              <pre className="bulletin">{bulletinText}</pre>
+            </details>
+          )}
+          {!study && !job && (approvedPlan || serverApproved) && !outcome
+            ? <p className="muted">A plan was approved for this hour. <button className="link" onClick={resetSession}>Start over</button> to analyse it again.</p>
+            : (
+              <PlanPanel running={running} done={done} options={options} selected={selOption} base={nothingSim} s={s} heat={heat} peek={peek}
+                study={study} stale={plansElsewhere} canAct={!study && analysed} busy={acting} nRecord={record?.entries.length ?? 0}
+                staleNote={plansElsewhere ? `This plan is for ${timeLabel(jobT!)}.` : out?.no_safe_option ? "No safe plan was found this hour. The closest one is shown and can't be approved." : null}
+                onStale={plansElsewhere ? () => goTo(jobT) : undefined}
+                impact={changeSim === previewSim && impact ? impact.text : null} onShowImpact={showImpact} cost={costLine} costNote={costNote} describe={optionSentence}
+                onSelect={(k) => { setSelPlan(k); setPeek(false); }} onPeek={setPeek} onAffected={() => openBox("affected")}
+                onApprove={(role) => selOption?.plan && approvePlan(selOption.plan, role)} onReject={(reasons, note) => selOption?.plan && rejectPlan(selOption.plan, reasons, note)}
+                onRecord={() => { refreshRecord(); openBox("log"); }} onRerun={runCopilot} />
+            )}
+        </Section>
+
         {records && (
           <Section title="Who is protected first" summary={ladder ? `cut off by ${ladder.label}` : `${records.n.toLocaleString("en-US")} buildings`} open={isOpen("ladder")} onToggle={() => toggle("ladder")}>
             <PriorityLadder records={records} ladder={ladder} />
@@ -520,7 +542,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           onCopyToPlan={study ? () => { setStaged(studyActions.filter((a) => GRID_CHANGES.has(a.type))); onMode("operate"); } : undefined} />
       </div>
 
-      {/* right: stacked drop-down boxes. Closed, each shows its one fact; the plan starts open because it is the main thing */}
+      {/* right: the state of the grid, then everything else as closed drop-down boxes showing their one fact */}
       <aside className="dock right">
         {!online && <div className="banner">▲ <b>Can't reach the Rewire backend.</b> Numbers may be out of date. Retrying…</div>}
         {staleHours >= STALE_AFTER_H && <div className="banner">▲ <b>This forecast is {Math.round(staleHours)} hours old.</b> Press Refresh at the top.</div>}
@@ -532,30 +554,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           <StatusBox health={health} metric={String(nBad)} label={metricLabel} cause={cause} tone={nBad ? "act" : "ok"} onReport={() => setShowReport(true)} />
         </Section>
 
-        <Section title="The plan" main summary={planSummary} open={isOpen("plan")} onToggle={() => toggle("plan")}>
-          {!study && outcome && <div className="outcome"><b>Plan approved.</b> {outcome}</div>}
-          {!study && bulletinText && (
-            <details className="drawer">
-              <summary>Bulletin for responders <button className="link" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(bulletinText); }}>Copy</button></summary>
-              <pre className="bulletin">{bulletinText}</pre>
-            </details>
-          )}
-          {!study && !job && (approvedPlan || serverApproved) && !outcome
-            ? <p className="muted">A plan was approved for this hour. <button className="link" onClick={resetSession}>Start over</button> to analyse it again.</p>
-            : (
-              <PlanPanel running={running} done={done} options={options} selected={selOption} base={nothingSim} s={s} heat={heat} peek={peek}
-                study={study} stale={plansElsewhere} canAct={!study && analysed} busy={acting} nRecord={record?.entries.length ?? 0}
-                staleNote={plansElsewhere ? `This plan is for ${timeLabel(jobT!)}.` : out?.no_safe_option ? "No safe plan was found this hour. The closest one is shown and can't be approved." : null}
-                onStale={plansElsewhere ? () => goTo(jobT) : undefined}
-                impact={changeSim === previewSim && impact ? impact.text : null} onShowImpact={showImpact} cost={costLine} costNote={costNote} describe={optionSentence}
-                onSelect={(k) => { setSelPlan(k); setPeek(false); }} onPeek={setPeek} onAffected={() => openBox("affected")}
-                onApprove={(role) => selOption?.plan && approvePlan(selOption.plan, role)} onReject={(reasons, note) => selOption?.plan && rejectPlan(selOption.plan, reasons, note)}
-                onRecord={() => { refreshRecord(); openBox("log"); }} onRerun={runCopilot} />
-            )}
-        </Section>
-
         {selBranch && !popLine && (
-          <Section title={`Line ${selBranch.id}`} summary={selBranch.name ?? `${Math.round(selBranch.kv)} kV`} open={boxes.line !== false} onToggle={() => setBoxes((b) => ({ ...b, line: b.line === false }))}
+          <Section title={`Line ${selBranch.id}`} summary={selBranch.name ?? `${Math.round(selBranch.kv)} kV`} open={isOpen("line")} onToggle={() => toggle("line")}
             onClose={() => setSelLine(null)}>
             {lineView}
           </Section>
@@ -572,7 +572,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           </Section>
         )}
         <Section title="Risk by line" summary={health ? `${health.high} high · ${health.elevated} elevated` : ""} open={isOpen("risk")} onToggle={() => toggle("risk")}>
-          <RiskSheet reg={reg} onLine={setSelLine} />
+          <RiskSheet reg={reg} onLine={(id) => { setSelLine(id); openBox("line"); }} />
         </Section>
         <Section title="Sensors" summary={sensorSummary} open={isOpen("sensors")} onToggle={() => toggle("sensors")}>
           <InputsSheet inputs={inputs} sensors={sensors} />

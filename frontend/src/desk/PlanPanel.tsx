@@ -2,8 +2,9 @@ import type { LAStatic, Role, SimResult } from "../la/api";
 import DecisionBar from "./DecisionBar";
 import OptionsTable, { OptionDetail, type Option } from "./OptionsTable";
 
-/** Inside "The plan" box, the main thing on the screen: the plan the agents worked out, what it buys and costs, and
- *  Approve or Reject. Everything else about the options is one click away underneath. */
+/** Inside "The plan" box, directly under the agents: one plain sentence of what the plan does, its four key numbers,
+ *  and Approve or Reject. The comparison with doing nothing, the steps and their reasons, the cost and the knock-on
+ *  effect on other lines are behind "Details"; the other options behind "Compare". */
 export default function PlanPanel({ running, done, options, selected, base, s, heat, peek, study, stale, staleNote, onStale, canAct, busy, nRecord, impact, onShowImpact, cost, costNote, describe,
   onSelect, onPeek, onAffected, onApprove, onReject, onRecord, onRerun }: {
   running: boolean; done: boolean; options: Option[]; selected: Option | null; base: SimResult | null; s: LAStatic; heat: boolean; peek: boolean;
@@ -27,9 +28,10 @@ export default function PlanPanel({ running, done, options, selected, base, s, h
       {!plans.length && <p className="plan-sentence">Every line is within its limits this hour. The agents recommend no switching.</p>}
       {selected && (
         <>
-          <OptionDetail option={selected} base={base} s={s} sentence={describe(selected)} heat={heat} peek={peek} onPeek={onPeek} onAffected={onAffected} />
-          {impact && selected.kind !== "nothing" && <p className="impact-line">{impact} {onShowImpact && <button className="link" onClick={onShowImpact}>Show on map</button>}</p>}
-          {cost && selected.kind !== "nothing" && <p className="cost">{cost} {costNote && <span className="cost-note">{costNote}</span>}</p>}
+          <OptionDetail option={selected} base={base} s={s} sentence={describe(selected)} heat={heat} peek={peek} onPeek={onPeek} onAffected={onAffected}>
+            {impact && <p className="impact-line">{impact} {onShowImpact && <button className="link" onClick={onShowImpact}>Show on map</button>}</p>}
+            {cost && <p className="cost">{cost} {costNote && <span className="cost-note">{costNote}</span>}</p>}
+          </OptionDetail>
           <DecisionBar option={selected} study={study} canAct={canAct} busy={busy} nRecord={nRecord} onApprove={onApprove} onReject={onReject} onRecord={onRecord} />
         </>
       )}

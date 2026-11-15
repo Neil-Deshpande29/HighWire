@@ -18,3 +18,5 @@ requests>=2.31
 linerate>=5.0
 pypdf>=4
 pyserial>=3.5  # optional: only used when the LED strip is plugged in (backend/lights.py)
+langchain-community>=0.3  # TwilioAPIWrapper, for text alerts (backend/notify.py)
+twilio>=9.0

@@ -5,6 +5,7 @@ when it is already set. Setting the keys to empty here, before any test module i
 out of every test; a test that needs the keyed path sets a dummy key itself and fakes the service behind it."""
 import os
 
-for _name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "VEXCEL_API_KEY"):
+for _name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "VEXCEL_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER",
+              "ALERT_PHONE"):  # with the Twilio names empty, every alert in a test is a dry run: no text can be sent
     os.environ[_name] = ""
 os.environ["LIGHTS_PORT"] = "off"  # and no test ever opens the LED strip's serial port

@@ -83,6 +83,63 @@ state is never touched), a `limit_line {target, pct}` operator-derate action, an
 - The rule-based planner sometimes returns two plans that switch the same lines; the UI shows one.
 - Resident ground reports on the LA grid are still not built (AUDIT.md, "To finish").
 
+## Agents: routing, shared files, synthesis (2026-11-15)
+
+One run goes in three steps, and the same three happen with the AI team (Gemini) and with the rule-based planner that
+runs when there is no key:
+
+1. **Routing.** The orchestrator reads the situation and decides which specialists this hour needs. It writes the
+   decision to `/plan/dispatch.md` (each agent called or skipped, with a one-line reason) and calls only those.
+   The rules (`backend/agents/mock_planner.py`): Fire if a line is near the fire alarm or a Red Flag warning is in
+   force; Wind if gusts pass the storm onset; Heat if a line is above 70% of its rating or it is a heat event;
+   Brownout if a move on the table cuts power; Buildings if building records are loaded and a cut is on the table.
+2. **Shared files.** Each called specialist writes `/findings/<agent>.json` (lines, severity, evidence) and
+   `/findings/<agent>.md` (a short summary) to the run's virtual file system. The AI team uses deepagents' own
+   `write_file` / `read_file` / `ls`; the rule-based planner writes the same files in memory.
+3. **Synthesis.** The orchestrator lists `/findings`, reads the files, and builds plans. Each plan step names the files
+   it came from (`raised_from`); a file nobody wrote cannot be cited. Every plan still goes through the physics check.
+
+Every step is a structured event in the job log (`route`, `spawn`, `vfs_write`, `vfs_read`, `tool`, `agent_done`,
+`physics`, `plans`), and the job output carries the files (`vfs`). The agent graph on screen is drawn from those events
+alone, live, with a Replay button. An agent that was called but never started, or never wrote its findings, shows as
+missing, so the graph is also the place to debug a run.
+
+## Text alerts
+
+`backend/notify.py` sends a text through LangChain's `TwilioAPIWrapper` when a line is at very high fire risk, when the
+storm model says a line is likely to be knocked down, and when a plan that turns lines off is approved. The orchestrator
+also has a `send_alert` tool for the same cases. One text per line per condition per six-hour window, three lines at most.
+Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` and `ALERT_PHONE` in `.env`. If any is missing, or
+the from-number is not a real number, alerts run as a dry run: the bell in the top bar lists each one as "would have
+sent". The bell also has a "Send test text" button and an on/off switch.
+
+## The accuracy figure
+
+The "94% accurate over a 10-minute window" in the top bar and on the Evidence page is a **placeholder**. It is one
+constant, `ACCURACY_10MIN` in `frontend/src/config.ts`, marked to be replaced by a measured value. It is labelled
+"est." and is kept apart from the validated V1-V8 results.
+
+## What the screen folds away (2026-11-15)
+
+- The clock is a player bar along the bottom (back 6 h, play, forward 6 h, scrubber, speed, "What really happened").
+- "The plan" sits in the left column directly under the agent graph: agents, then plans.
+- Open by default: Grid status, the agent graph, The plan. Everything else starts as a one-line summary: Who is
+  protected first, Who is affected, Risk by line, Sensors, Log, Agent log, What really happened, line details.
+- A box's one-line summary shows only while it is closed, so the same count is not on screen twice.
+- The plan card shows one sentence, four numbers, and Approve / Reject. Behind "Details": the comparison with doing
+  nothing, the cost estimate, which other lines pick up the load, the steps with their reasons and source agents, and
+  the assumptions. The other options are behind "Compare".
+- What an agent or a file wrote, the orchestrator's settled disagreements, crew staging and which planner ran are
+  behind "Details" under the graph. Removed from the graph: the per-agent counts that repeated the status box.
+
+## Not finished
+
+- The AI team's new flow (routing, files) is tested on a scripted model only. It has not run against Gemini: the key
+  in use is on the free tier, which one run exceeds.
+- No real text has been sent: `TWILIO_FROM_NUMBER` is not set, so every alert so far is a dry run.
+- The accuracy figure is a placeholder.
+- The job is polled every 300 ms; it is not server-sent events.
+
 ## Rebuild everything from scratch
 
 ```bash

@@ -21,7 +21,7 @@ export function useSim(key: string | null, run: () => Promise<SimResult>, delay 
   return [res, busy];
 }
 
-const LOST_AFTER = 3; // consecutive failed polls before a run is declared lost
+const LOST_AFTER = 8; // consecutive failed polls (at 300 ms) before a run is declared lost
 
 /** True while the backend answers. Checked every 5 s; two misses in a row mean the numbers on screen may be stale. */
 export function useBackendOnline(): boolean {
@@ -36,7 +36,7 @@ export function useBackendOnline(): boolean {
   return online;
 }
 
-/** Polls one co-pilot job every 900 ms until it stops running. Returns [job, start(id), clear]. */
+/** Polls one co-pilot job every 300 ms until it stops running, so the agent graph can follow it. Returns [job, start(id), clear]. */
 export function usePoll(): [Job | null, (id: string) => void, () => void] {
   const [job, setJob] = useState<Job | null>(null);
   const t = useRef<number | null>(null);
@@ -56,7 +56,7 @@ export function usePoll(): [Job | null, (id: string) => void, () => void] {
         stop();
         setJob((j) => ({ status: "error", log: j?.log ?? [], output: null, error: "Lost contact with the backend. Check that it is running, then get plans again." }));
       }
-    }, 900);
+    }, 300);
   }, [stop]);
   const clear = useCallback(() => { stop(); setJob(null); }, [stop]);
   useEffect(() => stop, [stop]);

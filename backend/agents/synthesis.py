@@ -1,6 +1,7 @@
 """How the team's work came together, as a small graph the screen can draw.
 
-Built by code after a run from what the agents actually produced: each specialist with how many things it flagged and
+Built by code after a run from the run's structured events and shared files (who the orchestrator called and why, which
+findings files were written and read) and from what the agents actually produced: each specialist with how many things it flagged and
 how many plan steps it raised, the coordinator with how many candidate actions it weighed and the operator feedback
 it carried, the physics check with how many combinations it tested and how many passed, and the plans that came out.
 The same structure is produced for the rule-based planner and the AI team, so the picture never depends on a model.
@@ -36,8 +37,21 @@ def build(out: dict, log: list[dict]) -> dict:
             stats.setdefault("screened", int(m.group(1)))
             stats.setdefault("safe", int(m.group(3)))
     verified = sum(e["agent"] == "physics" and e["message"].startswith("backend re-verified") for e in log)
+    events = [e for e in log if e.get("kind")]
+    routing = {e["meta"]["agent"]: {"called": bool(e["meta"].get("called")), "reason": e["meta"].get("reason") or ""}
+               for e in events if e["kind"] == "route" and e["meta"].get("agent") in NAMES}
+    wrote = {e["meta"]["path"]: e["meta"].get("agent") for e in events if e["kind"] == "vfs_write"}
+    read = {e["meta"]["path"] for e in events if e["kind"] == "vfs_read"}
+    files = out.get("vfs") or {}
+    for a in agents:
+        a["called"] = routing[a["id"]]["called"] if a["id"] in routing else bool(a["findings"] or a["log_lines"])
+        a["reason"] = routing.get(a["id"], {}).get("reason", "")
+        a["wrote"] = [p for p, who in wrote.items() if who == a["id"] and p in files]
     return {
         "mode": out.get("mode"),
+        "routing": [{"agent": a, **routing[a]} for a in NAMES if a in routing],
+        "files": [{"path": p, "by": wrote.get(p), "bytes": len(files[p].encode()), "read": p in read} for p in sorted(files)],
+        "alerts": sum(e["kind"] == "tool" and e["meta"].get("tool") == "send_alert" for e in events),
         "agents": agents,
         "coordinator": {"candidates": stats.get("candidates"), "disagreements": len(out.get("disagreements") or []),
                         "feedback": len(out.get("feedback_used") or [])},

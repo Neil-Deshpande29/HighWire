@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CopilotOutput, Job, Severity } from "../api";
-import SynthesisGraph, { type NodeId } from "../desk/SynthesisGraph";
+import AgentGraph, { type NodeId } from "../desk/AgentGraph";
 import type { BuildingRecords } from "../la/api";
 import { kindPlural, plainAgentText } from "./format";
 
@@ -19,6 +19,19 @@ const LEVEL: Record<number, { sev: Severity; mark: string; word: string }> = {
   3: { sev: "high", mark: "▲", word: "Act now" }, 2: { sev: "medium", mark: "◆", word: "Act soon" }, 1: { sev: "low", mark: "●", word: "Watch" },
 };
 const SHOWN = 5;
+
+/** A findings note from the shared files, as plain lines. Wording written by the AI model is shown only when it states
+ *  no number (line and substation ids are names, not numbers). */
+function FileText({ text, modelText }: { text: string | undefined; modelText: boolean }) {
+  if (!text) return <p className="muted">Nothing written yet.</p>;
+  if (modelText && /\d/.test(text.replace(/\b[A-Z]{1,3}\d+\b/g, ""))) return <p className="muted">The AI model's wording is not shown because it states numbers. Its checked findings are under Details.</p>;
+  const lines = text.split("\n").map((l) => l.replace(/^[#\-\s]+/, "").trim()).filter(Boolean);
+  return <ul className="team-findings file-lines">{lines.map((l, k) => <li key={k} className={k === 0 && text.startsWith("#") ? "file-title" : ""}>{l}</li>)}</ul>;
+}
+
+function fromFile(json: string | undefined): Finding[] {
+  try { const f = JSON.parse(json ?? "").findings; return Array.isArray(f) ? f : []; } catch { return []; }
+}
 
 function Findings({ findings, modelText, onLine }: { findings: Finding[]; modelText: boolean; onLine: (id: string) => void }) {
   const [all, setAll] = useState(false);
@@ -79,31 +92,53 @@ export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan
   const out = job.output, running = job.status === "running";
   const modelText = out?.mode === "llm";
   const [picked, setPicked] = useState<NodeId | null>(null);
+  const [detail, setDetail] = useState(false); // is the picked node's content unfolded?
   useEffect(() => { if (running) setPicked(null); }, [running]);
   // follow the work: the agent that spoke last while running, the coordinator once it is done
   const last = [...job.log].reverse().find((e) => chips.some((c) => c.id === e.agent) || e.agent === "coordinator" || e.agent === "physics");
   const focus: NodeId = picked ?? (running ? last?.agent ?? chips[0].id : "coordinator");
   const chip = chips.find((c) => c.id === focus);
+  const files = out?.vfs ?? job.vfs ?? {};
   const lines = job.log.filter((e) => e.agent === focus);
   const crew = out?.crew_staging, used = out?.feedback_used ?? [];
   const planner = !out ? null : out.mode === "llm" ? "AI agent team" : out.fallback_reason ? `Rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "Rule-based planner (no AI key is set)";
   return (
     <>
-      <SynthesisGraph job={job} chips={chips} shownPlans={shownPlans} selectedPlan={selectedPlan} focus={focus} onFocus={setPicked} onPlan={onPlan} />
+      <AgentGraph job={job} selectedPlan={selectedPlan} focus={detail ? focus : null} onFocus={(id) => { setPicked(id); setDetail(true); }} onPlan={onPlan} />
       {job.status === "error" && <div className="error">The agents stopped: {job.error}</div>}
 
+      {/* what the picked agent or file wrote stays folded away, so the plan sits directly under the graph */}
+      <details className="drawer team-drawer" open={detail} onToggle={(e) => setDetail(e.currentTarget.open)}>
+      <summary>Details{detail ? `: ${focus.startsWith("/") ? focus : chip?.name ?? (focus === "physics" ? "Physics check" : "Orchestrator")}` : ""}</summary>
       <div className="team-detail" aria-live="polite">
         {chip && (
           <>
             <h3>{chip.name}</h3>
-            {running
+            {running && !files[`/findings/${chip.id}.md`]
               ? <p className="team-live">{lines.length ? lines[lines.length - 1].message : "Waiting for its turn."}</p>
-              : <Findings findings={out?.agent_findings?.[chip.id] ?? []} modelText={modelText} onLine={onLine} />}
+              : (
+                <>
+                  <FileText text={files[`/findings/${chip.id}.md`]} modelText={modelText} />
+                  <details className="drawer">
+                    <summary>Details</summary>
+                    <Findings findings={out?.agent_findings?.[chip.id] ?? fromFile(files[`/findings/${chip.id}.json`])} modelText={modelText} onLine={onLine} />
+                    {files[`/findings/${chip.id}.json`] && !modelText && <pre className="file-raw">{files[`/findings/${chip.id}.json`]}</pre>}
+                  </details>
+                </>
+              )}
+          </>
+        )}
+        {focus.startsWith("/") && (
+          <>
+            <h3>{focus}</h3>
+            {focus.endsWith(".json")
+              ? <><FileText text={files[focus.replace(/\.json$/, ".md")]} modelText={modelText} /><details className="drawer"><summary>Details</summary><pre className="file-raw">{modelText ? "Written by the AI model; its numbers are not shown. The checked findings are in the plan steps." : files[focus] ?? ""}</pre></details></>
+              : <FileText text={files[focus]} modelText={modelText} />}
           </>
         )}
         {focus === "coordinator" && (
           <>
-            <h3>Coordinator</h3>
+            <h3>Orchestrator</h3>
             {running ? <p className="team-live">{lines.length ? lines[lines.length - 1].message : "Waiting for the agents' findings."}</p> : out && (
               <ul className="team-findings">
                 {used.map((u, k) => <li key={`u${k}`}><b>Your feedback:</b> "{u.text}" <span className="team-params">→ {u.applied}</span></li>)}
@@ -122,10 +157,11 @@ export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan
             <p>{lines.length ? `${lines.map((e) => e.message.charAt(0).toUpperCase() + e.message.slice(1)).slice(-3).join(". ")}.` : "Every option the coordinator builds is run through the power-flow and fire models before it can reach you."}</p>
           </>
         )}
-        {!running && <p className="muted small">Click any box in the graph to read what it found.</p>}
+        {!running && <p className="muted small">Click an agent or a file in the graph to read what it wrote.</p>}
       </div>
 
       {planner && <p className={`muted small planner ${out?.fallback_reason ? "warn" : ""}`}>{planner}. Every number was checked by physics.</p>}
+      </details>
     </>
   );
 }
