@@ -37,7 +37,7 @@ export default function AlertsBell() {
           <p className="muted small">
             {data.dry_run
               ? <>Dry run: nothing is sent. Missing in <code>.env</code>: {data.missing.join(", ")}.</>
-              : <>Texts go to the {data.to}.</>}
+              : <>Texts go to the {data.to}.{data.trial ? " This is a Twilio trial account, so the phone gets Twilio's stock alert text instead of the wording below." : ""}</>}
           </p>
           {n === 0 && <p className="muted">No alerts yet. One goes out when a line is at very high fire risk, is likely to be knocked down, or a plan that turns lines off is approved.</p>}
           <ul className="bell-list">
@@ -46,6 +46,7 @@ export default function AlertsBell() {
                 <span className={`bell-status ${a.status.replace(" ", "-")}`}>{a.status === "dry run" ? "would have sent" : a.status}</span>
                 <span className="muted small"> · {SOURCE[a.source] ?? a.source}</span>
                 <div>{a.message}</div>
+                {a.note && <div className="muted small">{a.note}</div>}
               </li>
             ))}
           </ul>

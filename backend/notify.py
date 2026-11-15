@@ -10,7 +10,9 @@ Two ways in, one function out (`send`), so both obey the same on/off switch, the
 
 Settings come from the environment (.env, read by backend/llm.py): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
 TWILIO_FROM_NUMBER and ALERT_PHONE (who gets the texts). If any is missing, or the from-number is still a placeholder,
-nothing is sent: the message is kept and shown on screen as "would have sent" (a dry run). No number or key is ever
+nothing is sent: the message is kept and shown on screen as "would have sent" (a dry run). On a Twilio trial account
+only Twilio's stock templates can be sent, so the red-watch, approval and test texts go out as its stock alert (the
+phone buzzes, the wording is Twilio's) and the per-line texts are recorded but not sent; see TRIAL_TEMPLATE. No number or key is ever
 written into code, logs or the record; the screen shows only the last digits of the recipient.
 """
 from __future__ import annotations
@@ -28,6 +30,13 @@ COOLDOWN_S = 6 * 3600  # one text per line, per condition, per window this long 
 MAX_PER_HOUR = 1  # the worst line per condition per window gets a text, never the whole list
 KEEP = 60  # alerts kept for the bell
 SYNC = False  # tests set this: send in the calling thread instead of a background one
+# A Twilio trial account may not send its own wording: the message must be one of Twilio's stock templates, named in
+# place of the text. This is the one that reads as an operations alert. Our wording needs an upgraded account.
+TRIAL_TEMPLATE = "sms_internal_alerts"
+TRIAL_ERROR = 572006  # Twilio: "Trial accounts can only use predefined SMS templates"
+TRIAL_NOTE = ("Twilio trial account: the phone got Twilio's stock alert text, not this wording. Upgrade the Twilio account to send it as written.")
+TRIAL_SKIP = "Twilio trial account: only the red-watch, approval and test texts go out, as Twilio's stock alert."
+_trial = {"on": False}  # learned from Twilio's first refusal
 
 ALERTS: list[dict] = []  # newest last: {n, at_utc, message, source, status, why}
 STATE = {"on": True}
@@ -50,7 +59,7 @@ def status() -> dict:
     to = _setting("ALERT_PHONE")
     missing = [n for n in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "ALERT_PHONE")
                if not _setting(n) or (n in ("TWILIO_FROM_NUMBER", "ALERT_PHONE") and not _PHONE.match(_setting(n)))]
-    return {"on": STATE["on"], "dry_run": not configured(), "missing": missing,
+    return {"on": STATE["on"], "dry_run": not configured(), "missing": missing, "trial": _trial["on"],
             "to": ("number ending " + to[-4:]) if _PHONE.match(to) else None, "alerts": list(reversed(ALERTS))}
 
 
@@ -61,9 +70,17 @@ def _twilio_send(message: str, to: str) -> str:
     return TwilioAPIWrapper().run(message, to)
 
 
-def send(message: str, *, key: str | None = None, source: str = "code", why: str = "", wait: bool = False) -> dict | None:
+def _is_trial_refusal(e: Exception) -> bool:
+    return getattr(e, "code", None) == TRIAL_ERROR or "predefined SMS templates" in str(e)
+
+
+def send(message: str, *, key: str | None = None, source: str = "code", why: str = "", wait: bool = False, stock_ok: bool = True) -> dict | None:
     """Send one text, or record what would have been sent. None when alerts are off or `key` was already used
-    (the same line, condition and time window). `source` is "code", "agent" or "test"."""
+    (the same line, condition and time window). `source` is "code", "agent" or "test".
+
+    On a Twilio trial account our wording is refused. Then, when `stock_ok`, Twilio's stock alert template is sent in
+    its place so the phone still gets a text, and the entry says so; otherwise the entry is recorded as not sent.
+    Per-line alerts pass stock_ok=False: several copies of the same stock text would tell the operator nothing."""
     message = " ".join(str(message).split())[:300]
     with _lock:
         if not STATE["on"] or not message or (key and key in _seen):
@@ -76,9 +93,22 @@ def send(message: str, *, key: str | None = None, source: str = "code", why: str
         del ALERTS[:-KEEP]
     if entry["status"] == "sending":
         def work():
+            to = _setting("ALERT_PHONE")
             try:
-                _twilio_send(message, _setting("ALERT_PHONE"))
-                entry["status"] = "sent"
+                if not _trial["on"]:
+                    try:
+                        _twilio_send(message, to)
+                        entry["status"] = "sent"
+                        return
+                    except Exception as e:  # noqa: BLE001
+                        if not _is_trial_refusal(e):
+                            raise
+                        _trial["on"] = True
+                if stock_ok:
+                    _twilio_send(TRIAL_TEMPLATE, to)
+                    entry["status"], entry["note"] = "sent", TRIAL_NOTE
+                else:
+                    entry["status"], entry["note"] = "not sent", TRIAL_SKIP
             except Exception as e:  # noqa: BLE001  never let a text break a run; keep keys out of the note
                 entry["status"], entry["error"] = "failed", type(e).__name__
 
@@ -161,7 +191,7 @@ def on_hour(st, source: str = "code") -> list[dict]:
                 break
             if key in _seen:
                 continue
-            e = send(text(st, row), key=key, source=source, why=why)
+            e = send(text(st, row), key=key, source=source, why=why, stock_ok=False)
             if e:
                 out.append(e)
                 room -= 1
@@ -214,7 +244,7 @@ def agent_alert(st, message: str, log=None) -> str:
     if text and not withheld and text.lower().startswith("rewire alert"):
         body = text
     e = send(body, key=_key(st.eid, line, "storm" if use_storm else "fire", st.t_utc), source="agent",
-             why="likely to be knocked down" if use_storm else "very high fire risk")
+             why="likely to be knocked down" if use_storm else "very high fire risk", stock_ok=False)
     return "already alerted for this line" if e is None else f"alert {e['status']}"
 
 

@@ -124,3 +124,35 @@ def test_a_failed_send_is_recorded_without_the_error_text(monkeypatch, twilio):
     monkeypatch.setattr(N, "_twilio_send", boom)
     e = N.send("Rewire test", source="test", wait=True)
     assert e["status"] == "failed" and e["error"] == "RuntimeError" and "secret" not in str(N.status())
+
+
+def test_on_a_twilio_trial_account_the_stock_alert_goes_out_and_the_entry_says_so(woolsey, monkeypatch, twilio):
+    """A trial account may only send Twilio's stock templates. The phone still gets a text for the red watch, an
+    approval or a test; per-line alerts are recorded but not sent, since copies of one stock text say nothing."""
+    wire = []
+
+    class Refused(Exception):
+        code = N.TRIAL_ERROR
+
+    def trial_send(message, to):
+        wire.append(message)
+        if not message.startswith("sms_"):
+            raise Refused("Unable to create record: Invalid template name. Trial accounts can only use predefined SMS templates.")
+        return "SM1"
+
+    monkeypatch.setattr(N, "_twilio_send", trial_send)
+    e = N.send("Rewire test: text alerts are working.", source="test")
+    assert wire == ["Rewire test: text alerts are working.", N.TRIAL_TEMPLATE]  # our wording refused, the stock alert sent
+    assert e["status"] == "sent" and e["note"] == N.TRIAL_NOTE and e["message"].startswith("Rewire test") and N.status()["trial"]
+    from backend.la import watch as W
+
+    red = N.on_red(woolsey, W.at("E1", T_WOOLSEY))
+    assert red["status"] == "sent" and wire[2:] == [N.TRIAL_TEMPLATE]  # once known to be a trial, no wasted first attempt
+    lines = N.on_hour(woolsey)
+    assert lines and all(a["status"] == "not sent" and a["note"] == N.TRIAL_SKIP for a in lines) and len(wire) == 3
+
+    def down(message, to):
+        raise RuntimeError("network unreachable")
+
+    monkeypatch.setattr(N, "_twilio_send", down)
+    assert N.send("Rewire test again", source="test")["status"] == "failed"  # any other failure is still a failure

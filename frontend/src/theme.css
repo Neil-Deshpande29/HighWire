@@ -473,7 +473,7 @@ span.status.as-is { text-transform: none; }
 .bell-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .bell-list li { padding-top: 8px; border-top: 1px solid var(--hair); }
 .bell-status { font-weight: 600; color: var(--ok); }
-.bell-status.dry-run { color: var(--warn); } .bell-status.failed { color: var(--act); }
+.bell-status.dry-run { color: var(--warn); } .bell-status.failed { color: var(--act); } .bell-status.not-sent { color: var(--text-3); }
 .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .estimate-card { margin: 26px 0 8px; padding: 16px 18px; border: 1px dashed var(--warn); border-radius: var(--r); max-width: 620px; }
 .estimate-card b { display: block; font-size: 20px; margin: 8px 0 4px; }

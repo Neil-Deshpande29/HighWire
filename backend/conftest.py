@@ -41,5 +41,6 @@ def _no_alerts_left_over():
 
     notify.reset()
     notify.STATE["on"] = True
+    notify._trial["on"] = False
     yield
     notify.reset()
