@@ -53,6 +53,11 @@ class LACutIn(BaseModel):
     actions: list[dict] = []  # changes already made; the answer is what this line adds on top of them
 
 
+class LightsIn(BaseModel):
+    stage: str = "normal"  # "normal", "event" or "cut" (backend/lights.py)
+    at: float = 0.5  # where the trouble is along the strip: 0 = the grid's west edge, 1 = its east edge
+
+
 class LARoleIn(BaseModel):
     role: str = "operator"  # who is acting: "operator" or "supervisor"
     reasons: list[str] = []  # on a rejection: why (ids from backend/la/feedback.py REASONS)
@@ -454,3 +459,22 @@ def la_reset():
 @router.get("/la/state")
 def la_state():
     return LA["state"].view() if LA["state"] else {}
+
+
+@router.get("/lights")
+def lights_status():
+    """Is a strip connected, and which scene was it last given?"""
+    from . import lights
+
+    return lights.STRIP.status()
+
+
+@router.post("/lights")
+def lights_show(body: LightsIn):
+    """The LED strip follows the map: all green, a red stretch where lines are in trouble, and that stretch dark once a
+    line is switched off. Optional hardware: with no strip plugged in this only answers that none is connected."""
+    from . import lights
+
+    if body.stage not in lights.STAGES:
+        raise HTTPException(400, "stage is one of: " + ", ".join(lights.STAGES))
+    return lights.show(body.stage, body.at)

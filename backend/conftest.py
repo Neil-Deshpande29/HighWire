@@ -23,3 +23,11 @@ def _no_local_costar(tmp_path_factory):
     yield
     B.COSTAR_FILE = real
     B.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_paused_ai_team(monkeypatch):
+    """A quota refusal pauses the AI team for hours (backend/agents/team.py). Each test starts with it free to run."""
+    from backend.agents import team as T
+
+    monkeypatch.setitem(T._PAUSE, "until", 0.0)

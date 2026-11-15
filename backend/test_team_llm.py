@@ -170,6 +170,34 @@ def test_low_timeout_falls_back(state, fake, monkeypatch):
     assert _is_fallback(out, "timed out")
 
 
+GOOGLE_DAILY_REFUSAL = ("Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': "
+                        "'You exceeded your current quota. Quota exceeded for metric: generate_content_free_tier_requests, limit: 20. "
+                        "Please retry in 4h35m58.88s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'quotaId': "
+                        "'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', "
+                        "'retryDelay': '16558s'}]}}")
+
+
+def test_a_used_up_quota_is_said_plainly_and_the_ai_is_not_asked_again_until_it_resets(state, fake, monkeypatch):
+    monkeypatch.setitem(T._PAUSE, "until", 0.0)
+    asked = []
+
+    def refuse(state, log):
+        asked.append(1)
+        raise RuntimeError(GOOGLE_DAILY_REFUSAL)
+
+    monkeypatch.setattr(T, "_run_llm", refuse)
+    first = T.run_team(state, JobLog())
+    assert _is_fallback(first, "Google's free daily limit for this key is used up") and "about 5 hours" in first["fallback_reason"]
+    assert "RESOURCE_EXHAUSTED" not in first["fallback_reason"] and "{" not in first["fallback_reason"]
+    again = T.run_team(state, JobLog())
+    assert _is_fallback(again, "daily limit") and len(asked) == 1  # the second run did not wait on Google at all
+    monkeypatch.setitem(T._PAUSE, "until", 0.0)  # the limit has reset
+    T.run_team(state, JobLog())
+    assert len(asked) == 2
+    assert T.quota_refusal(RuntimeError("connection reset")) is None
+    assert T.quota_refusal(RuntimeError("429 RESOURCE_EXHAUSTED requests per minute 'retryDelay': '12s'")) == ("Google is limiting how fast this key may ask", 30.0)
+
+
 def test_no_key_runs_the_rule_based_planner(state, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setenv("GOOGLE_API_KEY", "")

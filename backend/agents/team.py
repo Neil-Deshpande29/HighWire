@@ -12,6 +12,7 @@ import json
 import os
 import re
 import threading
+import time
 
 from .. import llm as LLM
 from ..textguard import guard
@@ -249,12 +250,40 @@ def _run_llm(state, log) -> dict:
     return _parse_json(_text_of(result["messages"][-1]))
 
 
+# Set when Google refuses a call because the key's quota is used up. Until it resets, asking again only costs the
+# operator the wait before the same refusal, so the rule-based planner answers straight away.
+_PAUSE = {"until": 0.0, "why": ""}
+
+
+def _about(seconds: float) -> str:
+    n, unit = (round(seconds / 3600), "hour") if seconds >= 5400 else (max(1, round(seconds / 60)), "minute")
+    return f"{n} {unit}{'' if n == 1 else 's'}"
+
+
+def quota_refusal(err) -> tuple[str, float] | None:
+    """(plain reason, seconds until it is worth asking again) when a model error is Google's quota limit, else None."""
+    text = str(err)
+    if "RESOURCE_EXHAUSTED" not in text and "429" not in text:
+        return None
+    m = re.search(r"retryDelay'?\"?:\s*'?\"?(\d+(?:\.\d+)?)s", text)
+    wait = float(m.group(1)) if m else 60.0
+    wait = min(max(wait, 30.0), 6 * 3600.0)
+    daily = "per day" in text.lower() or "PerDay" in text
+    return ("Google's free daily limit for this key is used up" if daily else "Google is limiting how fast this key may ask"), wait
+
+
 def run_team(state, log: JobLog) -> dict:
     """Entry point used by the API. Always returns physics-verified output.
     The rule-based planner runs IN PARALLEL with the LLM team (silently), so a timeout or error falls back instantly."""
     if not LLM.enabled():
         out = run_mock(state, log, "mock mode: no GEMINI_API_KEY")
         out["fallback_reason"] = None  # no key is a setting, not a failure
+        return out
+    left = _PAUSE["until"] - time.time()
+    if left > 0:
+        why = f"{_PAUSE['why']}; the AI team can be asked again in about {_about(left)}"
+        out = run_mock(state, log, why)
+        out["fallback_reason"] = why
         return out
 
     gate = {"open": True}
@@ -298,6 +327,10 @@ def run_team(state, log: JobLog) -> dict:
     timeout = _timeout_s()
     th.join(timeout)
     if th.is_alive() or "err" in box or not isinstance(box.get("out"), dict):
+        refused = quota_refusal(box["err"]) if "err" in box and not th.is_alive() else None
+        if refused:
+            _PAUSE["why"], _PAUSE["until"] = refused[0], time.time() + refused[1]
+            return fall_back(f"{refused[0]}; the AI team can be asked again in about {_about(refused[1])}")
         return fall_back(f"agent run timed out after {timeout:.0f}s" if th.is_alive()
                          else f"agent run failed: {str(box.get('err'))[:120]}" if "err" in box
                          else "the AI team's answer could not be used: it was not a JSON object")
