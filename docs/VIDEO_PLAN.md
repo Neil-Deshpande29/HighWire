@@ -2,9 +2,39 @@
 
 Deadline: Sunday Nov 15, 8:00 am EST. Have the upload started by 7:30. Uploads are slow.
 
-**A full 2:00 cut already exists: `rewire_cut_v1.mp4`.** It plays start to finish with a stand-in voice. Record the takes listed under "What to record and send", drop them in `film/`, and they get cut in.
+**The finished cut is `rewire_cut_v2.mp4` (1:52, 1080p).** It is built from the seven takes in `film/`. `rewire_cut_v2_no_music.mp4` is the same cut without the music bed. `rewire_cut_v1.mp4` is the older stand-in version; the sections below the v2 notes describe how that one was planned.
 
 Everything is in `HighWire-work/video/` on Sohum's laptop. The clips are not in git because they show licensed Vexcel imagery.
+
+## Cut v2: what is where
+
+Your voices play at their real speed. Only the cards and app clips were retimed to fit the words.
+
+| Time | Picture | Voice (take) |
+|---|---|---|
+| 0:00 | Cold open card: the two fires | `01_coldopen_voice`, face in a circle, bottom right |
+| 0:12 | The four of you, full screen. The control-room picture covers "made across multiple screens" (0:21 to 0:23.6) | `02_intros` |
+| 0:25.6 | Logo | music only |
+| 0:28.2 | 3D map, the clock runs, the watch turns red on the word "red" (0:44.5), dive to the hazard | `04_part2_webcam`, circle |
+| 0:51.6 | Agent graph, shared files, physics check, the plan | `03_part2_webcam`, circle |
+| 1:17.3 | The Approve click lands on the word "approve" (1:19.3), the line goes dark | `05_part4_webcam`, first 4.6 s, circle |
+| 1:23.3 | Phone alert card, then the dark lines and the real fire's label, with two captions | music only |
+| 1:32.8 | Landscape card, then the proof card, both moved left | `0708_proofquote`, large circle on the right |
+| 1:48 | End card | `09_close` |
+
+### What was changed, and why
+
+- **File names.** `03_part2_webcam` is the agents part and `04_part2_webcam` is the map part. They are placed by what is said.
+- **Speaker 4's last sentence is not in the cut.** The take says the line we flagged "ended up igniting in the Woolsey fire". It did not: the line the plan switches off is about 9 km from where the fire started. The picture and two captions carry the proof instead ("Four hours later, the real Woolsey fire starts here" and "Top 1% for fire risk: the line nearest the real ignition, out of 829 in our replay"). To get a spoken line back, record this and drop it in `film/`: "Four hours later, the real Woolsey fire started. In our replay, the line nearest the ignition ranked in the top one percent for fire risk."
+- **No hardware shot**, so the phone card stays.
+- **The two company names are spoken, not written on screen.** Their spelling was not checked against the emails.
+- **Circles.** Every take except `02_intros` is cropped to a circle around the face. The crop boxes are in `tools/assemble2.py` if a face needs re-centring.
+
+### How v2 was built
+
+- `tools/assemble2.py` joins everything: `python3 -I assemble2.py`. Add `only-audio` to redo just the sound, `no-music` to leave the bed out. It expects the takes converted to standard colour first (`avconvert --preset Preset1920x1080`, built into macOS), because the phone files are HDR 4K.
+- Higgsfield: the three pictures (fire ridge, dark town, control room) and the music bed (27 s, looped quietly under the whole cut, louder where nobody speaks). Higgsfield does not allow unlimited generations from Claude Code, so only credits counted; they are now used up.
+- Word timings came from a speech-to-text model run on this laptop. Nothing was uploaded.
 
 ## The idea in one line
 
