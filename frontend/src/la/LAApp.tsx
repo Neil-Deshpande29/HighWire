@@ -19,7 +19,7 @@ import PlayerBar from "../ui/PlayerBar";
 import WatchCard from "../desk/WatchCard";
 import type { Mode } from "../ui/TopBar";
 import {
-  imageryUrl, la, NO_CONDITIONS, surroundUrl, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView,
+  imageryUrl, la, NO_CONDITIONS, surroundUrl, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LiveHazards, type LAStatic, type LAView,
   type RecordEntry, type RiskRegister, type Role, type Sensors, type Series,
 } from "./api";
 import {
@@ -258,6 +258,16 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // flickers between red and yellow does not call them twice.
   const serverApproved = hasApproval(hour?.copilot);
   const watch = hour?.watch;
+  // the live view also shows what the public warning services say right now: weather-service alerts and earthquakes
+  const [liveNow, setLiveNow] = useState<LiveHazards | null>(null);
+  useEffect(() => {
+    if (past) { setLiveNow(null); return; }
+    let on = true;
+    const load = () => la.liveHazards().then((x) => { if (on) setLiveNow(x); }).catch(() => null);
+    load();
+    const h = window.setInterval(load, 120000);
+    return () => { on = false; window.clearInterval(h); };
+  }, [past]);
   const spell = useRef<{ eid: string; called: boolean; trouble: number }>({ eid, called: false, trouble: 0 });
   const [notice, setNotice] = useState<string | null>(null);
   const troubleNow = useMemo(() => {
@@ -481,6 +491,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <LAScene s={s} hour={hour} colors={colors} layers={layers} imagery={imagery?.available ? imageryUrl(imagery.built_utc ?? "") : null}
           surround={imagery?.surround ? { url: surroundUrl(imagery.surround.built_utc), bbox: imagery.surround.bbox } : null} nav={nav} impact={impactOnMap}
           labelIds={labelIds} selected={selLine} dimBuses={dimBuses}
+          hazards={study ? [] : hour?.hazards ?? []} alerts={liveNow?.alerts ?? []} quakes={liveNow?.quakes ?? []}
+          onHazard={(hz) => setFocus({ lat: hz.lat, lon: hz.lon, spanKm: Math.max(26, hz.radius_km * 4), key: Date.now() })}
           showFires={past && revealed} focus={focus} overlay={overlay}
           onHoverLine={(bi, x, y) => setHover(bi == null ? null : { bi, x: x!, y: y! })}
           onClickLine={(bi, x, y) => { setSelLine(s.branches[bi].id); setPop({ kind: "line", id: s.branches[bi].id, x, y }); }}

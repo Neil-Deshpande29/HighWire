@@ -25,8 +25,10 @@ export default function AlertsBell() {
   const n = data?.alerts.length ?? 0;
   return (
     <div className="bell">
-      <button className={`bar-btn bell-btn ${fresh ? "fresh" : ""}`} aria-expanded={open} aria-label={`Text alerts: ${n}${fresh ? `, ${fresh} new` : ""}`} onClick={() => setOpen((o) => !o)}>
-        <span aria-hidden="true">🔔</span> {n}{data && !data.on ? " · off" : ""}
+      {/* a new alert makes the bell pulse red until it is opened */}
+      <button className={`bar-btn bell-btn ${fresh ? "alarm" : ""}`} aria-expanded={open} aria-label={`Text alerts: ${n}${fresh ? `, ${fresh} new` : ""}`} onClick={() => setOpen((o) => !o)}>
+        <svg className="bell-icon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M12 2.5a1.4 1.4 0 0 1 1.4 1.4v.6a6.3 6.3 0 0 1 4.9 6.1v3.3l1.6 2.6c.4.7-.1 1.5-.9 1.5H5c-.8 0-1.3-.8-.9-1.5l1.6-2.6v-3.3a6.3 6.3 0 0 1 4.9-6.1v-.6A1.4 1.4 0 0 1 12 2.5Zm-2.2 17h4.4a2.2 2.2 0 0 1-4.4 0Z" /></svg>
+        <b>{n}</b>{data && !data.on ? " · off" : ""}
       </button>
       {open && data && (
         <div className="bell-pop glass" role="dialog" aria-label="Text alerts">

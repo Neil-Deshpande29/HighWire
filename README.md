@@ -129,6 +129,23 @@ code (`backend/agents/synthesis.py`, `confidence`). Finding trouble does not low
 problem may be missed or understated: a weather station measuring worse than the model, an all-clear while warnings are
 up, no safe plan yet, or thin evidence. It is a rule of thumb, not a probability.
 
+## The map in three dimensions, and hazards on it (2026-11-15)
+
+- **Relief.** The terrain is stretched 4.6 times and lit by a low sun, the camera looks in at a slant, and the region is
+  a solid block with cut edges standing in its darker surroundings. Wires ride above the ground on pylons.
+- **Imagery.** The tile service has no pictures of open sea. Those gaps used to show as flat stair-steps; they are now
+  one sea colour with a soft shore (`backend/la/basemap.py`, `fill_gaps`), in the region's picture and around it.
+- **Detected hazards.** `backend/la/hazards.py` groups this hour's trouble into places: lines over (or climbing toward)
+  their fire alarm, lines the storm model expects to be knocked down, overloaded lines. Each place is drawn where it
+  is (`frontend/src/la/Hazards.tsx`): a burst of quick pulses when it appears, then rings spreading over the ground and
+  a column of light. Fire glows, throws embers downwind and lays a wedge where a spark would be carried; storm damage
+  turns under slanting rain. Click a hazard's label to fly to it. Only this hour and earlier ones are read.
+- **Live warnings.** In the live view the map also shows what the public services say right now: active National
+  Weather Service alerts for the region (Red Flag, wind, flood, tornado, hurricane, heat, surf...) as translucent
+  curtains on their areas, and recent USGS earthquakes as ripples from the epicentre. No key needed; the answer is
+  cached for two minutes on the server, so everyone using it sees the same; with no network the map just shows none.
+  Replays show the Red Flag Warnings that were in force at the time, the same way.
+
 ## Text alerts
 
 `backend/notify.py` sends a text through LangChain's `TwilioAPIWrapper` when a line is at very high fire risk, when the

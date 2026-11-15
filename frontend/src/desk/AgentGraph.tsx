@@ -14,7 +14,7 @@ const TOOL_WORDS: Record<string, string> = {
   get_critical_sites: "checking critical sites", get_building_impact: "checking buildings", get_candidate_actions: "listing possible moves",
   simulate_plan: "testing a plan", ls: "listing the files", send_alert: "sending a text alert", get_operator_feedback: "reading your feedback",
 };
-const W = 316, ORCH_W = 150, VFS_X = 166, VFS_W = 150, TOP_H = 44, FILE_H = 11.5, AH = 46, PH = 40, QH = 30;
+const W = 316, ORCH_W = 168, TOP_H = 44, FILE_H = 12, AH = 46, PH = 40, QH = 30, RAIL = -9;
 const STEP_MIN = 190, STEP_MAX = 650; // ms between events on screen: slow enough to follow, quick enough for a long run
 
 type Ev = LogEntry & { kind: string; meta: Record<string, unknown> };
@@ -77,64 +77,67 @@ export default function AgentGraph({ job, selectedPlan, focus, onFocus, onPlan }
   // called but never started: only known to be missing once the run is over
   const ghosts = over ? Object.keys(g.route).filter((a) => g.route[a].called && !g.agents.some((x) => x.id === a)) : [];
   const row = [...g.agents.map((a) => ({ ...a, ghost: false })), ...ghosts.map((id) => ({ id, done: true, wrote: false, tool: null, findings: null, ghost: true }))];
-  const vfsH = Math.max(TOP_H, 20 + g.files.length * FILE_H + 5);
-  const AY = vfsH + 34, gap = 5, aw = row.length ? Math.min(74, (W - gap * (row.length - 1)) / row.length) : 0;
+  // top to bottom, nothing crossing: the orchestrator, the agents it called, the shared files they write into, the
+  // physics check, the plans. The orchestrator reads the files back along the rail down the left edge.
+  const mid = W / 2, orchX = mid - ORCH_W / 2;
+  const gap = 5, aw = row.length ? Math.min(74, (W - gap * (row.length - 1)) / row.length) : 0;
   const ax = (k: number) => (W - (row.length * aw + (row.length - 1) * gap)) / 2 + k * (aw + gap);
-  const orchMid = ORCH_W / 2, vfsMid = VFS_X + VFS_W / 2, mid = W / 2;
-  const PY = AY + (row.length ? AH + 26 : 0), showPhysics = !!g.physics || g.verified > 0 || !!g.plans;
+  const AY = TOP_H + 30;
+  const FY = row.length ? AY + AH + 24 : TOP_H + 24;
+  const fileRows = Math.max(1, Math.ceil(g.files.length / 2));
+  const filesH = 22 + fileRows * FILE_H + 6;
+  const fileAt = (path: string): [number, number] => {
+    const k = Math.max(0, g.files.findIndex((f) => f.path === path));
+    return [12 + (k % 2) * (W / 2 - 6), FY + 20 + (Math.floor(k / 2) + 1) * FILE_H - 3];
+  };
+  const showPhysics = !!g.physics || g.verified > 0 || !!g.plans;
+  const PY = FY + filesH + 22;
   const plans = g.plans ?? [];
-  const QY = PY + PH + 24, qw = Math.min(96, (W - 8 * Math.max(plans.length - 1, 0)) / Math.max(plans.length, 1));
+  const QY = PY + PH + 22, qw = Math.min(96, (W - 8 * Math.max(plans.length - 1, 0)) / Math.max(plans.length, 1));
   const qx = (k: number) => mid - (plans.length * qw + (plans.length - 1) * 8) / 2 + k * (qw + 8);
-  const H = (g.plans ? QY + QH : showPhysics ? PY + PH : row.length ? AY + AH : vfsH) + 6;
+  const H = (g.plans ? QY + QH : showPhysics ? PY + PH : FY + filesH) + 6;
+  const rail = `M0,${FY + 14} H${RAIL} V${TOP_H / 2} H${orchX}`; // files -> orchestrator, up the left edge
 
   // one packet in flight, for the event that just came on screen
-  let packet: { from: [number, number]; to: [number, number]; phone?: boolean } | null = null;
+  let packet: { path: string; phone?: boolean } | null = null;
   if (last && !still()) {
     const m = last.meta, k = row.findIndex((a) => a.id === String(m.agent ?? last.agent));
-    const fileY = (path: string) => 20 + Math.max(0, g.files.findIndex((f) => f.path === path)) * FILE_H + 4;
-    if (last.kind === "vfs_write") packet = { from: k >= 0 ? [ax(k) + aw / 2, AY] : [ORCH_W, TOP_H / 2], to: [vfsMid, fileY(String(m.path))] };
-    else if (last.kind === "vfs_read") packet = { from: [VFS_X, fileY(String(m.path))], to: [ORCH_W, TOP_H / 2] };
-    else if (last.kind === "tool" && m.tool === "send_alert") packet = { from: [orchMid, 6], to: [orchMid - 40, -14], phone: true };
+    if (last.kind === "vfs_write") {
+      const [fx, fy] = fileAt(String(m.path));
+      packet = { path: k >= 0 ? `M${ax(k) + aw / 2},${AY + AH} L${fx + 20},${fy - 4}` : `M${mid},${TOP_H} L${fx + 20},${fy - 4}` };
+    } else if (last.kind === "vfs_read") packet = { path: rail };
+    else if (last.kind === "tool" && m.tool === "send_alert") packet = { path: `M${orchX + ORCH_W - 10},6 L${orchX + ORCH_W + 34},-12`, phone: true };
   }
   const key = (id: NodeId, fn: (id: NodeId) => void) => (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(id); } };
   const skipped = Object.keys(NAME).filter((a) => g.route[a] && !g.route[a].called);
-  const orchSub = failed ? "stopped" : !seen.length ? "starting" : g.plans ? `${plans.length} plan${plans.length === 1 ? "" : "s"} ready`
+  // before the first event the run still says something: which planner it is asking, and its latest line
+  const said = job.log.filter((e) => !e.kind && (e.agent === "coordinator" || e.agent === "system"));
+  const asking = said.some((e) => /^model /.test(e.message));
+  const orchSub = failed ? "stopped" : !seen.length ? (asking ? "asking the AI team" : running ? "starting" : "idle") : g.plans ? `${plans.length} plan${plans.length === 1 ? "" : "s"} ready`
     : last?.kind === "route" ? "deciding who to call" : last?.kind === "vfs_read" ? "reading the findings" : g.orchTool && g.agents.every((a) => a.done) ? TOOL_WORDS[g.orchTool] ?? "working"
     : g.agents.some((a) => !a.done) ? "waiting for the agents" : "working";
 
   return (
     <div className="agraph">
-      <svg className={`synth ${running || !caughtUp ? "running" : ""}`} viewBox={`0 -16 ${W} ${H + 16}`} role="group" aria-label="What the agents are doing">
+      <svg className={`synth ${running || !caughtUp ? "running" : ""}`} viewBox={`${RAIL - 4} -16 ${W - RAIL + 8} ${H + 16}`} role="group" aria-label="What the agents are doing">
         {row.map((a, k) => (
           <path key={a.id} className={`edge appear ${a.ghost ? "idle" : a.done ? "used" : "flow"}`}
-            d={`M${orchMid},${TOP_H} C${orchMid},${TOP_H + 26} ${ax(k) + aw / 2},${AY - 24} ${ax(k) + aw / 2},${AY}`} />
+            d={`M${mid},${TOP_H} C${mid},${TOP_H + 18} ${ax(k) + aw / 2},${AY - 18} ${ax(k) + aw / 2},${AY}`} />
         ))}
-        <path className={`edge ${g.readPaths.size ? "used" : "idle"}`} d={`M${ORCH_W},${TOP_H / 2} L${VFS_X},${TOP_H / 2}`} />
-        {showPhysics && <path className="edge used appear" d={`M${orchMid},${TOP_H} C${orchMid - 60},${TOP_H + 40} ${mid - 100},${PY - 50} ${mid},${PY}`} />}
+        {row.map((a, k) => !a.ghost && <path key={`w${a.id}`} className={`edge ${a.wrote ? "used" : "idle"}`} d={`M${ax(k) + aw / 2},${AY + AH} V${FY}`} />)}
+        {!row.length && <path className={`edge ${g.files.length ? "used" : "idle"}`} d={`M${mid},${TOP_H} V${FY}`} />}
+        <path className={`edge ${g.readPaths.size ? "used" : "idle"}`} d={rail} />
+        {showPhysics && <path className="edge used appear" d={`M${mid},${FY + filesH} V${PY}`} />}
         {plans.map((p, k) => (
-          <path key={p.id} className={`edge drawn ${p.safe ? "safe" : "unsafe"}`} d={`M${mid},${PY + PH} C${mid},${PY + PH + 14} ${qx(k) + qw / 2},${QY - 14} ${qx(k) + qw / 2},${QY}`} />
+          <path key={p.id} className={`edge drawn ${p.safe ? "safe" : "unsafe"}`} d={`M${mid},${PY + PH} C${mid},${PY + PH + 12} ${qx(k) + qw / 2},${QY - 12} ${qx(k) + qw / 2},${QY}`} />
         ))}
 
         <g className={`node ${failed ? "err" : over ? "done" : "busy"} ${focus === "coordinator" ? "focus" : ""}`} role="button" tabIndex={0}
           onClick={() => onFocus("coordinator")} onKeyDown={key("coordinator", onFocus)}>
           <title>The orchestrator decides which agents this hour needs, reads their findings from the shared files and builds the plans.</title>
-          <rect x={0} y={0} width={ORCH_W} height={TOP_H} rx={10} className="box solid" />
-          <text x={orchMid} y={18} className="n-name on-solid">Orchestrator</text>
-          <text x={orchMid} y={33} className="n-sub on-solid">{orchSub}</text>
-        </g>
-
-        <g className={`node done vfs ${focus?.startsWith("/") ? "focus" : ""}`}>
-          <title>The shared files: every agent writes its findings here and the orchestrator reads them back.</title>
-          <path className="box folder" d={`M${VFS_X},8 h46 l6,-8 h${VFS_W - 60} a8,8 0 0 1 8,8 v${vfsH - 8} a8,8 0 0 1 -8,8 h${-(VFS_W - 16)} a8,8 0 0 1 -8,-8 z`} />
-          <text x={VFS_X + 9} y={15} className="n-name left">Shared files</text>
-          {!g.files.length && <text x={VFS_X + 9} y={31} className="n-sub left">empty</text>}
-          {g.files.map((f, k) => (
-            <text key={f.path} x={VFS_X + 9} y={20 + (k + 1) * FILE_H} role="button" tabIndex={0}
-              className={`file left appear ${g.readPaths.has(f.path) ? "read" : ""} ${focus === f.path ? "picked" : ""} ${last?.meta.path === f.path ? "fresh" : ""}`}
-              onClick={() => onFocus(f.path)} onKeyDown={key(f.path, onFocus)}>
-              {f.path.replace(/^\/(findings|plan)\//, "").replace(/_agent/, "")}{g.readPaths.has(f.path) ? " ✓" : ""}
-            </text>
-          ))}
+          <rect x={orchX} y={0} width={ORCH_W} height={TOP_H} rx={10} className="box solid" />
+          <text x={mid} y={18} className="n-name on-solid">Orchestrator</text>
+          <text x={mid} y={33} className="n-sub on-solid">{orchSub}</text>
         </g>
 
         {row.map((a, k) => {
@@ -145,16 +148,33 @@ export default function AgentGraph({ job, selectedPlan, focus, onFocus, onPlan }
               onClick={() => onFocus(a.id)} onKeyDown={key(a.id, onFocus)}>
               <title>{`${NAME[a.id] ?? a.id} agent: ${sub}. Click to read what it wrote.`}</title>
               <rect x={ax(k)} y={AY} width={aw} height={AH} rx={8} className="box" />
-              <text x={ax(k) + aw / 2} y={AY + 17} className="n-name">{NAME[a.id] ?? a.id}</text>
-              <text x={ax(k) + aw / 2} y={AY + 32} className="n-sub">{sub.length > 17 && aw < 70 ? `${sub.slice(0, 15)}…` : sub}</text>
+              <text x={ax(k) + aw / 2} y={AY + 18} className="n-name">{NAME[a.id] ?? a.id}</text>
+              <text x={ax(k) + aw / 2} y={AY + 33} className="n-sub">{sub.length > 15 && aw < 70 ? `${sub.slice(0, 13)}…` : sub}</text>
             </g>
           );
         })}
 
+        <g className={`node done vfs ${focus?.startsWith("/") ? "focus" : ""}`}>
+          <title>The shared files: every agent writes its findings here and the orchestrator reads them back.</title>
+          <rect x={0} y={FY} width={W} height={filesH} rx={9} className="box folder" />
+          <text x={10} y={FY + 15} className="n-name left">Shared files</text>
+          <text x={W - 10} y={FY + 15} className="n-sub right">{g.files.length ? `${g.files.length} written · ${g.readPaths.size} read` : "empty"}</text>
+          {g.files.map((f) => {
+            const [fx, fy] = fileAt(f.path);
+            return (
+              <text key={f.path} x={fx} y={fy} role="button" tabIndex={0}
+                className={`file left appear ${g.readPaths.has(f.path) ? "read" : ""} ${focus === f.path ? "picked" : ""} ${last?.meta.path === f.path ? "fresh" : ""}`}
+                onClick={() => onFocus(f.path)} onKeyDown={key(f.path, onFocus)}>
+                {f.path.replace(/^\/(findings|plan)\//, "").replace(/_agent/, "")}{g.readPaths.has(f.path) ? " ✓" : ""}
+              </text>
+            );
+          })}
+        </g>
+
         {showPhysics && (
           <g className={`node appear ${g.plans ? "done" : "busy"} ${focus === "physics" ? "focus" : ""}`} role="button" tabIndex={0} onClick={() => onFocus("physics")} onKeyDown={key("physics", onFocus)}>
             <title>Every option is run through the physics before it can reach you.</title>
-            <rect x={mid - 82} y={PY} width={164} height={PH} rx={10} className="box check" />
+            <rect x={mid - 88} y={PY} width={176} height={PH} rx={10} className="box check" />
             <text x={mid} y={PY + 16} className="n-name">Physics check</text>
             <text x={mid} y={PY + 30} className="n-sub">
               {g.physics?.screened != null ? `${g.physics.screened} option${g.physics.screened === 1 ? "" : "s"} tested · ${g.physics.safe} safe` : g.verified ? `${g.verified} plan${g.verified === 1 ? "" : "s"} re-checked` : "checking"}
@@ -174,10 +194,11 @@ export default function AgentGraph({ job, selectedPlan, focus, onFocus, onPlan }
         {packet && (
           <g key={shown} className="packet">
             {packet.phone ? <text className="phone" x={0} y={0}>📱</text> : <circle r={4.5} />}
-            <animateMotion dur="0.55s" fill="freeze" path={`M${packet.from[0]},${packet.from[1]} L${packet.to[0]},${packet.to[1]}`} />
+            <animateMotion dur="0.55s" fill="freeze" path={packet.path} />
           </g>
         )}
       </svg>
+      {running && !seen.length && said.length > 0 && <p className="route-note">{said[said.length - 1].message.slice(0, 140)}</p>}
       {skipped.length > 0 && (
         <p className="route-note">Not called: {skipped.map((a) => `${NAME[a]} (${g.route[a].reason || "not needed"})`).join("; ")}</p>
       )}
