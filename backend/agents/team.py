@@ -9,6 +9,7 @@ verified, or after a timeout. The result always says which planner produced it: 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import os
 import re
 import threading
@@ -361,6 +362,28 @@ def _run_llm(state, log) -> dict:
 # Set when Google refuses a call because the key's quota is used up. Until it resets, asking again only costs the
 # operator the wait before the same refusal, so the rule-based planner answers straight away.
 _PAUSE = {"until": 0.0, "why": ""}
+# The pause is kept in a small file too, so a restarted server does not spend its first run waiting on the same refusal.
+_PAUSE_FILE = Path(__file__).resolve().parents[2] / "data" / "processed" / "ai_team_pause.json"
+
+
+def _load_pause() -> None:
+    try:
+        saved = json.loads(_PAUSE_FILE.read_text())
+        if float(saved["until"]) > time.time():
+            _PAUSE.update(until=float(saved["until"]), why=str(saved["why"]))
+    except Exception:  # noqa: BLE001  no file, or an unreadable one: no pause
+        pass
+
+
+def _save_pause() -> None:
+    try:
+        _PAUSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _PAUSE_FILE.write_text(json.dumps({"until": _PAUSE["until"], "why": _PAUSE["why"]}))
+    except Exception:  # noqa: BLE001  a pause that cannot be saved still holds until the next restart
+        pass
+
+
+_load_pause()
 
 
 def _about(seconds: float) -> str:
@@ -386,6 +409,10 @@ def run_team(state, log: JobLog) -> dict:
     if not LLM.enabled():
         out = run_mock(state, log, "mock mode: no GEMINI_API_KEY")
         out["fallback_reason"] = None  # no key is a setting, not a failure
+        return out
+    if os.environ.get("AGENT_PLANNER", "auto").strip().lower() in ("rules", "rule-based", "mock"):
+        out = run_mock(state, log, "the rule-based planner is selected (AGENT_PLANNER=rules)")
+        out["fallback_reason"] = None  # a setting, not a failure
         return out
     left = _PAUSE["until"] - time.time()
     if left > 0:
@@ -462,6 +489,7 @@ def run_team(state, log: JobLog) -> dict:
         refused = quota_refusal(box["err"]) if "err" in box and not th.is_alive() else None
         if refused:
             _PAUSE["why"], _PAUSE["until"] = refused[0], time.time() + refused[1]
+            _save_pause()
             return fall_back(f"{refused[0]}; the AI team can be asked again in about {_about(refused[1])}")
         return fall_back(f"agent run timed out after {timeout:.0f}s" if th.is_alive()
                          else f"agent run failed: {str(box.get('err'))[:120]}" if "err" in box

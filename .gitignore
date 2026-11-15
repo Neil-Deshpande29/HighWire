@@ -36,3 +36,5 @@ data/processed/imagery/
 
 # What the operator said when rejecting a plan (kept for the coordinator; runtime data, not code)
 data/processed/feedback/
+# when the AI team may be asked again after a quota refusal (backend/agents/team.py)
+data/processed/ai_team_pause.json
