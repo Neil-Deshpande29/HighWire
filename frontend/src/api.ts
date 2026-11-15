@@ -8,8 +8,6 @@ export type BuildingsOut = {
   by_kind: Record<string, number>; score: number; n: number; hospitals?: number; severity?: Severity | null;
   /** `critical` counts tiers 1 to 3 (hospitals, water plants, medical sites, senior housing, schools); `homes` is apartment homes from CoStar. */
   critical?: number; homes?: number; ladder?: { tier: number; name: string; n: number }[];
-  /** Buildings among these with a Matterport 3D tour (CoStar), the ones that matter most first; `models` are Matterport model ids. */
-  tours?: { name: string; kind: string; units: number | null; models: string[] }[]; n_tours?: number;
   sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string; severity?: Severity; units?: number | null }[];
 };
 /** Who may approve (backend/la/authority.py): the operator alone, only with a supervisor, or nobody (fails physics). */

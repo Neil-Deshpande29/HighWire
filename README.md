@@ -146,15 +146,6 @@ up, no safe plan yet, or thin evidence. It is a rule of thumb, not a probability
   cached for two minutes on the server, so everyone using it sees the same; with no network the map just shows none.
   Replays show the Red Flag Warnings that were in force at the time, the same way.
 
-## See inside: Matterport tours (2026-11-15)
-
-The CoStar kit lists the Matterport 3D tours CoStar holds of each property. The importer (`make costar FILE=...`) now
-keeps them, so 1,553 of the 1,578 Los Angeles buildings in the app carry their tours. Wherever the app lists the
-buildings that would lose power ("Who is affected" for a plan, and the box of a line you are about to switch off), the
-ones with a tour get a **See inside** button that opens the tour over the screen (`frontend/src/desk/Tours.tsx`).
-The tours are public, so the viewer needs no key; the Matterport keys in `.env` are not needed for this. It shows who is
-behind a cut and changes no number. With this the app uses all three CoStar layers: the data kit, Vexcel and Matterport.
-
 ## Text alerts
 
 `backend/notify.py` sends a text through LangChain's `TwilioAPIWrapper` when a line is at very high fire risk, when the

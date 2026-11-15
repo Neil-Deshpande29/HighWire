@@ -3,7 +3,6 @@ import type { Action, BuildingsOut, Severity } from "../api";
 import type { Branch, Hour, RiskRow, SimResult, TopLine } from "../la/api";
 import { buildingsText, fmtInt, fmtPeople, homesText, mph, plainAgentText } from "../ui/format";
 import { Sev } from "./marks";
-import Tours from "./Tours";
 import { Sheet } from "./sheets";
 
 export type LineFinding = { agent: string; issue: string; evidence: string; severity: number };
@@ -65,7 +64,6 @@ export default function LineSheet({ line, bi, hour, lines, alarm, isOff, capPct,
           </div>}
         </div>
       )}
-      {!isOff && line.kv < 180 && <Tours out={cut} />}
 
       {(planNotes.length > 0 || findings.length > 0) && (
         <>
