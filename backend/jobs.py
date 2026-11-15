@@ -46,4 +46,5 @@ def view(job_id: str) -> dict | None:
     job = JOBS.get(job_id)
     if not job:
         return None
-    return {"status": job["status"], "log": job["log"].entries, "output": job["output"], "error": job.get("error")}
+    return {"status": job["status"], "log": job["log"].entries, "output": job["output"], "error": job.get("error"),
+            "vfs": dict(job["log"].vfs)}  # the run's shared files so far, so the screen can open one while the run goes on

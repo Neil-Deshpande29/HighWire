@@ -5,6 +5,10 @@ export type LAEvent = {
   start: string; end: string; has_replay: boolean; fires: string[];
   v4a: { lead_time_h: number | null; spearman_la: number; first_alarm_utc: string | null; first_spike_utc: string | null } | null;
 };
+export type Alerts = {
+  on: boolean; dry_run: boolean; missing: string[]; to: string | null;
+  alerts: { n: number; at_utc: string; message: string; source: string; status: string; why: string }[];
+};
 export type Branch = {
   id: string; kv: number; kv_class: number; cable: boolean; name: string | null; zone: string;
   from_bus: string; to_bus: string; length_km: number; rating_a: number; geometry: [number, number][];
@@ -190,6 +194,10 @@ export const la = {
   escalate: (id: string) => post<{ plan_status: Record<string, string>; authority: Authority }>(`/la/plans/${id}/escalate`),
   record: () => get<{ entries: RecordEntry[]; basis: string }>("/la/record"),
   reset: () => post<{ entries: RecordEntry[] }>("/la/reset"),
+  /** Text alerts (backend/notify.py): what went out or would have, a test text, and the on/off switch. */
+  alerts: () => get<Alerts>("/alerts"),
+  alertsTest: () => post<Alerts>("/alerts/test"),
+  alertsSwitch: (on: boolean) => post<Alerts>("/alerts/switch", { on }),
   /** The LED strip, if one is plugged in: tell the server which hour is on screen and what was switched by hand.
    *  The server works out the scene and changes the strip itself when a plan is approved (backend/routes_la.py). */
   lights: (event: string, t: string, actions: Action[]) => post<{ connected: boolean }>("/lights", { event, t, actions }),

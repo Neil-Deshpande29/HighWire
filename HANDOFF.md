@@ -60,6 +60,19 @@ ignitions in the top 6% of 829. One storm so far; every result, including ties, 
 - **Forecast archive** (Open-Meteo Previous Runs) starts 2024-01-20. Every new windstorm after today is a clean test.
 - Full reasoning: `validation/DECISIONS.md`. Every audit item and the **discarded-ideas pile**: [`AUDIT.md`](AUDIT.md).
 
+## Since the audit (2026-11-15)
+
+- **Agents: routing, shared files, synthesis.** The orchestrator decides which specialists to call
+  (`/plan/dispatch.md`), each writes `/findings/<agent>.json` and `.md` to the run's virtual file system, and the
+  orchestrator reads them back before building plans. Both planners do this and emit the same structured events
+  (`backend/agents/tools.py` `EVENT_KINDS`); the screen's agent graph is drawn from them. See README, "Agents".
+- **Text alerts.** `backend/notify.py`, through LangChain's Twilio wrapper. Settings by name only, in `.env`:
+  `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_PHONE`. Missing any of them means a dry run.
+- **Accuracy figure.** `ACCURACY_10MIN` in `frontend/src/config.ts` is a placeholder, not a measurement.
+- **Screen.** Player bar along the bottom; the plan under the agent graph; most boxes start closed.
+- **Unfinished:** the AI team's new flow has not run against Gemini (free-tier key); no real text has been sent (no
+  from-number); the accuracy figure needs a measured value.
+
 ## Next steps (priority order, from AUDIT.md)
 
 1. **Resident reports on the real LA grid + responder alert.** `LAState.reports_view()` returns `[]`; snap reports to LA lines

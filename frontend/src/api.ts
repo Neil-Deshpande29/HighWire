@@ -14,7 +14,7 @@ export type BuildingsOut = {
 export type Authority = { level: "operator" | "supervisor" | "blocked"; reasons: string[]; basis: string };
 export type Plan = {
   id: string; title: string; actions: Action[]; authority?: Authority; from_feedback?: boolean;
-  steps: { action: Action; why: string; raised_by: string[]; buildings?: BuildingsOut }[];
+  steps: { action: Action; why: string; raised_by: string[]; raised_from?: string[]; buildings?: BuildingsOut }[];
   result: { is_safe: boolean; unserved_mw: number; customers_out: number; violations: string[]; critical_on_backup: string[]; n1_warnings: string[]; watch?: string[];
             hospitals_on_backup?: number; buildings_out?: BuildingsOut };
   tradeoffs: string; confidence: number; assumptions: string[]; attempts: number; least_bad?: boolean;
@@ -31,6 +31,8 @@ export type CopilotOutput = {
   feedback_used?: { reason: string; text: string; applied: string }[];
   /** How the team's work came together (backend/agents/synthesis.py), drawn as a small graph. */
   synthesis?: Synthesis;
+  /** The run's shared files at the end (path -> text). */
+  vfs?: Record<string, string>;
 };
 export type Synthesis = {
   mode: string;
@@ -60,5 +62,7 @@ export type Brief = {
   trust: { check: string; status: string | null; headline: string | null }[];
   headlines: string[];
 };
-export type LogEntry = { t: number; agent: string; team: string; message: string };
-export type Job = { status: "running" | "done" | "error"; log: LogEntry[]; output: CopilotOutput | null; error?: string };
+/** One line of a run's log. A line may also be a structured event (`kind`, `meta`): the agent graph is drawn from those. */
+export type LogEntry = { t: number; agent: string; team: string; message: string; kind?: string; meta?: Record<string, unknown> };
+/** `vfs` is the run's shared files so far (path -> text): the agents' findings and the orchestrator's dispatch note. */
+export type Job = { status: "running" | "done" | "error"; log: LogEntry[]; output: CopilotOutput | null; error?: string; vfs?: Record<string, string> };

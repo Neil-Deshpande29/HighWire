@@ -122,42 +122,59 @@ export function Tradeoff({ base, sim, heat }: { base: SimResult; sim: SimResult;
 }
 
 /** The selected option, spelled out: what it does, what it buys and costs, and its steps. */
-export function OptionDetail({ option, base, s, sentence, heat, peek, onPeek, onAffected }: {
+/** The four numbers that decide an option: what it leaves at risk, and what it costs. */
+function KeyNumbers({ sim, heat }: { sim: SimResult; heat: boolean }) {
+  const a = sim.situation;
+  const tiles: [string, string, boolean][] = heat
+    ? [[fmtInt(a.n_overloaded), "lines over rating", a.n_overloaded > 0], [`${Math.round(a.max_loading)}%`, "busiest line", a.max_loading > 100]]
+    : [[fmtInt(a.n_high_risk), "lines at high fire risk", a.n_high_risk > 0], [fmtPeople(a.people_downwind), "people downwind", false]];
+  tiles.push([fmtInt(sim.customers_out), "customers cut off", false], [fmtInt(sim.buildings_out?.critical ?? 0), "critical sites on backup", (sim.buildings_out?.critical ?? 0) > 0]);
+  return <div className="key-nums">{tiles.map(([n, label, warn]) => <div key={label}><b className={warn ? "warn" : ""}>{n}</b><span>{label}</span></div>)}</div>;
+}
+
+export function OptionDetail({ option, base, s, sentence, heat, peek, onPeek, onAffected, children }: {
   option: Option; base: SimResult | null; s: LAStatic; sentence: string; heat: boolean; peek: boolean; onPeek: (on: boolean) => void; onAffected: () => void;
+  children?: React.ReactNode;
 }) {
   const sim = option.sim, plan = option.plan;
   return (
     <div className={`detail ${option.kind}`}>
       <p className="plan-sentence">{sentence}</p>
-      <div className="detail-head">
-        <span className="plan-tag">{option.label}</span>
-        {option.tag && <em className="opt-tag">{option.tag}</em>}
-      </div>
       {!sim ? <div className="muted small">Checking the physics…</div> : option.kind === "nothing" ? (
         <div className="why-not">{sim.is_safe ? "Safe as it is." : `Not safe: ${sim.n_violations} problem${sim.n_violations === 1 ? "" : "s"}, such as ${plainViolation(sim.violations[0] ?? "")}.`}</div>
       ) : (
         <>
-          {base && <Tradeoff base={base} sim={sim} heat={heat} />}
+          <KeyNumbers sim={sim} heat={heat} />
           {!sim.is_safe && <div className="why-not">Not safe, so it can't be approved: {plainViolation(sim.violations[0] ?? "")}{sim.n_violations > 1 ? ` (+${sim.n_violations - 1} more)` : ""}.</div>}
+        </>
+      )}
+      {sim && option.kind !== "nothing" && (
+        <details className="drawer">
+          <summary>Details</summary>
+          <div className="detail-head">
+            <span className="plan-tag">{option.label}</span>
+            {option.tag && <em className="opt-tag">{option.tag}</em>}
+          </div>
+          {base && <Tradeoff base={base} sim={sim} heat={heat} />}
+          {children}
           <div className="detail-btns">
             <button className="secondary small-btn" aria-pressed={peek} onClick={() => onPeek(!peek)}>{peek ? "Map shows: now" : "Map shows: this option"}</button>
             {(sim.buildings_out?.n || sim.fire_exposure.n) ? <button className="secondary small-btn" onClick={onAffected}>Who is affected</button> : null}
           </div>
-        </>
-      )}
-      {plan && plan.steps.length > 0 && (
-        <details className="drawer">
-          <summary>{plan.steps.length === 1 ? "The step, and why" : `The ${plan.steps.length} steps, and why`}</summary>
+          {plan && plan.steps.length > 0 && <div className="eyebrow">{plan.steps.length === 1 ? "The step, and why" : `The ${plan.steps.length} steps, and why`}</div>}
+          {plan && plan.steps.length > 0 && (
           <ol className="steps">
             {plan.steps.map((st, i) => (
               <li key={i}>
                 <b>{actionText(st.action, s)}</b>
                 {st.buildings && <StepWarnings built={st.buildings} />}
                 {st.why && <div className="muted">{st.why}</div>}
-                {st.raised_by.length > 0 && <div className="tags">{st.raised_by.map((a) => <span key={a} className="tag">{AGENT_NAME[a] ?? a} agent</span>)}</div>}
+                {st.raised_by.length > 0 && <div className="tags">{st.raised_by.map((a) => <span key={a} className="tag" title={st.raised_from?.find((f) => f.includes(a)) ?? undefined}>{AGENT_NAME[a] ?? a} agent</span>)}</div>}
               </li>
             ))}
           </ol>
+          )}
+          {plan && plan.assumptions?.length > 0 && <><div className="eyebrow">Assumptions</div><ul className="reasons">{plan.assumptions.map((x) => <li key={x}>{x}</li>)}</ul></>}
         </details>
       )}
     </div>
