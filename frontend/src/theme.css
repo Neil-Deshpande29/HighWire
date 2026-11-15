@@ -541,3 +541,81 @@ span.status.as-is { text-transform: none; }
 .conf.high .conf-bar { color: var(--ok); } .conf.medium .conf-bar { color: var(--warn); } .conf.low .conf-bar { color: var(--act); }
 .conf-why { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) { .watch-light.red { animation: none; } }
+
+/* ---------------------------------------------------------------- hazards on the map: labels that say what and how much */
+.map-pill.hazard { display: inline-flex; flex-direction: column; align-items: center; gap: 0; padding: 4px 10px 5px; border-radius: 10px; font-size: 12px; line-height: 1.2; cursor: pointer;
+  background: rgba(10, 13, 17, 0.88); box-shadow: 0 0 0 1.5px var(--hz, #9fb3c8), 0 0 18px -2px var(--hz, #9fb3c8); color: #fff; }
+.map-pill.hazard b { font-weight: 700; color: var(--hz, #fff); }
+.map-pill.hazard span { font-size: 10.5px; font-weight: 500; color: var(--text-2); }
+.map-pill.hazard.fire { --hz: #ff6a45; } .map-pill.hazard.storm { --hz: #7fb2ff; } .map-pill.hazard.overload { --hz: #ffb020; } .map-pill.hazard.quake { --hz: #f1e9d2; }
+.map-pill.hazard.act { animation: hz-pulse 1.1s ease-in-out infinite; }
+.map-pill.hazard.watch { opacity: 0.92; }
+@keyframes hz-pulse { 50% { box-shadow: 0 0 0 1.5px var(--hz), 0 0 30px 4px var(--hz); } }
+.map-pill.zone { background: rgba(10, 13, 17, 0.8); box-shadow: 0 0 0 1px #9fb3c8; }
+.map-pill.zone.fire { box-shadow: 0 0 0 1px #ff4d2e; color: #ff9c86; } .map-pill.zone.wind, .map-pill.zone.rain, .map-pill.zone.storm { box-shadow: 0 0 0 1px #6ea8ff; color: #b7d3ff; }
+.map-pill.zone.heat { box-shadow: 0 0 0 1px #ff9500; color: #ffc77a; } .map-pill.zone.tornado, .map-pill.zone.hurricane { box-shadow: 0 0 0 1px #c77dff; color: #e2c1ff; }
+@media (prefers-reduced-motion: reduce) { .map-pill.hazard.act { animation: none; } }
+
+/* ================================================================ the Rewire look: one rounded face, a near-black base,
+   off-white type and the orange of the mark. These come last so they sit over the earlier rules. */
+:root {
+  --brand: #ee6a38;
+  --brand-soft: #ff9a72;
+  --black: #0b0b0b;
+  --text: #f2f0ea;
+  --player: 88px;
+  --font: "Comfortaa Variable", "Comfortaa", "Nunito", "Varela Round", -apple-system, system-ui, sans-serif;
+  --cond: "Comfortaa Variable", "Comfortaa", "Nunito", -apple-system, system-ui, sans-serif;
+}
+html, body, #root { background: #0b0b0b; }
+body, button, input, select, textarea { font-family: var(--font); }
+:focus-visible { outline-color: var(--brand); }
+.link { color: var(--brand-soft); }
+.logo { display: block; flex: none; background: none; border-radius: 0; }
+.brand { gap: 11px; }
+.brand-text b { font: 700 23px/1 var(--font); letter-spacing: -0.01em; text-transform: none; color: var(--text); }
+.sec-title { text-transform: none; letter-spacing: 0; font-family: var(--font); font-weight: 700; }
+.primary { color: #0b0b0b; background: var(--text); }
+.segmented button.on { background: var(--text); color: #0b0b0b; }
+.sec.main { border-color: rgba(238, 106, 56, 0.55); }
+
+/* the accuracy figure: one straight line, the number first and largest */
+.accuracy { align-items: baseline; gap: 9px; white-space: nowrap; }
+.accuracy b { font: 700 27px/1 var(--font); color: var(--brand); }
+.accuracy span { max-width: none; font-size: 14px; color: var(--text); line-height: 1; }
+.accuracy em { margin-left: 0; }
+@media (max-width: 1320px) { .accuracy span { display: none; } }
+
+/* the bell: quiet until there is an alert nobody has opened, then it pulses red */
+.bell-btn { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+.bell-btn b { font-weight: 700; }
+.bell-btn.alarm { color: #fff; background: rgba(255, 77, 79, 0.18); box-shadow: inset 0 0 0 1.5px var(--act); animation: bell-pulse 1s ease-in-out infinite; }
+.bell-btn.alarm .bell-icon { color: var(--act); animation: bell-ring 1s ease-in-out infinite; transform-origin: 50% 10%; }
+.bell-new { font-size: 11.5px; font-weight: 700; color: #ff8f90; }
+@keyframes bell-pulse { 0%, 100% { box-shadow: inset 0 0 0 1.5px var(--act), 0 0 0 0 rgba(255, 77, 79, 0.55); } 60% { box-shadow: inset 0 0 0 1.5px var(--act), 0 0 0 9px rgba(255, 77, 79, 0); } }
+@keyframes bell-ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-6deg); } }
+
+/* the player bar: the same margin on both sides, three even columns, room above and below the controls */
+.player { grid-template-columns: minmax(0, 1fr) minmax(360px, 2fr) minmax(0, 1fr); gap: 28px; padding: 10px 28px 12px; box-sizing: border-box; }
+.player-mid { gap: 4px; }
+.player-now b { font-size: 14.5px; }
+.player-side { gap: 14px; }
+.player .rail-done { fill: var(--text); }
+.player .tl-track:hover .rail-done, .player .tl-track:focus-visible .rail-done { fill: var(--brand); }
+.play, .play.big { background: var(--text); color: #0b0b0b; }
+@media (prefers-reduced-motion: reduce) { .bell-btn.alarm, .bell-btn.alarm .bell-icon { animation: none; } }
+.synth text.right { text-anchor: end; }
+.synth .file { font-size: 10.5px; }
+
+/* the top bar holds the name, the clock, the scenario, the accuracy line, the bell and the mode: keep it on one row */
+.topbar { gap: 14px; padding: 0 14px; }
+.clock, .scenario, .accuracy { padding-left: 14px; }
+.clock-time { font: 700 19px/1.1 var(--font); }
+.clock-sub, .scenario span { font-size: 11.5px; }
+.scenario { max-width: 216px; }
+.scenario select { max-width: 204px; font-size: 13px; }
+.accuracy span { font-size: 13px; }
+.accuracy b { font-size: 25px; }
+.segmented button { padding: 5px 10px; font-size: 12.5px; }
+@media (max-width: 1500px) { .clock-sub { display: none; } }
+@media (max-width: 1360px) { .accuracy span { display: none; } }

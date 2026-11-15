@@ -1,6 +1,7 @@
 import { ACCURACY_10MIN } from "../config";
 import type { LAEvent } from "../la/api";
 import AlertsBell from "./AlertsBell";
+import Logo from "./Logo";
 import { inGoTo, scenarioLabel, timeLabel } from "./format";
 
 export type Mode = "operate" | "study";
@@ -19,9 +20,9 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
   return (
     <header className={`topbar ${mode === "study" ? "study" : ""}`}>
       <div className="brand">
-        <span className="logo" aria-hidden="true">⚡</span>
+        <Logo />
         <div className="brand-text">
-          <b>Rewire</b>
+          <b>rewire</b>
           <select className="region" aria-label="Region" value="la" onChange={() => undefined}>
             {REGIONS.map(([id, name]) => <option key={id} value={id} disabled={id !== "la"}>{name}{id !== "la" ? " (not loaded)" : " grid"}</option>)}
           </select>
@@ -47,7 +48,8 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
       )}
       <div className="accuracy" title="An estimate. It is a placeholder, not a measured result, and is not one of the validated checks on the Evidence page.">
         <b>{Math.round(ACCURACY_10MIN * 100)}%</b>
-        <span>accurate over a 10-minute window <em>est.</em></span>
+        <span>accurate over a 10-minute window</span>
+        <em>est.</em>
       </div>
       <span className="spacer" />
       <AlertsBell />

@@ -30,6 +30,15 @@ export type LAStatic = {
   calibration: { fire: { g50: number; h50: number; c50: number; line_alarm: number; region_alarm: number };
                  storm: { onset: number; tau: number; rain_tau: number; alarm: number } | null };
 };
+/** A place where this hour's numbers show trouble (backend/la/hazards.py), drawn on the map. */
+export type Hazard = {
+  id: string; kind: "fire" | "storm" | "overload"; level: "act" | "watch"; lat: number; lon: number; radius_km: number;
+  title: string; detail: string; lines: string[]; n_lines: number; wind_from_deg: number; gust_ms: number; rising: boolean;
+};
+/** What the public warning services say right now (live view only). `rings` are [lon, lat] outlines. */
+export type LiveAlert = { id: string; event: string; kind: string; severity: string; headline: string; area: string; ends_utc: string | null; rings: [number, number][][] };
+export type Quake = { id: string; mag: number | null; place: string | null; lat: number; lon: number; depth_km: number; time_utc: string };
+export type LiveHazards = { alerts: LiveAlert[]; quakes: Quake[]; unreachable: string[]; fetched_utc: string; sources: string[] };
 /** The background risk score for one hour (backend/la/watch.py): when to call the agents. */
 export type Watch = {
   level: "green" | "yellow" | "red"; score: number; reasons: string[]; yellow_from: number; red_from: number;
@@ -38,6 +47,7 @@ export type Watch = {
 export type Hour = {
   event: string; i: number; n: number; t_utc: string; t_local: string;
   watch?: Watch;
+  hazards?: Hazard[];
   /** Lines an earlier approved plan switched off, still off at this hour. */
   standing?: { opened: string[] };
   lines: { risk: number[]; loading: number[]; temp: number[]; clear: number[]; gust: number[]; rh: number[]; flow: number[] };
@@ -202,6 +212,8 @@ export const la = {
   escalate: (id: string) => post<{ plan_status: Record<string, string>; authority: Authority }>(`/la/plans/${id}/escalate`),
   record: () => get<{ entries: RecordEntry[]; basis: string }>("/la/record"),
   reset: () => post<{ entries: RecordEntry[] }>("/la/reset"),
+  /** Active weather-service alerts and recent earthquakes (live view). */
+  liveHazards: () => get<LiveHazards>("/la/hazards/live"),
   /** Text alerts (backend/notify.py): what went out or would have, a test text, and the on/off switch. */
   alerts: () => get<Alerts>("/alerts"),
   alertsTest: () => post<Alerts>("/alerts/test"),

@@ -103,8 +103,20 @@ def replay(event_id: str, t: str | None = None, i: int | None = None):
     from .la import watch
 
     h["watch"] = watch.at(event_id, t=h["t_utc"])  # the background risk score: when to call the agents
+    from .la import hazards
+
+    h["hazards"] = hazards.detected(event_id, t=h["t_utc"])  # where the trouble is, for the map
     h["standing"] = {"opened": _standing(event_id, h["t_utc"])}  # lines an earlier approval switched off and nobody has switched back
     return h
+
+
+@router.get("/la/hazards/live")
+def la_hazards_live():
+    """What the public warning services say right now: active National Weather Service alerts for the region and
+    recent earthquakes. For the live view only; cached for two minutes and shared by everyone on this server."""
+    from .la import hazards
+
+    return hazards.live()
 
 
 # --------------------------------------------------------------------------- approved switching carries forward in time

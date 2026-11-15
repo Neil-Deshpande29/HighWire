@@ -3,10 +3,13 @@ import { Line, MapControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { Label, PortalCtx } from "../components/sceneUtils";
-import type { Hour, LAStatic } from "./api";
+import type { Hazard, Hour, LAStatic, LiveAlert, Quake } from "./api";
+import { AlertCurtain, HazardMark, LiveAlerts, QuakeMark } from "./Hazards";
 
-// Projection: 1 scene unit = 1 km. North is -z. Vertical exaggeration 3x.
-const VEX = 3;
+// Projection: 1 scene unit = 1 km. North is -z. Heights are stretched so the mountains read as mountains from above:
+// the basin is flat and the ranges around it are where the wind and the fire risk are.
+const VEX = 4.6;
+const BASE = -1.6; // how far the cut edges of the terrain block reach down, in scene units
 const KM_LAT = 110.54;
 
 export type Proj = { x: (lon: number) => number; z: (lat: number) => number };
@@ -69,7 +72,7 @@ function Terrain({ s, proj, imagery, surround }: { s: LAStatic; proj: Proj; imag
     for (let j = 0; j < ny; j++)
       for (let i = 0; i < nx; i++) {
         const k = j * nx + i, h = elev[j][i];
-        pos.set([proj.x(lons[i]), (Math.max(h, -60) / 1000) * VEX, proj.z(lats[j])], k * 3);
+        pos.set([proj.x(lons[i]), (Math.max(h, 0) / 1000) * VEX, proj.z(lats[j])], k * 3);
         let a = 0;
         while (a < stops.length - 1 && h >= stops[a + 1][0]) a++;
         const b = Math.min(a + 1, stops.length - 1);
@@ -92,6 +95,29 @@ function Terrain({ s, proj, imagery, surround }: { s: LAStatic; proj: Proj; imag
     g.computeVertexNormals();
     return g;
   }, [s, proj]);
+  // the cut edges of the block: a wall from the terrain's rim down to the base, so the region is a solid relief model
+  // standing in its surroundings and not a sheet floating over them
+  const skirt = useMemo(() => {
+    const { lats, lons, elev } = s.terrain;
+    const ny = lats.length, nx = lons.length;
+    const rim: [number, number][] = [];
+    for (let i = 0; i < nx; i++) rim.push([0, i]);
+    for (let j = 1; j < ny; j++) rim.push([j, nx - 1]);
+    for (let i = nx - 2; i >= 0; i--) rim.push([ny - 1, i]);
+    for (let j = ny - 2; j >= 0; j--) rim.push([j, 0]);
+    const pos: number[] = [], col: number[] = [], idx: number[] = [];
+    rim.forEach(([j, i], k) => {
+      const x = proj.x(lons[i]), z = proj.z(lats[j]), y = (Math.max(elev[j][i], 0) / 1000) * VEX;
+      pos.push(x, y, z, x, BASE, z);
+      col.push(0.2, 0.23, 0.26, 0.05, 0.06, 0.08); // a lit rim fading to the dark of the base
+      if (k < rim.length - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    return g;
+  }, [s, proj]);
   return (
     <>
       <mesh geometry={geom}>
@@ -99,11 +125,17 @@ function Terrain({ s, proj, imagery, surround }: { s: LAStatic; proj: Proj; imag
           ? <meshLambertMaterial key="picture" map={picture} side={THREE.DoubleSide} />
           : <meshLambertMaterial key="palette" vertexColors side={THREE.DoubleSide} />}
       </mesh>
-      {/* the sea inside the region, a shade that sits with the imagery around it */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.004, cz]}>
-        <planeGeometry args={[w, d]} />
-        <meshBasicMaterial color={picture ? "#1b2733" : "#a7d3f5"} />
+      <mesh geometry={skirt}>
+        <meshBasicMaterial vertexColors side={THREE.DoubleSide} />
       </mesh>
+      {/* without a picture the sea inside the region needs its own colour; the picture already shows the sea, and a
+          plane over it only punched dark holes into the low ground along the coast */}
+      {!picture && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.004, cz]}>
+          <planeGeometry args={[w, d]} />
+          <meshBasicMaterial color="#a7d3f5" />
+        </mesh>
+      )}
       {/* the land and sea around the region: the same imagery, flat and darker, with no lines or dots on it */}
       {around && sb && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[sx, -0.05, sz]}>
@@ -148,7 +180,8 @@ function PickTolerance() {
 
 // ---------------------------------------------------------------- lines (merged segment sets by voltage tier)
 const TIERS = [{ kv: [0, 180], width: 2.4 }, { kv: [180, 400], width: 3.4 }, { kv: [400, 9999], width: 4.6 }];
-const lift = (kv: number) => 0.1 + (kv >= 400 ? 0.12 : kv >= 180 ? 0.08 : 0.04);
+// wires ride above the ground, higher for higher voltage, so the network has depth against the terrain
+const lift = (kv: number) => (kv >= 400 ? 0.75 : kv >= 180 ? 0.5 : 0.28);
 
 function useLineGeometry(s: LAStatic, proj: Proj, height: (la: number, lo: number) => number) {
   return useMemo(() => TIERS.map((tier) => {
@@ -167,6 +200,27 @@ function useLineGeometry(s: LAStatic, proj: Proj, height: (la: number, lo: numbe
     });
     return { pts, segBranch, width: tier.width };
   }), [s, proj, height]);
+}
+
+/** Pylons under the high-voltage lines: thin uprights from the ground to the wire. They carry no information of their
+ *  own; they are what makes the wires read as standing in the landscape. */
+function Pylons({ s, proj, height }: { s: LAStatic; proj: Proj; height: (la: number, lo: number) => number }) {
+  const pts = useMemo(() => {
+    const out: [number, number, number][] = [];
+    const inb = (la: number, lo: number) => la >= s.bbox.lat_min && la <= s.bbox.lat_max && lo >= s.bbox.lon_min && lo <= s.bbox.lon_max;
+    s.branches.forEach((b) => {
+      if (b.kv < 180 || b.cable) return;
+      const step = Math.max(1, Math.round(b.geometry.length / 14)); // a dozen or so along each line is enough
+      for (let k = 0; k < b.geometry.length; k += step) {
+        const [la, lo] = b.geometry[k];
+        if (!inb(la, lo)) continue;
+        const x = proj.x(lo), z = proj.z(la), y = height(la, lo);
+        out.push([x, y, z], [x, y + lift(b.kv), z]);
+      }
+    });
+    return out;
+  }, [s, proj, height]);
+  return pts.length ? <Line points={pts} segments color="#aeb8c4" lineWidth={1} transparent opacity={0.5} raycast={() => null} /> : null;
 }
 
 type Pick = (bi: number, x: number, y: number) => void;
@@ -291,7 +345,8 @@ function CameraRig({ focus, proj }: { focus: Focus | null; proj: Proj }) {
     if (!focus || !controls) return;
     const d = Math.max(28, focus.spanKm * 1.15);
     const tx = proj.x(focus.lon) + d * 0.04, tz = proj.z(focus.lat); // panels sit on both sides, the right one a little wider
-    anim.current = { fT: controls.target.clone(), tT: new THREE.Vector3(tx, 0, tz), fP: camera.position.clone(), tP: new THREE.Vector3(tx, d, tz + d * 0.55), t: 0 };
+    // look in from the south at a slant, so the ground rises toward the back and the relief shows
+    anim.current = { fT: controls.target.clone(), tT: new THREE.Vector3(tx, 0, tz), fP: camera.position.clone(), tP: new THREE.Vector3(tx, d * 0.8, tz + d * 0.88), t: 0 };
   }, [focus?.key, controls]); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame((_, dt) => {
     const a = anim.current;
@@ -308,7 +363,7 @@ function CameraRig({ focus, proj }: { focus: Focus | null; proj: Proj }) {
 
 /** Buttons outside the canvas ask for a move; this turns, tilts or zooms the camera around the point it looks at. */
 export type Nav = { cmd: "in" | "out" | "left" | "right" | "up" | "down"; key: number };
-const MAX_TILT = Math.PI / 2.3;
+const MAX_TILT = Math.PI / 2.12;
 function NavRig({ nav }: { nav: Nav | null }) {
   const camera = useThree((st) => st.camera);
   const controls = useThree((st) => st.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
@@ -347,8 +402,10 @@ function ImpactLines({ points }: { points: [number, number, number][] }) {
 // ---------------------------------------------------------------- main scene
 export type Layers = { wind: boolean; redflag: boolean; hospitals: boolean; labels: boolean; imagery: boolean };
 
-export default function LAScene({ s, hour, colors, layers, imagery, surround, nav, impact, labelIds, selected, dimBuses, showFires, focus, overlay, onHoverLine, onClickLine, onClickBus, onMiss }: {
+export default function LAScene({ s, hour, colors, layers, imagery, surround, nav, impact, labelIds, selected, dimBuses, showFires, focus, overlay, hazards, alerts, quakes, onHazard, onHoverLine, onClickLine, onClickBus, onMiss }: {
   s: LAStatic; hour: Hour | null; colors: string[]; layers: Layers; imagery: string | null; surround: Surround | null; nav: Nav | null;
+  /** where this hour's numbers show trouble, and (live view only) what the warning services say right now */
+  hazards: Hazard[]; alerts: LiveAlert[]; quakes: Quake[]; onHazard: (h: Hazard) => void;
   /** lines whose load changed because of a switch: branch index and the label to draw on it ("+18%") */
   impact: { bi: number; text: string }[]; labelIds: string[]; selected: string | null;
   dimBuses: string[]; showFires: boolean; focus: Focus | null; overlay: RefObject<HTMLDivElement | null>;
@@ -366,24 +423,32 @@ export default function LAScene({ s, hour, colors, layers, imagery, surround, na
   const subs = useMemo(() => s.buses.filter((b) => b.kind === "substation").map((b) => ({ id: b.id, lat: b.lat, lon: b.lon })), [s]);
   const hosp = useMemo(() => s.critical_sites.filter((c) => c.type === "hospital").map((c, k) => ({ id: String(k), lat: c.lat, lon: c.lon })), [s]);
   const busById = useMemo(() => new Map(s.buses.map((b) => [b.id, b])), [s]);
+  const inside = useMemo(() => (la: number, lo: number) => la >= s.bbox.lat_min && la <= s.bbox.lat_max && lo >= s.bbox.lon_min && lo <= s.bbox.lon_max, [s]);
   const mid = (bi: number) => { const g = s.branches[bi].geometry; const [la, lo] = g[Math.floor(g.length / 2)]; return [proj.x(lo), height(la, lo) + 1.0, proj.z(la)] as [number, number, number]; };
 
   return (
-    <Canvas camera={{ position: [0, ext.x * 0.55, ext.z * 0.75], fov: 40, far: 3000 }} onPointerMissed={onMiss}>
+    <Canvas camera={{ position: [0, ext.x * 0.46, ext.z * 0.98], fov: 40, far: 3000 }} onPointerMissed={onMiss}>
       <PortalCtx.Provider value={overlay}>
         <color attach="background" args={["#0a0d11"]} />
-        <ambientLight intensity={1.6} />
-        <directionalLight position={[-80, 120, 30]} intensity={1.1} />
+        <fog attach="fog" args={["#0a0d11", 300, 1100]} />
+        {/* a low sun from the north-west and a dim sky: slopes facing it light up and the far sides fall into shade */}
+        <ambientLight intensity={0.85} />
+        <hemisphereLight args={["#dbe7ff", "#1b2026", 0.7]} />
+        <directionalLight position={[-150, 85, -110]} intensity={2.3} />
         <Terrain s={s} proj={proj} imagery={layers.imagery ? imagery : null} surround={layers.imagery ? surround : null} />
         <PickTolerance />
+        <Pylons s={s} proj={proj} height={height} />
         {tiers.map((tier, k) => <LineTier key={k} {...tier} colors={colors} onHover={onHoverLine} onClick={onClickLine} />)}
         {impactSeg.length > 0 && <ImpactLines points={impactSeg} />}
         {selSeg.length > 0 && <SelectedLine points={selSeg} />}
         {hour && layers.wind && <WindArrows hour={hour} proj={proj} height={height} />}
-        {hour && layers.redflag && hour.redflag_active.map((u) => (s.redflag_zones[u] ?? []).map((ring, k) => {
-          const seg = ringSegments(ring, s, proj, height);
-          return seg.length ? <Line key={u + k} points={seg} segments color="#ff2d55" lineWidth={1.4} dashed dashSize={0.9} gapSize={0.6} transparent opacity={0.7} /> : null;
-        }))}
+        {hour && layers.redflag && hour.redflag_active.map((u, n) => (
+          <AlertCurtain key={u} rings={s.redflag_zones[u] ?? []} kind="fire" label={n === 0 ? `Red Flag Warning${hour.redflag_active.length > 1 ? ` · ${hour.redflag_active.length} zones` : ""}` : undefined}
+            proj={proj} height={height} inside={inside} />
+        ))}
+        <LiveAlerts alerts={alerts} proj={proj} height={height} inside={inside} />
+        {quakes.map((q) => <QuakeMark key={q.id} q={q} proj={proj} height={height} />)}
+        {hazards.map((hz) => <HazardMark key={hz.id} hz={hz} proj={proj} height={height} onPick={onHazard} />)}
         <Points items={subs} proj={proj} height={height} color="#ffffff" size={0.2} onClick={onClickBus} />
         {layers.hospitals && <Points items={hosp} proj={proj} height={height} color={HOSPITAL} size={0.22} y={0.45} />}
         {dimBuses.map((id) => {
@@ -422,7 +487,7 @@ export default function LAScene({ s, hour, colors, layers, imagery, surround, na
             </Label>
           ) : null;
         })}
-        <MapControls makeDefault maxPolarAngle={Math.PI / 2.3} minDistance={8} maxDistance={420} screenSpacePanning={false} />
+        <MapControls makeDefault maxPolarAngle={MAX_TILT} minDistance={8} maxDistance={420} screenSpacePanning={false} />
         <CameraRig focus={focus} proj={proj} />
         <NavRig nav={nav} />
       </PortalCtx.Provider>

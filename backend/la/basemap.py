@@ -170,12 +170,87 @@ def build(zoom: int = ZOOM, fetch=_fetch, ortho=vexcel.ortho) -> dict:
         img = Image.fromarray(px)
     img = ImageEnhance.Color(img).enhance(MUTE_COLOUR)
     img = Image.blend(img, Image.new("RGB", img.size, SCRIM), MUTE_SCRIM)
+    img = fill_gaps(img, INNER_SEA, _blank())  # open sea has no tiles: one sea colour, no flat grey stair-steps
     DIR.mkdir(parents=True, exist_ok=True)
     img.save(IMAGE, quality=86)
     meta = {"source": src["name"], "zoom": zoom, "tiles": n, "size": list(img.size), "bbox": box, **extra,
             "built_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     META.write_text(json.dumps(meta, indent=1))
     return meta
+
+
+SEA = (15, 25, 36)  # what the surroundings show where there is no picture: open sea, in the tone of the darkened land
+GAP_BELOW = 8  # a pixel darker than this on every channel has no tile behind it
+GAP_GROW_PX = 18  # a gap is widened by this much, to swallow the smeared pixels along a missing tile's edge
+GAP_FEATHER_PX = 9  # and its edge is blurred this far, so no stair-step of tile borders is left
+
+
+INNER_SEA = (34, 50, 66)  # the same sea inside the region, in the lighter tone of the region's own picture
+
+
+def fill_gaps(img: Image.Image, colour: tuple = SEA, blank: tuple | None = None) -> Image.Image:
+    """The tile service has no pictures of open sea, and the odd hole on land. Left alone they show as hard flat
+    stair-steps with smeared edges. Large gaps (the sea) become one sea colour with a soft edge; small ones (a hole on
+    land) take the colour of the ground around them. A gap is near-black, or `blank` when the picture was muted after
+    the tiles were laid (a missing tile is then that one flat colour)."""
+    from scipy import ndimage
+
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    gap = a.max(axis=2) < GAP_BELOW if blank is None else (np.abs(a - np.array(blank, np.float32)).max(axis=2) <= 3)
+    if not gap.any():
+        return img
+    labels, n = ndimage.label(gap)
+    sizes = ndimage.sum(gap, labels, range(1, n + 1))
+    sea = np.zeros(gap.shape, bool)
+    out = a.copy()
+    holes = ndimage.find_objects(labels)
+    for k, size in enumerate(sizes, 1):
+        if size >= 0.01 * gap.size:
+            sea |= labels == k
+            continue
+        if blank is not None or size < 400:
+            continue  # a speck (or, in a muted picture, ground that happens to be that grey): leave it
+        ys, xs = holes[k - 1]  # work in the hole's own neighbourhood, not over the whole picture
+        box = (slice(max(ys.start - 8, 0), ys.stop + 8), slice(max(xs.start - 8, 0), xs.stop + 8))
+        hole = labels[box] == k
+        ring = ndimage.binary_dilation(hole, iterations=6) & ~gap[box]
+        if ring.any():
+            out[box][hole] = np.median(a[box][ring], axis=0)
+    if sea.any():
+        grown = ndimage.binary_dilation(sea, iterations=GAP_GROW_PX)
+        w = ndimage.gaussian_filter(grown.astype(np.float32), GAP_FEATHER_PX)[..., None]
+        out = out * (1 - w) + np.array(colour, np.float32) * w
+    return Image.fromarray(out.clip(0, 255).astype(np.uint8))
+
+
+def _blank() -> tuple:
+    """What a missing tile looks like in the region's picture: black, after the muting scrim is laid over it."""
+    return Image.blend(Image.new("RGB", (1, 1), (0, 0, 0)), Image.new("RGB", (1, 1), SCRIM), MUTE_SCRIM).getpixel((0, 0))
+
+
+def repair_picture() -> dict | None:
+    """Fill the sea in the region's own picture that is already on disk (no download)."""
+    if not IMAGE.exists() or not META.exists():
+        return None
+    fill_gaps(Image.open(IMAGE), INNER_SEA, _blank()).save(IMAGE, quality=86)
+    m = json.loads(META.read_text())
+    m["built_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    m["gaps_filled"] = True
+    META.write_text(json.dumps(m, indent=1))
+    return m
+
+
+def repair_surround() -> dict | None:
+    """Fill the gaps in the surroundings picture that is already on disk (no download), and mark it as rebuilt so the
+    screen fetches it again."""
+    if not SURROUND.exists() or not SURROUND_META.exists():
+        return None
+    fill_gaps(Image.open(SURROUND)).save(SURROUND, quality=86)
+    m = json.loads(SURROUND_META.read_text())
+    m["built_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    m["gaps_filled"] = True
+    SURROUND_META.write_text(json.dumps(m, indent=1))
+    return m
 
 
 def build_surround(zoom: int = SURROUND_ZOOM, fetch=_fetch) -> dict:
@@ -186,6 +261,7 @@ def build_surround(zoom: int = SURROUND_ZOOM, fetch=_fetch) -> dict:
     img, n = _tiles_picture(USGS, zoom, fetch, wide)
     img = ImageEnhance.Color(img).enhance(MUTE_COLOUR)
     img = Image.blend(img, Image.new("RGB", img.size, (10, 13, 17)), SURROUND_DARK)
+    img = fill_gaps(img)  # open sea has no tiles: no black stair-steps
     DIR.mkdir(parents=True, exist_ok=True)
     img.save(SURROUND, quality=82)
     out = {"source": "USGS National Map", "bbox": wide, "size": list(img.size), "tiles": n,

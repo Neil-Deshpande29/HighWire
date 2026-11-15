@@ -1,9 +1,5 @@
 import { createRoot } from "react-dom/client";
-import "@fontsource/barlow/400.css";
-import "@fontsource/barlow/500.css";
-import "@fontsource/barlow/600.css";
-import "@fontsource/barlow-condensed/600.css";
-import "@fontsource/barlow-condensed/700.css";
+import "@fontsource-variable/comfortaa"; // one rounded face for everything, text and numbers (weights 300 to 700)
 import App from "./App";
 import "./theme.css";
 
