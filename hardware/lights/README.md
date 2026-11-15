@@ -32,6 +32,7 @@ Without the app, from the repo folder:
 ```
 
 That plays the four steps in the table, one per press of Enter. `demo 4` moves on by itself every 4 seconds.
+Close the app's browser tab first: an open tab puts its own scene back on the strip whenever it is used.
 One scene on its own: `.venv/bin/python -m backend.lights event 0.2` (the number is where along the strip, 0 to 1).
 
 ## The command the boards take
