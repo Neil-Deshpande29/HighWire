@@ -15,8 +15,12 @@ Try it without the app (the hard-coded four-step demonstration, or one scene):
     python -m backend.lights demo
     python -m backend.lights event 0.2
 
+When the app's backend is running, these go through it, because it holds the strip's port and repeats its scene.
+Close the app's browser tab first: an open tab puts its own scene back whenever it is used. With no backend running
+the port is opened directly.
+
 Settings (environment): LIGHTS_PORT = the ESP32's serial port, or "off" to never touch one. Without it the first
-USB serial adapter that looks like an ESP32 is used.
+USB serial adapter that looks like an ESP32 is used. REWIRE_API = the backend's address (default http://localhost:8000).
 """
 from __future__ import annotations
 
@@ -142,28 +146,46 @@ def show(stage: str, at: float = 0.5) -> dict:
     return STRIP.show(stage, at)
 
 
-def main(argv: list[str]) -> int:
+def _via_backend(stage: str, at: float) -> dict | None:
+    """Ask a running backend to show the scene. None when no backend answers."""
+    import json
+    import urllib.request
+
+    url = os.environ.get("REWIRE_API", "http://localhost:8000").rstrip("/") + "/lights"
+    req = urllib.request.Request(url, data=json.dumps({"stage": stage, "at": at}).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=1.5) as r:  # noqa: S310  our own backend
+            return json.loads(r.read())
+    except Exception:  # noqa: BLE001  not running: the caller opens the port itself
+        return None
+
+
+def main(argv: list[str], via=_via_backend) -> int:
     if not argv or argv[0] not in STAGES + ("demo",):
         print(__doc__)
         return 2
-    strip = Strip()
-    if not find_port():
-        print("No strip found. Plug in the ESP32, or set LIGHTS_PORT to its serial port.")
-        return 1
-    if argv[0] != "demo":
-        strip._want = scene_command(argv[0], float(argv[1]) if len(argv) > 1 else 0.5)
-        ok = strip.step()
-        print(strip._want, "sent" if ok else f"not sent: {strip._error}")
-        return 0 if ok else 1
-    hold = float(argv[1]) if len(argv) > 1 else None  # seconds per step; without it, Enter moves on
-    for k, (stage, text) in enumerate(DEMO, 1):
-        strip._want = scene_command(stage, 0.5)
-        if not strip.step():
-            print(f"not sent: {strip._error}")
-            return 1
-        print(f"{k}. {text}")
-        if k < len(DEMO):
-            time.sleep(hold) if hold else input("   Enter for the next step ")
+    steps = list(DEMO) if argv[0] == "demo" else [(argv[0], "")]
+    at = 0.5 if argv[0] == "demo" or len(argv) < 2 else float(argv[1])
+    hold = float(argv[1]) if argv[0] == "demo" and len(argv) > 1 else None  # seconds per step; without it, Enter moves on
+    strip = None
+    for k, (stage, text) in enumerate(steps, 1):
+        answer = via(stage, at) if strip is None else None
+        if answer is None:  # no backend running: drive the strip from here
+            if strip is None:
+                strip = Strip()
+                if not find_port():
+                    print("No strip found. Plug in the ESP32, or set LIGHTS_PORT to its serial port.")
+                    return 1
+            strip._want = scene_command(stage, at)
+            if not strip.step():
+                print(f"not sent: {strip._error}")
+                return 1
+        print(f"{k}. {text}" if text else f"{scene_command(stage, at)} sent")
+        if k < len(steps):
+            if hold is None:
+                input("   Enter for the next step ")
+            else:
+                time.sleep(hold)
     return 0
 
 

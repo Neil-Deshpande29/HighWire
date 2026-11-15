@@ -74,6 +74,17 @@ def test_lights_route_passes_the_scene_on(monkeypatch):
     assert bad.value.status_code == 400 and seen == [("cut", 0.25)]
 
 
+def test_the_stand_alone_demo_goes_through_a_running_backend(capsys):
+    """The backend holds the strip's port and repeats its scene, so the demo asks it instead of fighting it."""
+    asked = []
+    assert L.main(["demo", "0"], via=lambda stage, at: asked.append((stage, at)) or {"connected": True}) == 0
+    assert asked == [("normal", 0.5), ("event", 0.5), ("cut", 0.5), ("normal", 0.5)]
+    assert [line[:2] for line in capsys.readouterr().out.splitlines()] == ["1.", "2.", "3.", "4."]
+    assert L.main(["cut", "0.25"], via=lambda stage, at: asked.append((stage, at)) or {"connected": True}) == 0 and asked[-1] == ("cut", 0.25)
+    assert L.main(["party"]) == 2
+    assert L.main(["event"], via=lambda stage, at: None) == 1  # no backend, and tests never open a port: no strip found
+
+
 # ---------------------------------------------------------------- the boards' own programs, run here on fake hardware
 def _load(name: str, monkeypatch, strip_main_call: bool = False):
     machine = types.ModuleType("machine")
