@@ -337,7 +337,7 @@ def test_team_run_in_model_mode_shows_no_model_numbers(during, monkeypatch):
     monkeypatch.setattr(T, "_run_llm", lambda state, log: reply)
     out = T.run_team(during, JobLog())
     p = out["plans"][0]
-    assert out["mode"] == "llm" and "fallback_reason" not in out
+    assert out["mode"] == "llm" and out.get("fallback_reason") is None
     assert p["text_withheld"] is True and "97.3" not in json.dumps([out["plans"], out["situation"]])
     assert p["confidence"] != 0.99 and p["attempts"] == 1
 

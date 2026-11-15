@@ -3,7 +3,8 @@
 Checked against deepagents 0.7.38: create_deep_agent(model, tools, *, system_prompt, subagents, ...).
 Subagent dicts use keys name, description, system_prompt, tools, model.
 LLM: Google Gemini through langchain-google-genai (see backend/llm.py).
-Falls back to the rule-based planner when there is no GEMINI_API_KEY, on any error, or after a timeout.
+Falls back to the rule-based planner when there is no GEMINI_API_KEY, on any error, on an answer that cannot be
+verified, or after a timeout. The result always says which planner produced it: "mode" and "fallback_reason".
 """
 from __future__ import annotations
 
@@ -13,11 +14,16 @@ import re
 import threading
 
 from .. import llm as LLM
+from ..textguard import guard
 from .mock_planner import run_mock
 from .brief import brief_text, build_brief
-from .tools import JobLog, make_tools, verify_output
+from .tools import JobLog, _grid_ids, make_tools, verify_output
 
-TIMEOUT_S = float(os.environ.get("AGENT_TIMEOUT_S", "50"))
+
+def _timeout_s() -> float:
+    """Read per run, so AGENT_TIMEOUT_S can be changed without re-importing the module."""
+    return float(os.environ.get("AGENT_TIMEOUT_S", "50"))
+
 
 SUBAGENTS = {
     "heat_agent": ("Conductor heating: temperature vs the 75 C limit, thermal sag, heat-driven loss of tree clearance.", ["get_grid_summary", "get_weather"]),
@@ -33,8 +39,9 @@ SUBAGENTS = {
 
 SUB_PROMPT = """You are {name} on a power-grid storm co-pilot team. Your focus: {focus}
 Call each of your tools at most once, then reply with ONLY compact JSON, no prose:
-{{"agent":"{name}","findings":[{{"target":"R3","issue":"short","evidence":"numbers copied from tool output","severity":1}}]}}
-severity: 1 watch, 2 act soon, 3 act now. At most 4 findings. Only use numbers that appear in tool output."""
+{{"agent":"{name}","findings":[{{"target":"R3","issue":"short","evidence":"words from tool output","severity":1}}]}}
+severity: 1 watch, 2 act soon, 3 act now. At most 4 findings. "target" is one line or substation id from tool output.
+In "issue" and "evidence" copy the identifiers and words from tool output; do not write numbers."""
 
 COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operator during a storm. You never act on the grid: you propose
 plans and the human operator approves or rejects them. Work fast; the whole run has a 45 second budget.
@@ -54,9 +61,10 @@ Workflow:
 5. Reply with ONLY this JSON (no prose, no code fences):
 {"situation":"2 plain-language sentences",
  "plans":[{"id":"P1","title":"short","steps":[{"action":{...},"why":"plain language","raised_by":["fire_agent","wind_agent"]}],
-   "tradeoffs":"...","confidence":0.8,"assumptions":["..."],"attempts":2}],
+   "tradeoffs":"...","assumptions":["..."]}],
  "disagreements":["fire_agent wanted X; brownout_agent objected because Y; resolved by Z"]}
-If the grid is already safe with no action, return "plans": []. Do not invent numbers: the backend re-simulates every plan."""
+If the grid is already safe with no action, return "plans": []. Outside "action", write no numbers: name lines and
+substations by id and say the rest in words. Every plan is re-simulated and the backend adds the verified numbers."""
 
 
 def _text_of(msg) -> str:
@@ -74,7 +82,25 @@ def _parse_json(text: str) -> dict:
     return json.loads(text[a : b + 1])
 
 
-def _make_callback(log):
+_ID_LIKE = re.compile(r"\b[A-Z]{1,3}\d+\b")  # line and substation ids such as L220 or B506
+
+
+def _words(text, names=None) -> tuple[str, bool]:
+    """Model text for the activity log -> (text, withheld). Grid ids are names, not numbers; without the grid's own
+    list, any id-shaped word counts as one."""
+    text = "" if text is None else str(text).strip()
+    return guard(text, set(_ID_LIKE.findall(text)) if names is None else names)
+
+
+def _task_text(output) -> str:
+    """The specialist's reply: deepagents' `task` tool returns a Command wrapping its last message."""
+    update = getattr(output, "update", None)
+    if isinstance(update, dict) and update.get("messages"):
+        return _text_of(update["messages"][-1])
+    return _text_of(getattr(output, "content", output))
+
+
+def _make_callback(log, names=None):
     from langchain_core.callbacks import BaseCallbackHandler
 
     class TaskLogger(BaseCallbackHandler):
@@ -92,30 +118,41 @@ def _make_callback(log):
                     data = {}
             sub = data.get("subagent_type", "subagent")
             self.runs[run_id] = sub
-            log("coordinator", f"-> {sub}: {str(data.get('description', ''))[:110]}")
+            desc, _ = _words(data.get("description"), names)
+            log("coordinator", f"-> {sub}: {desc[:110]}" if desc else f"-> {sub}")
 
         def on_tool_end(self, output, *, run_id=None, **kw):
             sub = self.runs.pop(run_id, None)
             if not sub:
                 return
-            text = _text_of(getattr(output, "content", output))
             try:
-                f = _parse_json(text).get("findings", [])
-                for item in f[:2]:
-                    log(sub, f"{item.get('target')}: {item.get('issue')} ({item.get('evidence')})")
-                if not f:
-                    log(sub, "no significant findings")
-            except Exception:  # noqa: BLE001
-                log(sub, text[:160])
+                data = _parse_json(_task_text(output))
+            except Exception:  # noqa: BLE001  never echo unparsed model text: it can state numbers
+                log(sub, "returned no readable findings")
+                return
+            f = data.get("findings") if isinstance(data, dict) else None
+            f = [item for item in f if isinstance(item, dict)] if isinstance(f, list) else []
+            for item in f[:2]:
+                target, tw = _words(item.get("target"), names)
+                issue, iw = _words(item.get("issue"), names)
+                evidence, _ = _words(item.get("evidence"), names)
+                if tw or iw:
+                    log(sub, "raised a finding (wording withheld: it stated numbers)")
+                    continue
+                line = f"{target}: {issue}" if target else issue
+                log(sub, f"{line} ({evidence})" if evidence else line)
+            if not f:
+                log(sub, "no significant findings")
 
     return TaskLogger()
 
 
 LA_SUBAGENTS = {
-    "fire_agent": ("Ignition risk on the real LA grid: lines over the calibrated fire alarm (P(fault) x P(ignition | humidity, "
-                   "LANDFIRE fuel)), which ones are sub-transmission (shut off) vs 220-500 kV corridors (patrol). For the "
-                   "worst 2-3 lines, call get_site_context(line_id) to say what is on the ground and who is downwind.",
-                   ["get_grid_summary", "get_event_context", "get_site_context"]),
+    "fire_agent": ("Fire risk on the real LA grid: lines over the calibrated fire alarm (the fire index is a 0-1 index that "
+                   "blends gust, humidity, tree clearance and fuel; it is not an ignition probability), which ones are "
+                   "sub-transmission (shut off) vs 220-500 kV corridors (patrol). For the worst 2-3 lines, call "
+                   "get_site_context(line_id) to say what is on the ground and who is downwind.",
+                   ["get_grid_summary", "get_site_context"]),
     "wind_agent": ("Storm damage: calibrated wind+rain damage model (which lines are likely to be knocked down, storm index vs "
                    "alarm, historical accuracy). Recommends crew pre-staging and patrols. For the lines you name, call "
                    "get_site_context(line_id): road access and vegetation at each photo decide where patrols can actually reach.",
@@ -133,8 +170,9 @@ LA_SUBAGENTS = {
 }
 
 LA_COORDINATOR_PROMPT = """You coordinate an AI co-pilot for a power-grid operator on the REAL Greater Los Angeles transmission grid
-(OSM lines >= 66 kV, ids L1..L867; electrical values are modeled). You never act on the grid: you propose plans and the
-human operator approves or rejects them. The whole run has a 45 second budget, so be brief.
+(OSM lines of 66 kV and above, not distribution feeders; line and substation ids come from the tools; electrical values
+are modeled). You never act on the grid: you propose plans and the human operator approves or rejects them. The whole run
+has a 45 second budget, so be brief.
 
 Workflow:
 1. In ONE message call the `task` tool 5 times in parallel: fire_agent, wind_agent, heat_agent, brownout_agent,
@@ -147,19 +185,20 @@ Workflow:
 4. For the lines your plans switch off or leave energized, the specialists may have quoted get_site_context; you may
    call it too. Put what is on the ground (homes on the brush edge, poor road access) in "why" and "tradeoffs". It is
    Gemini's reading of aerial photos: context, never a reason to change a number.
-5. Call get_event_context(event_id) and get_validation_summary() once and cite what the history says about trusting the
-   signal (numbers only from those tools). Fire risk drives de-energization; the wind_agent's storm index drives crew
-   pre-staging and patrols (mention those in "tradeoffs", they are not grid actions).
+5. Say how far to trust the signal only from the "trust" rows of the situation brief below (name the check and its
+   status); there is no other history to consult. Fire risk drives de-energization; the wind_agent's storm index drives
+   crew pre-staging and patrols (mention those in "tradeoffs", they are not grid actions).
 6. Reply with ONLY this JSON (no prose, no code fences):
 {"situation":"2 plain-language sentences",
  "plans":[{"id":"P1","title":"short","steps":[{"action":{...},"why":"plain language","raised_by":["fire_agent"]}],
-   "tradeoffs":"...","confidence":0.8,"assumptions":["..."],"attempts":1}],
+   "tradeoffs":"...","assumptions":["..."]}],
  "disagreements":["fire_agent wanted X; brownout_agent objected because Y; resolved by Z"]}
-If the grid is already safe with no action, return "plans": []. Do not invent numbers: the backend re-simulates every plan.
+If the grid is already safe with no action, return "plans": []. Outside "action", write no numbers: name lines and
+substations by id and say the rest in words. Every plan is re-simulated and the backend adds the verified numbers.
 The specialists started from the same situation brief you have below; their findings add detail to it."""
 
-BRIEF_HEADER = ("Situation brief (shared by all agents; start from it instead of re-deriving it; quote its numbers, "
-                "never invent new ones):\n")
+BRIEF_HEADER = ("Situation brief (shared by all agents; start from it instead of re-deriving it; reason from its numbers "
+                "but do not repeat them in your reply):\n")
 
 
 def _subagent_specs(state, log, table, extra: str = ""):
@@ -193,8 +232,9 @@ def _run_llm(state, log) -> dict:
     la = hasattr(state, "grid")
     if la:  # LA: only agents that have real data to read, one parallel wave (audit: 5 of 9 were no-ops on LA)
         subagents, prompt = _la_prompts(state, log)
-        coord_tools = ["get_candidate_actions", "simulate_plan", "get_event_context", "get_validation_summary", "get_critical_sites",
-                       "get_site_context", "get_building_impact", "get_operator_feedback"]
+        # no get_event_context / get_validation_summary: they return the event's real fires and outcomes (hindsight)
+        coord_tools = ["get_candidate_actions", "simulate_plan", "get_critical_sites", "get_site_context", "get_building_impact",
+                       "get_operator_feedback"]
     else:
         subagents = _subagent_specs(state, log, SUBAGENTS)
         prompt = COORDINATOR_PROMPT
@@ -204,7 +244,7 @@ def _run_llm(state, log) -> dict:
     log("coordinator", f"model {model_name}: planning with {len(subagents)} specialist agents")
     result = agent.invoke(
         {"messages": [{"role": "user", "content": f"Scenario: {state.scenario}. Assess the grid and propose plans."}]},
-        config={"callbacks": [_make_callback(log)], "recursion_limit": 120},
+        config={"callbacks": [_make_callback(log, _grid_ids(state))], "recursion_limit": 120},
     )
     return _parse_json(_text_of(result["messages"][-1]))
 
@@ -213,7 +253,9 @@ def run_team(state, log: JobLog) -> dict:
     """Entry point used by the API. Always returns physics-verified output.
     The rule-based planner runs IN PARALLEL with the LLM team (silently), so a timeout or error falls back instantly."""
     if not LLM.enabled():
-        return run_mock(state, log, "mock mode: no GEMINI_API_KEY")
+        out = run_mock(state, log, "mock mode: no GEMINI_API_KEY")
+        out["fallback_reason"] = None  # no key is a setting, not a failure
+        return out
 
     gate = {"open": True}
 
@@ -240,24 +282,36 @@ def run_team(state, log: JobLog) -> dict:
     bk = threading.Thread(target=backup_worker, daemon=True)
     th.start()
     bk.start()
-    th.join(TIMEOUT_S)
-    if th.is_alive() or "err" in box or not isinstance(box.get("out"), dict):
+    def fall_back(why: str) -> dict:
         gate["open"] = False
-        why = f"agent run timed out after {TIMEOUT_S:.0f}s" if th.is_alive() else f"agent run failed: {str(box.get('err'))[:120]}"
         log("system", why + "; using the rule-based plan computed in parallel")
         bk.join(30)
         if "out" in backup:
             for a, m in backup["lines"]:
                 log(a, m)
             out = backup["out"]
-            out["fallback_reason"] = why
-            return out
-        return run_mock(state, log, why, pace=0.05)
+        else:
+            out = run_mock(state, log, why, pace=0.05)
+        out["fallback_reason"] = why
+        return out
+
+    timeout = _timeout_s()
+    th.join(timeout)
+    if th.is_alive() or "err" in box or not isinstance(box.get("out"), dict):
+        return fall_back(f"agent run timed out after {timeout:.0f}s" if th.is_alive()
+                         else f"agent run failed: {str(box.get('err'))[:120]}" if "err" in box
+                         else "the AI team's answer could not be used: it was not a JSON object")
 
     out = box["out"]
     out["mode"] = "llm"
     log("coordinator", "LLM plans received; backend re-running physics on each plan")
-    out = verify_output(state, out, log)
+    try:
+        out = verify_output(state, out, log)
+    except Exception as e:  # noqa: BLE001
+        return fall_back(f"the AI team's answer could not be used: {str(e)[:100]}")
+    if not out["plans"] and out["do_nothing"]["violations"]:
+        return fall_back("the AI team's answer could not be used: no plan it proposed could be run on this grid")
+    out["fallback_reason"] = None
     try:  # crew staging numbers always come from the calibrated storm model, never from the LLM
         from .mock_planner import _Planner
 
