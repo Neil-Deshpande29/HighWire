@@ -2,7 +2,7 @@
 
 Deadline: Sunday Nov 15, 8:00 am EST. Have the upload started by 7:30. Uploads are slow.
 
-**A full 2:00 cut already exists: `rewire_cut_v1.mp4`.** It plays start to finish with a stand-in voice. Your job is to put your faces and your voices into it.
+**A full 2:00 cut already exists: `rewire_cut_v1.mp4`.** It plays start to finish with a stand-in voice. Record the takes listed under "What to record and send", drop them in `film/`, and they get cut in.
 
 Everything is in `HighWire-work/video/` on Sohum's laptop. The clips are not in git because they show licensed Vexcel imagery.
 
@@ -36,7 +36,7 @@ Open it yourself: `http://localhost:5173/?event=E1&hour=10`
 | Time | Length | Picture (file) | Part | Voice |
 |---|---|---|---|---|
 | 0:00 | 12 s | `cards/M0_cold_open.mp4` | 0 · Cold open | Speaker 1 |
-| 0:12 | 15 s | `cards/MP_problem.mp4` → **FILM-1 goes over this** | 1 · The problem | Speaker 1, on camera |
+| 0:12 | 15 s | `cards/MP_problem.mp4` → **the four faces go over this** | 1 · The problem | all four, on camera |
 | 0:27 | 3 s | `cards/M1_logo.mp4` | logo sting | none |
 | 0:30 | 7 s | `clips/A1_wide_orbit.mp4` | 2 · See it | Speaker 2 |
 | 0:37 | 9 s | `clips/A2_clock_to_red.mp4` (sped up 1.9×) | | |
@@ -46,30 +46,62 @@ Open it yourself: `http://localhost:5173/?event=E1&hour=10`
 | 1:00 | 13 s | `clips/B1_agents.mp4` | | |
 | 1:13 | 9 s | `clips/B2_plan.mp4` | | |
 | 1:22 | 5.5 s | `clips/C1_approve.mp4` | 4 · Act | Speaker 4 |
-| 1:27.5 | 3 s | `cards/M5_phone.mp4` → **hardware take goes over 1:25.5–1:30.5** | | |
+| 1:27.5 | 3 s | `cards/M5_phone.mp4` → **the hardware shot goes over 1:25.5–1:30.5** | | |
 | 1:30.5 | 4 s | `clips/C2_holds.mp4` | | |
 | 1:34.5 | 9.5 s | `clips/C3_dark_lines.mp4` | | |
 | 1:44 | 7 s | `cards/M4_landscape.mp4` | 5 · Proof | Speaker 1 |
 | 1:51 | 5 s | `cards/M2_proof.mp4` | | |
-| 1:56 | 4 s | `cards/M6_end.mp4` → **FILM-4 goes over this** | 6 · Close | all four |
+| 1:56 | 4 s | `cards/M6_end.mp4` → **the close goes over this** | 6 · Close | all four |
 
-## Script (about 270 words)
+## Where your faces go
 
-**0 · Cold open · 0:00–0:12 · Speaker 1, voice only, slow and flat**
+Every speaker is on screen at least three times: a full-screen line in the intro, a webcam circle through their own part, and the close. The software still fills the screen for 69 of the 120 seconds.
+
+| Time | Picture | Faces |
+|---|---|---|
+| 0:00–0:12 | Cold open: the two fires | None. Speaker 1's voice. The first face lands harder after it. |
+| 0:12–0:27 | **Four faces, full screen, one line each** | All four |
+| 0:27–0:30 | Logo | None |
+| 0:30–0:58 | 3D map | Speaker 2 in a circle, bottom right |
+| 0:58–1:22 | Agents and the plan | Speaker 3 in a circle, bottom right |
+| 1:22–1:44 | Approve, the dark lines, the real fire | Speaker 4 in a circle. Hands, LED strip and phone fill the screen at 1:25.5–1:30.5 |
+| 1:44–1:56 | Proof cards, moved to the right half | **Speaker 1, large, on the left half** |
+| 1:56–2:00 | Close | **All four, full screen** |
+
+The bottom-right corner is clear in every software clip, so the circle never covers the map labels, the plan or the agent steps.
+
+## Script
+
+Three ways a line is delivered:
+
+- **On camera**: your face fills the screen. Phone on a stack of books, look into the lens.
+- **Corner**: you read to your laptop webcam. Your face sits in a circle over the software and your voice comes from the same take.
+- **Off camera**: voice only.
+
+### 0 · Cold open · 0:00–0:12 · off camera · Speaker 1
+
+Slow and flat. About 11 seconds.
 
 > November 2018. The Woolsey fire destroys sixteen hundred buildings.
 > January 2025. The Eaton fire kills nineteen people.
 > Investigators traced both to power-line equipment.
 
-**1 · The problem · 0:12–0:27 · Speaker 1, on camera (FILM-1)**
+### 1 · The problem · 0:12–0:27 · on camera · all four, one line each
 
-> When the winds hit, a grid operator has minutes to decide: leave a line on and risk a spark, or cut power to thousands of homes.
-> Today they make that call across separate screens.
-> We built one.
+A hard cut between faces. Same framing for all four.
 
-0:27–0:30: logo sting, no words.
+| Who | Says | Length |
+|---|---|---|
+| Speaker 1 | When the winds hit, a grid operator has minutes to decide. | 3.5 s |
+| Speaker 2 | Leave a line on, and risk a spark. | 3 s |
+| Speaker 3 | Or cut the power, and thousands of homes go dark. | 3.5 s |
+| Speaker 4 | Today that call is made across separate screens. We built one. | 5 s |
 
-**2 · See it · 0:30–0:58 · Speaker 2**
+Speaker 4: after "We built one", hold still for one second. The logo cuts in there.
+
+### 2 · See it · 0:30–0:58 · corner · Speaker 2
+
+One take, about 26 seconds.
 
 > This is the real Los Angeles grid: eight hundred sixty-four lines, on real terrain.
 > We replay the morning of the Woolsey fire, hour by hour, with only what was known at the time.
@@ -77,14 +109,18 @@ Open it yourself: `http://localhost:5173/?event=E1&hour=10`
 > At 7 AM, it turns red.
 > By ten, the map shows why: wind damage across the hills, and one line at its fire alarm.
 
-**3 · Decide · 0:58–1:22 · Speaker 3**
+### 3 · Decide · 0:58–1:22 · corner · Speaker 3
+
+One take, about 22 seconds.
 
 > Red calls in the agents.
 > An orchestrator picks the specialists it needs: fire, wind, brownout, buildings. Each one writes its findings to files you can open.
 > Then physics takes over. Every plan is run through a real power-flow simulation before you see it. No AI writes a number.
 > The answer: switch off one line. Every hospital stays on.
 
-**4 · Act · 1:22–1:44 · Speaker 4**
+### 4 · Act · 1:22–1:44 · corner · Speaker 4
+
+One take, about 20 seconds.
 
 > One click to approve.
 > The line goes dark, on the map and on our model grid.
@@ -92,143 +128,69 @@ Open it yourself: `http://localhost:5173/?event=E1&hour=10`
 > As the clock runs on, the fix holds.
 > Four hours later, the real Woolsey fire started. In our replay, the line nearest the ignition ranked in the top one percent for fire risk.
 
-**5 · Proof · 1:44–1:56 · Speaker 1**
+While Speaker 4 says the second and third lines, the picture cuts to the hardware shot (no talking in that shot).
 
-> Fire maps show where the danger is. Grid software shows where the power flows.
-> Rewire turns both into one checked plan.
+### 5 · Proof · 1:44–1:56 · on camera · Speaker 1
+
+About 7 seconds, then about 5.
+
+> Fire maps show where the danger is. Grid software shows where the power flows. Rewire turns both into one checked plan.
+
 > Engineers at [COMPANY 1] and [COMPANY 2] told us [SHORT QUOTE].
 
-No quotes ready? Say this instead: "And every result is published, including where we lose."
+The quote line can be said by whoever got the emails. No quotes ready? Say: "And every result is published, including where we lose."
 
-**6 · Close · 1:56–2:00 · all four on camera (FILM-4)**
+### 6 · Close · 1:56–2:00 · on camera · all four
 
 > Rewire. Keep the lights on. Keep the fire out.
 
-## On camera: exactly what to say
+Together, or split: Speaker 1 "Rewire." Speaker 2 "Keep the lights on." Speaker 3 "Keep the fire out." Speaker 4 nods. Hold still for two seconds after.
 
-Faces are on screen for about 35 of the 120 seconds. Everything else is your voice over the app.
-Every on-camera line below is also in the script above, so the timing does not change.
+## What to record and send
 
-### FILM-1 · The problem · 0:12–0:27 · 15 s
+Put the takes in `HighWire-work/video/film/` with these names. Any phone or webcam format works.
 
-Pick one version. All three say the same words.
-
-**A. One person (Speaker 1), looking into the lens**
-
-> When the winds hit, a grid operator has minutes to decide: leave a line on and risk a spark, or cut power to thousands of homes.
-> Today they make that call across separate screens.
-> We built one.
-
-**B. Two people, side by side, trading lines**
-
-| Who | Says |
-|---|---|
-| 1 | When the winds hit, a grid operator has minutes to decide. |
-| 2 | Leave a line on, and risk a spark. |
-| 1 | Or cut power to thousands of homes. |
-| 2 | Today they make that call across separate screens. |
-| 1 and 2 | We built one. |
-
-**C. All four, one line each, a hard cut between faces (about 4 s each)**
-
-| Who | Says |
-|---|---|
-| 1 | When the winds hit, a grid operator has minutes to decide. |
-| 2 | Leave a line on, and risk a spark. |
-| 3 | Or cut power to thousands of homes. |
-| 4 | Today that call is made across separate screens. We built one. |
-
-How: chest-up, eye level, phone in landscape on a stack of books. The laptop with the Rewire map glows behind you, out of focus. Say "We built one" and hold still for one second; the logo cuts in there.
-
-### Part openers · 2 to 3 s each · each speaker starts their part on camera
-
-You say your first sentence to the camera, then the picture cuts to the app while you keep talking.
-
-| Slot | Time | Who | Says on camera | What you do |
-|---|---|---|---|---|
-| FILM-2a | 0:30–0:33 | Speaker 2 | This is the real Los Angeles grid. | Stand beside the screen, turn your hand toward the map as you say "grid". |
-| FILM-3a | 0:58–1:00 | Speaker 3 | Red calls in the agents. | Sit at the laptop. Point at the red light on the screen, then look up at the camera. |
-| FILM-4a | 1:22–1:24 | Speaker 4 | One click to approve. | Finger over the trackpad. The click on screen lands right after your words. |
-
-Short on time? Skip these three and use the voice only. Nothing else changes.
-
-### The hardware take · 1:25.5–1:30.5 · 5 s · one take, up to three people
-
-One slow move of the phone camera, left to right: laptop, then the LED strip, then the phone.
-
-| Time | Who is in frame | Says | What happens |
+| File name | Who | How | Length |
 |---|---|---|---|
-| 1:25.5–1:28 | Person at the laptop, person holding the strip | The line goes dark, on the map and on our model grid. | The click has just happened. The red patch on the strip goes dark while the camera is on it. |
-| 1:28–1:30.5 | Person holding the phone | The operator gets a text. | The phone lights up. Hold it toward the camera. |
+| `01_coldopen_voice` | Speaker 1 | Voice memo | 11 s |
+| `02_intro_1`, `02_intro_2`, `02_intro_3`, `02_intro_4` | each speaker | On camera | 3 to 5 s each |
+| `03_part2_webcam` | Speaker 2 | Laptop webcam, one take | 26 s |
+| `04_part3_webcam` | Speaker 3 | Laptop webcam, one take | 22 s |
+| `05_part4_webcam` | Speaker 4 | Laptop webcam, one take | 20 s |
+| `06_hardware` | hands only | Phone. No talking. Click Approve, the red patch on the strip goes dark, the phone lights up. | 8 s or more |
+| `07_proof` | Speaker 1 | On camera | 7 s |
+| `08_quote` | Speaker 1 or whoever got the emails | On camera | 5 s |
+| `09_close` | all four | On camera | 4 s |
+| `names.txt` | | Each speaker's name and role, for the small text under each face | |
+| `quotes.txt` | | The two quotes, who said them, and whether the name and company can be shown | |
+| music (optional) | | One quiet track | |
 
-One-person version: Speaker 4 says both lines off camera and the shot is hands only.
+### How to film each kind
 
-Before the take: run `python -m backend.lights event` so the patch is red, and turn the bell on in the app so the text sends. The Twilio trial sends its stock wording, so keep the phone far enough away that the words are not readable. If the text does not arrive, leave the phone card in.
+**On camera (02, 07, 08, 09)**
 
-### FILM-5 (optional) · Who wants it · 1:51–1:56 · 5 s · Speaker 1
+- Phone in landscape, 1080p, 30 fps, on a stack of books at eye level. Chest-up.
+- Light the face from the front. A laptop showing a white page works.
+- Same spot and framing for everyone, so the cuts between faces look clean.
+- For `07_proof` and `08_quote`, stand a little left of centre. The card sits on the right half.
 
-> Engineers at [COMPANY 1] and [COMPANY 2] told us [SHORT QUOTE].
+**Corner webcam (03, 04, 05)**
 
-Say it to the camera, plainly. Or keep it as voice and show the quotes card (see "Adding the two quotes").
+- Laptop webcam or phone, landscape. Face in the middle of the frame with space above the head; it gets cut into a circle.
+- Look at the lens. Put the script right under it.
+- Play `rewire_cut_v1_no_voice.mp4` beside you and read along so your words land on the picture.
+- One take for the whole part. The voice comes from this take, so use a quiet room and sit close.
 
-### FILM-4 · The close · 1:56–2:00 · 4 s · all four
+**Hardware (06)**
 
-Pick one.
+- Run `python -m backend.lights event` first so the patch is red. Turn the bell on in the app so the text sends.
+- One slow move left to right: laptop, strip, phone. Room lights low.
+- The Twilio trial sends its stock wording, so keep the phone far enough away that the words are not readable.
 
-| Version | Who | Says |
-|---|---|---|
-| A. Together | All four | Rewire. Keep the lights on. Keep the fire out. |
-| B. Split | 1, then 2, then 3, then all | Rewire. / Keep the lights on. / Keep the fire out. / (all four nod or smile) |
-| C. One voice | Speaker 1, others beside them | Rewire. Keep the lights on. Keep the fire out. |
+**All takes**
 
-Stand shoulder to shoulder, same framing as FILM-1. Hold still for two seconds after the last word. Let the end card show for the last second.
-
-### Each person's lines on one page
-
-**Speaker 1 (the problem, the proof, the close)**
-
-| When | Camera or voice | Line |
-|---|---|---|
-| 0:00–0:12 | Voice | November 2018. The Woolsey fire destroys sixteen hundred buildings. January 2025. The Eaton fire kills nineteen people. Investigators traced both to power-line equipment. |
-| 0:12–0:27 | **Camera** | FILM-1 (version A, B or C) |
-| 1:44–1:51 | Voice | Fire maps show where the danger is. Grid software shows where the power flows. Rewire turns both into one checked plan. |
-| 1:51–1:56 | Voice or **camera** | Engineers at [COMPANY 1] and [COMPANY 2] told us [SHORT QUOTE]. |
-| 1:56–2:00 | **Camera** | The close |
-
-**Speaker 2 (the 3D map)**
-
-| When | Camera or voice | Line |
-|---|---|---|
-| 0:30–0:33 | **Camera** | This is the real Los Angeles grid. |
-| 0:33–0:58 | Voice | Eight hundred sixty-four lines, on real terrain. We replay the morning of the Woolsey fire, hour by hour, with only what was known at the time. A risk watch tracks five hard limits, and where each one is heading. At 7 AM, it turns red. By ten, the map shows why: wind damage across the hills, and one line at its fire alarm. |
-| 1:56–2:00 | **Camera** | The close |
-
-**Speaker 3 (the agents)**
-
-| When | Camera or voice | Line |
-|---|---|---|
-| 0:58–1:00 | **Camera** | Red calls in the agents. |
-| 1:00–1:22 | Voice | An orchestrator picks the specialists it needs: fire, wind, brownout, buildings. Each one writes its findings to files you can open. Then physics takes over. Every plan is run through a real power-flow simulation before you see it. No AI writes a number. The answer: switch off one line. Every hospital stays on. |
-| 1:56–2:00 | **Camera** | The close |
-
-**Speaker 4 (the action and the hardware)**
-
-| When | Camera or voice | Line |
-|---|---|---|
-| 1:22–1:24 | **Camera** | One click to approve. |
-| 1:25.5–1:30.5 | **Camera** (hardware take) | The line goes dark, on the map and on our model grid. The operator gets a text. |
-| 1:30.5–1:44 | Voice | As the clock runs on, the fix holds. Four hours later, the real Woolsey fire started. In our replay, the line nearest the ignition ranked in the top one percent for fire risk. |
-| 1:56–2:00 | **Camera** | The close |
-
-### Filming rules
-
-- Phone in landscape, 1080p, 30 fps, locked on books or a tripod. Never handheld except the hardware take.
-- Light on the face from the front. A laptop showing a white page works.
-- Two takes of everything. Clap once before each take so the sound is easy to line up.
-- Leave one second of silence before and after you speak.
-- Voice lines: phone voice memo, quiet room, a hand's width from your mouth. Play the cut on mute while you read so your timing fits the picture.
-- Names: no spoken introductions. Put each name and role as small text under the face the first time it appears.
-- Face in a corner (optional): the bottom-right corner is kept clear in every 3D clip, so a small circle of the speaker fits there.
+- Two takes of everything. Leave one second of silence before and after you speak.
+- If a take runs a little long (up to about 8%) it can be tightened. Longer than that and the video runs past 2:00.
 
 ## What is in the folder
 
@@ -247,7 +209,7 @@ Stand shoulder to shoulder, same framing as FILM-1. Hold still for two seconds a
 | `clips/C2_holds.mp4` | 7 s | The clock moves on and what was switched off stays off. |
 | `clips/C3_dark_lines.mp4` | 8 s | No panels: the dark lines and the label "Woolsey fire starts here at 2:22 PM". |
 | `cards/M0_cold_open.mp4` | 12 s | The two fires, the numbers, the power line and the spark. |
-| `cards/MP_problem.mp4` | 16 s | The operator's choice in words. Stands in for FILM-1. |
+| `cards/MP_problem.mp4` | 16 s | The operator's choice in words. Stands in for the four faces. |
 | `cards/M1_logo.mp4` | 3 s | The rewire mark draws on. |
 | `cards/M2_proof.mp4` | 5 s | Top 1%, 95%, 8 tests. |
 | `cards/M3_quotes.mp4`, `M3_quotes_blank.mp4` | 5 s | Two quote boxes. The blank one has no words so you can type over it. |
@@ -261,9 +223,11 @@ Stand shoulder to shoulder, same framing as FILM-1. Hold still for two seconds a
 
 ## Edit steps (CapCut, iMovie or DaVinci)
 
+If you edit it yourselves instead of sending the takes:
+
 1. Put `rewire_cut_v1_no_voice.mp4` on the timeline.
-2. Lay each FILM clip on top at its time from "The cut, second by second".
-3. Record each speaker's voice and place it at the start of their part.
+2. Lay each take on top at its time from "Where your faces go". Crop the webcam takes to a circle in the bottom-right corner.
+3. Use the sound from the webcam takes as the voice for parts 2, 3 and 4.
 4. Add your two quotes (below), or keep the proof card as it is.
 5. Add one quiet music track under everything at about 15% volume. End it at 1:56.
 6. Export 1080p, 30 fps, MP4. Watch it once on a phone with sound.
