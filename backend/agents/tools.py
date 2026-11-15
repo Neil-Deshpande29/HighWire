@@ -140,7 +140,7 @@ def summarize_result(r: dict) -> dict:
     if built is not None:
         out["hospitals_on_backup"] = built["hospitals"]
         out["buildings_out"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "severity": built["severity"],
-                                "sites": built["sites"][:12]}
+                                "critical": built["critical"], "homes": built["homes"], "ladder": built["ladder"], "sites": built["sites"][:12]}
     return out
 
 
@@ -372,7 +372,7 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         if hasattr(state, "step_impacts"):  # LA grid: what each step cuts off, the five heaviest named. Code picks them.
             for step, built in zip(steps, state.step_impacts(actions)):
                 step["buildings"] = {"by_kind": built["by_kind"], "score": built["score"], "n": built["n"], "severity": built["severity"],
-                                     "sites": built["sites"][:WARNINGS_PER_STEP]}
+                                     "critical": built["critical"], "homes": built["homes"], "sites": built["sites"][:WARNINGS_PER_STEP]}
         p["steps"] = steps
         p["id"] = p.get("id") or f"P{i + 1}"
         p["actions"] = actions

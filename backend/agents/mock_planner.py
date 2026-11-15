@@ -95,10 +95,13 @@ def _cut_phrase(state, line_id: str) -> str:
     """What cutting one LA line costs, by kind of building behind it. '' off the LA grid."""
     if not hasattr(state, "cut_impact"):
         return ""
-    kinds = state.cut_impact(line_id)["by_kind"]
-    if not kinds:
+    from ..la import buildings as B
+
+    cut = state.cut_impact(line_id)
+    if not cut["by_kind"]:
         return " No listed building loses grid power."
-    return " It feeds " + ", ".join(f"{n} {k.replace('_', ' ')}{'s' if n > 1 and not k.endswith('s') else ''}" for k, n in kinds.items()) + ", which would go to backup."
+    homes = f" ({cut['homes']:,} homes)" if cut.get("homes") else ""
+    return f" It feeds {B.words(cut['by_kind'])}{homes}, which would lose grid power."
 
 
 def _cut_order(state, risk: float, line_id: str):
@@ -532,8 +535,9 @@ class _Planner:
         from ..la import buildings as B
 
         info = B.summary()
-        src = "CoStar property records and OpenStreetMap" if info["costar"] else "OpenStreetMap hospitals and water plants (the CoStar extract is not loaded)"
-        self.say("buildings_agent", f"building records: {info['n']} from {src}")
+        src = (f"CoStar ({info['costar']:,} properties, {info['homes']:,} apartment homes) and OpenStreetMap" if info["costar"]
+               else "OpenStreetMap hospitals and water plants (the CoStar kit is not loaded)")
+        self.say("buildings_agent", f"building records: {info['n']:,} from {src}")
         flagged = [m.group(1) for v in base["violations"] if (m := re.match(r"Line (\w+): fire risk", v))]
         cuts = {l: st.cut_impact(l) for l in flagged}
         ranked = sorted(flagged, key=lambda l: (-cuts[l]["score"], -cuts[l]["customers"], l))
@@ -543,12 +547,13 @@ class _Planner:
                 continue
             top = next(t for t in c["ladder"] if t["n"])
             self.find("buildings_agent", l, f"cutting it reaches tier {top['tier']}: {top['name'].lower()}",
-                      ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in c["by_kind"].items()) + f" on backup; {c['customers']:,} customers", 3 if top["tier"] <= 2 else 2)
+                      B.words(c["by_kind"]) + (f" ({c['homes']:,} homes)" if c.get("homes") else "") + f" lose grid power; {c['customers']:,} customers",
+                      3 if top["tier"] <= 2 else 2 if top["tier"] == 3 else 1)
         free = [l for l in flagged if not cuts[l]["n"]]
         if free:
             self.find("buildings_agent", "cut first", "these lines feed no listed building",
                       f"{len(free)} of {len(flagged)} flagged lines: " + ", ".join(free[:8]) + (" and more" if len(free) > 8 else ""), 1)
-        self.find("buildings_agent", "records", "where the building list comes from", f"{info['n']} buildings from {src}", 1 if info["costar"] else 2)
+        self.find("buildings_agent", "records", "where the building list comes from", f"{info['n']:,} buildings from {src}", 1 if info["costar"] else 2)
         hit = [l for l in ranked if cuts[l]["n"]]
         self.say("buildings_agent", (f"{len(hit)} of {len(flagged)} flagged lines feed a listed building; worst is {hit[0]}" if hit
                                      else f"none of the {len(flagged)} flagged lines feeds a listed building"))

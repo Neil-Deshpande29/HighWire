@@ -46,6 +46,13 @@ class LASimIn(BaseModel):
     conditions: dict | None = None
 
 
+class LACutIn(BaseModel):
+    event: str
+    t: str | None = None
+    line: str
+    actions: list[dict] = []  # changes already made; the answer is what this line adds on top of them
+
+
 class LARoleIn(BaseModel):
     role: str = "operator"  # who is acting: "operator" or "supervisor"
     reasons: list[str] = []  # on a rejection: why (ids from backend/la/feedback.py REASONS)
@@ -253,6 +260,17 @@ def la_risk(body: LASimIn):
     base = _base_state(body.event, body.t)
     st = base.with_conditions(body.conditions) if body.conditions else base
     return risk.register(st, body.actions)
+
+
+@router.post("/la/cut")
+def la_cut(body: LACutIn):
+    """What loses grid power if this one line is switched off: buildings by kind and tier, apartment homes, customers.
+    Topology only, so it answers for any line at once, not only the ones at high fire risk."""
+    _require_event(body.event)
+    st = _base_state(body.event, body.t)
+    if body.line not in st.lines:
+        raise HTTPException(404, f"unknown line {body.line}")
+    return st.cut_impact(body.line, body.actions)
 
 
 @router.get("/la/sensors/{event_id}")

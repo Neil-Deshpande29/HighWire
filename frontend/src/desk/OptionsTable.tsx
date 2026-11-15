@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { BuildingsOut, Plan } from "../api";
 import type { LAStatic, SimResult } from "../la/api";
-import { actionText, buildingsText, fmtInt, fmtPeople, offLines, plainViolation } from "../ui/format";
+import { actionText, buildingsText, fmtInt, fmtPeople, homesText, offLines, plainViolation } from "../ui/format";
 import { Sev, sevMark, sevWord } from "./marks";
 
 /** One thing the operator could do at this hour: nothing, a plan from the agents, or their own changes.
@@ -28,8 +28,8 @@ export default function OptionsTable({ options, selected, heat, stale, onSelect 
   options: Option[]; selected: string | null; heat: boolean; stale: boolean; onSelect: (key: string | null) => void;
 }) {
   const cols = heat
-    ? ["Lines over rating", "Busiest line", "Customers cut off", "Hospitals, water on backup", "Safe?"]
-    : ["Risky lines left on", "People downwind", "Customers cut off", "Hospitals, water on backup", "Safe?"];
+    ? ["Lines over rating", "Busiest line", "Customers cut off", "Critical sites on backup", "Safe?"]
+    : ["Risky lines left on", "People downwind", "Customers cut off", "Critical sites on backup", "Safe?"];
   return (
     <div className={`card options ${stale ? "stale" : ""}`}>
       <div className="eyebrow">Your options · click one to see it on the map</div>
@@ -38,7 +38,7 @@ export default function OptionsTable({ options, selected, heat, stale, onSelect 
       </div>
       {options.map((o) => {
         const r = o.sim, sit = r?.situation;
-        const sites = r?.buildings_out?.n ?? 0;
+        const sites = r?.buildings_out?.critical ?? r?.buildings_out?.n ?? 0; // hospitals, water plants, clinics, senior housing, schools
         return (
           <button key={o.key} className={`opt-grid opt-row ${selected === o.key ? "selected" : ""} ${o.kind} ${o.status ?? ""}`}
             aria-pressed={selected === o.key} onClick={() => onSelect(selected === o.key ? null : o.key)}>
@@ -52,7 +52,7 @@ export default function OptionsTable({ options, selected, heat, stale, onSelect 
                 <span className={heat ? (sit!.n_overloaded ? "act" : "ok") : sit!.n_high_risk ? "act" : "ok"}>{heat ? sit!.n_overloaded : sit!.n_high_risk}</span>
                 <span>{heat ? `${Math.round(sit!.max_loading)}%` : fmtPeople(sit!.people_downwind)}</span>
                 <span>{fmtInt(r.customers_out)}</span>
-                <span className={sites ? "warn" : ""} title={sites ? buildingsText(r.buildings_out!.by_kind, ", ") : "None"}>{sites}</span>
+                <span className={sites ? "warn" : ""} title={r.buildings_out?.n ? `${buildingsText(r.buildings_out.by_kind, ", ")}${homesText(r.buildings_out.homes)}` : "None"}>{sites}</span>
                 <span className={r.is_safe ? "pass" : "fail"} title={r.is_safe ? "Passes every physics check" : r.violations.slice(0, 6).map(plainViolation).join("; ")}>
                   {r.is_safe ? "✓ Yes" : "✕ No"}
                 </span>
@@ -72,14 +72,14 @@ export function StepWarnings({ built }: { built: BuildingsOut }) {
   return (
     <div className="step-warn">
       <button className={`warn-chip sev-${built.severity}`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {sevMark(built.severity)} {sevWord(built.severity)} · {buildingsText(built.by_kind, ", ")} go to backup power
+        {sevMark(built.severity)} {sevWord(built.severity)} · {buildingsText(built.by_kind, ", ")}{homesText(built.homes)} lose grid power
       </button>
       {open && (
         <ul className="warn-list">
           {built.sites.map((b) => (
             <li key={`${b.name}|${b.bus}`}>
               {b.severity && <Sev level={b.severity} />} <b>{b.name}</b>
-              <span className="muted"> · {b.backup_hours ? `about ${Math.round(b.backup_hours)} h of backup` : "backup not known"}</span>
+              <span className="muted"> · {b.backup_hours ? `about ${Math.round(b.backup_hours)} h of backup` : b.units ? `${fmtInt(b.units)} homes` : "backup not known"}</span>
             </li>
           ))}
           {built.n > built.sites.length && <li className="muted">and {built.n - built.sites.length} more</li>}
@@ -102,10 +102,11 @@ export function Tradeoff({ base, sim, heat }: { base: SimResult; sim: SimResult;
     : [
       delta("Lines at high fire risk", b.n_high_risk, a.n_high_risk, fmtInt),
       delta("People downwind of them", b.people_downwind, a.people_downwind, fmtPeople),
-      delta("Hospitals, water plants downwind", base.fire_exposure.n, sim.fire_exposure.n, fmtInt),
+      delta("Critical sites downwind", base.fire_exposure.critical, sim.fire_exposure.critical, fmtInt),
     ];
   rows.push(delta("Customers cut off", base.customers_out, sim.customers_out, fmtInt));
-  rows.push(delta("Hospitals, water plants on backup", base.buildings_out?.n ?? 0, sim.buildings_out?.n ?? 0, fmtInt));
+  rows.push(delta("Critical sites on backup", base.buildings_out?.critical ?? 0, sim.buildings_out?.critical ?? 0, fmtInt));
+  if (base.buildings_out?.homes || sim.buildings_out?.homes) rows.push(delta("Apartment homes without power", base.buildings_out?.homes ?? 0, sim.buildings_out?.homes ?? 0, fmtInt));
   return (
     <table className="tradeoff">
       <thead><tr><th /><th>Do nothing</th><th>This option</th></tr></thead>

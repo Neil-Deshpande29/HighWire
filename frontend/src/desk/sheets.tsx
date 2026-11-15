@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Band, RecordEntry, RiskRegister, RiskRow, Sensors, SimResult, Station } from "../la/api";
-import { buildingsText, fmtInt, fmtPeople, mph, timeLabel } from "../ui/format";
+import { buildingsText, fmtInt, fmtPeople, homesText, kindWord, mph, timeLabel } from "../ui/format";
 import { KindBadge, Sev, type Kind } from "./marks";
 import type { Option } from "./OptionsTable";
 
@@ -85,7 +85,7 @@ function RiskLine({ r, onLine }: { r: RiskRow; onLine: (id: string) => void }) {
       <div className="risk-row"><em>If turned off</em><span>
         {r.class === "bulk" ? "Stays on: it feeds the whole basin"
           : !r.if_cut || (!r.if_cut.n && !r.if_cut.customers) ? "● Nobody loses power"
-          : <>{r.if_cut.severity ? <Sev level={r.if_cut.severity} /> : null} {r.if_cut.n ? `${buildingsText(r.if_cut.by_kind, ", ")} on backup · ` : ""}{fmtInt(r.if_cut.customers)} customers cut off</>}
+          : <>{r.if_cut.severity ? <Sev level={r.if_cut.severity} /> : null} {r.if_cut.n ? `${buildingsText(r.if_cut.by_kind, ", ")}${homesText(r.if_cut.homes)} lose grid power · ` : ""}{fmtInt(r.if_cut.customers)} customers cut off</>}
       </span></div>
     </button>
   );
@@ -128,8 +128,6 @@ export function RiskSheet({ reg, back, onLine, onClose }: { reg: RiskRegister | 
 }
 
 // ---------------------------------------------------------------- who is affected
-const kindWord = (k: string) => (k === "water" ? "water plant" : k.replace("_", " "));
-
 function Sites({ title, n, empty, children }: { title: string; n: number; empty: string; children: ReactNode }) {
   return (
     <div className="sites">
@@ -146,14 +144,14 @@ export function AffectedSheet({ option, back, onLine, onClose }: { option: Optio
     <Sheet title={`Who is affected by ${option.label}`} back={back} onClose={onClose}>
       {!sim ? <div className="muted small">Checking the physics…</div> : (
         <>
-          <Sites title={`On backup power (${out?.n ?? 0})`} n={out?.n ?? 0} empty="Nobody. No hospital or water plant loses grid power.">
+          <Sites title={`Lose grid power (${out?.n ?? 0})${homesText(out?.homes)}`} n={out?.n ?? 0} empty="Nobody. No listed building loses grid power.">
             {out?.sites.slice(0, 12).map((b) => (
               <li key={`${b.name}|${b.bus}`}>{b.severity && <Sev level={b.severity} />} <b>{b.name}</b>
-                <span className="muted"> · {kindWord(b.kind)}{b.backup_hours ? ` · about ${Math.round(b.backup_hours)} h of backup` : ""}</span></li>
+                <span className="muted"> · {kindWord(b.kind)}{b.backup_hours ? ` · about ${Math.round(b.backup_hours)} h of backup` : ""}{b.units ? ` · ${fmtInt(b.units)} homes` : ""}</span></li>
             ))}
             {out && out.n > 12 && <li className="muted">and {out.n - 12} more</li>}
           </Sites>
-          <Sites title={`Still downwind of a risky line (${exp?.n ?? 0})`} n={exp?.n ?? 0} empty="Nobody. No hospital or water plant is downwind of a line left on at high risk.">
+          <Sites title={`Still downwind of a risky line (${exp?.n ?? 0})`} n={exp?.n ?? 0} empty="Nobody. No listed building is downwind of a line left on at high risk.">
             {exp?.sites.slice(0, 12).map((b) => (
               <li key={`${b.name}|${b.line}`}><Sev level={b.severity} /> <b>{b.name}</b>
                 <span className="muted"> · {kindWord(b.kind)} · {b.distance_km.toFixed(1)} km from </span><button className="link" onClick={() => onLine(b.line)}>{b.line}</button></li>

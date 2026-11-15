@@ -1,17 +1,21 @@
-"""Turn the CoStar data extract into the building list the planner and the Buildings agent read.
+"""Turn the CoStar data kit into the building list the planner and the Buildings agent read.
 
-The extract is licensed. It is handed out in the hackathon's track Discord (/costar-keys replies with the download
-link and its password) and must stay out of git. Save the file, or its unzipped folder, anywhere on this machine, then:
+The kit is licensed. It is handed out in the hackathon's track Discord (/costar-keys) and must stay out of git.
+Unzip it anywhere on this machine, then:
 
-    python -m backend.la.costar_import /path/to/the/extract          a .csv, .xlsx, .json or .geojson file, or a folder
+    python -m backend.la.costar_import /path/to/costar-hackathon-kit
 
-It writes data/processed/costar/buildings.json (git-ignored): one row per property inside the grid's area, with
-{id, name, property_type, secondary_type, lat, lon, size_sf, year_built, address}. backend/la/buildings.py reads that
-file, maps each property type to a rung of the priority ladder and assigns the property to its nearest substation.
+It writes data/processed/costar/buildings.json (git-ignored): one row per property inside the grid's area.
+backend/la/buildings.py reads that file, maps each property to a rung of the priority ladder and assigns it to its
+nearest substation.
 
-The extract's exact column names are not published, so columns are found by name ("Latitude", "PropertyType", ...).
-The command prints which column it used for what, and stops with a clear message when it finds no latitude and
-longitude, rather than guessing.
+Two inputs are understood:
+  * the hackathon kit folder (it contains data/commercial-property.jsonl and schemas/enums.json). Read as its own
+    documentation describes: type and subtype names from the enums, location from primaryAddress, apartment homes
+    from propertyApartment.totalNumUnits, lifestyle (senior, student), year built from the construction-complete
+    event, and the current tenants (location-occupancy records with no toDate) counted by industry.
+  * any other table (.csv, .xlsx, .json, .geojson, or a folder of them). Columns are found by name ("Latitude",
+    "PropertyType", ...); the command prints what it used and skips a file with no coordinates rather than guessing.
 """
 from __future__ import annotations
 
@@ -40,6 +44,10 @@ COLUMNS = {
     "address": ["propertyaddress", "streetaddress", "address"],
 }
 READABLE = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".json", ".geojson"}
+KIT_PROPERTIES, KIT_ENUMS = "data/commercial-property.jsonl", "schemas/enums.json"
+KIT_TENANCIES, KIT_COMPANIES = "data/location-occupancy.jsonl", "data/company-detail.jsonl"
+BUILT = "ConstructionComplete"  # the construction event that gives the year built
+HEALTH = "HealthCareAndSocialAssistance"  # the tenant industry that makes an office a medical site
 
 
 def _norm(header: str) -> str:
@@ -79,12 +87,82 @@ def read_table(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, sep=None, engine="python")  # the separator is sniffed: comma, tab or semicolon
 
 
-def convert(source: Path) -> tuple[list[dict], list[str]]:
-    """Read the extract (a file, or every readable file in a folder) and return (properties inside the grid's area,
-    notes on what was read)."""
-    files = sorted(p for p in source.rglob("*") if p.suffix.lower() in READABLE) if source.is_dir() else [source]
+def _area() -> tuple[float, float, float, float]:
     ter = D.terrain()
-    south, north, west, east = float(np.min(ter["lats"])), float(np.max(ter["lats"])), float(np.min(ter["lons"])), float(np.max(ter["lons"]))
+    return float(np.min(ter["lats"])), float(np.max(ter["lats"])), float(np.min(ter["lons"])), float(np.max(ter["lons"]))
+
+
+def _jsonl(path: Path):
+    with path.open() as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+
+def _kit_tenants(source: Path, wanted: set, industries: dict) -> dict:
+    """Current tenants of each wanted property: {property id: {"current": n, "known": n with an industry, "health": n}}.
+    A tenancy is current when it has no toDate. The industry comes from the linked company when there is one, as the
+    kit's own notes say, and from the tenancy record otherwise."""
+    tenancies = [o for o in _jsonl(source / KIT_TENANCIES) if o.get("propertyId") in wanted and o.get("toDate") is None]
+    linked = {o["tenantLocationId"] for o in tenancies if o.get("tenantLocationId") is not None}
+    company_industry = {}
+    if linked and (source / KIT_COMPANIES).exists():
+        for c in _jsonl(source / KIT_COMPANIES):
+            if c.get("id") in linked:
+                company_industry[c["id"]] = (c.get("profile") or {}).get("industryType")
+    out: dict = {}
+    for o in tenancies:
+        code = company_industry.get(o.get("tenantLocationId")) or o.get("industryType") or 0
+        name = industries.get(str(code), "Unknown")
+        t = out.setdefault(o["propertyId"], {"current": 0, "known": 0, "health": 0})
+        t["current"] += 1
+        t["known"] += name != "Unknown"
+        t["health"] += name == HEALTH
+    return out
+
+
+def convert_kit(source: Path) -> tuple[list[dict], list[str]]:
+    """Read the hackathon kit and return (commercial properties inside the grid's area, notes on what was read).
+    Land parcels are left out: there is no building on them to lose power."""
+    enums = json.loads((source / KIT_ENUMS).read_text())
+    name = lambda group, v: enums.get(group, {}).get(str(v)) if v is not None else None  # noqa: E731
+    south, north, west, east = _area()
+    inside, total = [], 0
+    for r in _jsonl(source / KIT_PROPERTIES):
+        total += 1
+        a = r.get("primaryAddress") or {}
+        lat, lon = a.get("latitude"), a.get("longitude")
+        if lat is not None and lon is not None and south <= lat <= north and west <= lon <= east and name("PropertyType", r.get("propertyType")) != "Land":
+            inside.append(r)
+    notes = [f"{KIT_PROPERTIES}: {total:,} properties, {len(inside):,} with a building inside the Los Angeles grid"]
+    tenants = {}
+    if (source / KIT_TENANCIES).exists():
+        tenants = _kit_tenants(source, {r["id"] for r in inside}, enums.get("IndustryType", {}))
+        notes.append(f"{KIT_TENANCIES}: {sum(t['current'] for t in tenants.values()):,} current tenancies in {len(tenants):,} of those properties")
+    rows = []
+    for r in inside:
+        a, apt = r["primaryAddress"], r.get("propertyApartment") or {}
+        street = " ".join(str(a[k]) for k in ("streetNumber", "streetName", "streetType") if a.get(k))
+        built = next((e.get("year") for e in r.get("constructionEvents") or [] if name("ConstructionEventType", e.get("eventType")) == BUILT), None)
+        size = r.get("rentableBuildingAreaSquareFeet") or r.get("grossBuildingAreaSquareFeet")
+        rows.append({
+            "id": r["id"], "name": r.get("buildingName") or street or "Unnamed property",
+            "property_type": name("PropertyType", r.get("propertyType")), "secondary_type": name("PropertySubtype", r.get("propertySubtype")),
+            "lat": float(a["latitude"]), "lon": float(a["longitude"]), "size_sf": int(size) if size else None, "year_built": built,
+            "address": ", ".join(x for x in (street, a.get("city")) if x) or None,
+            "units": apt.get("totalNumUnits"), "lifestyle": name("ApartmentLifestyleType", apt.get("apartmentLifestyleType")),
+            "heavy_power": ((r.get("propertyIndustrial") or r.get("propertyFlex") or {}).get("electric") or {}).get("hasHeavyPower"),
+            "tenants": tenants.get(r["id"]),
+        })
+    return rows, notes
+
+
+def convert(source: Path) -> tuple[list[dict], list[str]]:
+    """Read the kit, or a table or folder of tables, and return (properties inside the grid's area, notes on what was read)."""
+    if source.is_dir() and (source / KIT_PROPERTIES).exists() and (source / KIT_ENUMS).exists():
+        return convert_kit(source)
+    files = sorted(p for p in source.rglob("*") if p.suffix.lower() in READABLE) if source.is_dir() else [source]
+    south, north, west, east = _area()
     out, notes, seen = [], [], set()
     for f in files:
         try:
@@ -130,8 +208,9 @@ def main(argv: list[str]) -> int:
     B.COSTAR_FILE.parent.mkdir(parents=True, exist_ok=True)
     B.COSTAR_FILE.write_text(json.dumps(rows))
     B.clear_cache()
-    kinds = Counter(B.kind_of(r["property_type"], r["secondary_type"]) for r in rows)
-    print(f"Wrote {len(rows):,} properties to {B.COSTAR_FILE} (git-ignored).")
+    kinds = Counter(B.kind_of(r["property_type"], r["secondary_type"], r.get("lifestyle"), r.get("tenants")) for r in rows)
+    homes = sum(int(r.get("units") or 0) for r in rows)
+    print(f"Wrote {len(rows):,} properties to {B.COSTAR_FILE} (git-ignored)" + (f", with {homes:,} apartment homes." if homes else "."))
     for t in B.TIERS:
         n = sum(kinds[k] for k in t["kinds"])
         print(f"  tier {t['tier']} {t['name']}: {n:,}" + (f" ({', '.join(f'{kinds[k]:,} {k}' for k in t['kinds'] if kinds[k])})" if n else ""))

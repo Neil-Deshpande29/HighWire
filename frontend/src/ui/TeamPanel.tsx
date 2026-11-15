@@ -72,7 +72,10 @@ function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder:
           </div>
         );
       })}
-      <div className="muted small">{records.costar ? `${records.costar.toLocaleString("en-US")} CoStar properties and ` : "CoStar extract not loaded yet · "}{(records.n - records.costar).toLocaleString("en-US")} hospitals and water plants from OpenStreetMap</div>
+      <div className="muted small">
+        {records.costar ? `From CoStar: ${records.costar.toLocaleString("en-US")} properties with ${records.homes.toLocaleString("en-US")} apartment homes. ` : "CoStar kit not loaded yet. "}
+        From OpenStreetMap: {(records.n - records.costar).toLocaleString("en-US")} hospitals and water plants.
+      </div>
     </div>
   );
 }

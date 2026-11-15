@@ -107,9 +107,14 @@ export function mergeAction(list: Action[], a: Action): Action[] {
 const BUILDING_WORDS: Record<string, [string, string]> = {
   hospital: ["hospital", "hospitals"], water: ["water plant", "water plants"], emergency: ["emergency service", "emergency services"],
   medical: ["medical site", "medical sites"], data_center: ["data center", "data centers"], cold_storage: ["cold store", "cold stores"],
-  school: ["school", "schools"], residential: ["residential building", "residential buildings"], industrial: ["industrial site", "industrial sites"],
+  senior_housing: ["senior housing site", "senior housing sites"],
+  school: ["school", "schools"], residential: ["apartment building", "apartment buildings"], industrial: ["industrial site", "industrial sites"],
   lodging: ["hotel", "hotels"], office: ["office", "offices"], retail: ["shop", "shops"], other: ["other building", "other buildings"],
 };
+/** "hospital", "water plant": the word for one building of a kind. */
+export const kindWord = (k: string) => (BUILDING_WORDS[k] ?? [k.replace("_", " ")])[0];
+/** ", 3,668 homes" when CoStar knows how many apartment homes are in the set; "" otherwise. */
+export const homesText = (homes?: number | null) => (homes ? ` (${fmtInt(homes)} homes)` : "");
 /** "hospitals", "water plants": the plural word for a building kind. */
 export const kindPlural = (k: string) => (BUILDING_WORDS[k] ?? [k, `${k}s`])[1];
 /** "1 hospital · 4 water plants" from counts by kind (the backend sends them heaviest first). */
@@ -140,7 +145,7 @@ export function planSentence(p: Plan, s: LAStatic, lineZone: (id: string) => str
   const what = parts.length ? parts.join(", ").replace(/^./, (c) => c.toUpperCase()) + "." : "Change nothing.";
   const r = p.result;
   const cust = r.customers_out ? `${fmtInt(r.customers_out)} customers lose power` : "No customers lose power";
-  const h = hospitalsOf(r.critical_on_backup, s);
+  const h = r.hospitals_on_backup ?? hospitalsOf(r.critical_on_backup, s); // every hospital behind a cut-off substation, not one per substation
   return `${what} ${cust}; ${h ? `${h} hospital${h === 1 ? "" : "s"} go${h === 1 ? "es" : ""} to backup power` : "all hospitals stay on"}.`;
 }
 

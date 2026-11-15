@@ -170,3 +170,8 @@
   .opt-grid { grid-template-columns: minmax(0, 1fr) 40px 54px 44px 42px; }
   .opt-grid > :nth-child(3) { display: none; } /* people downwind is in the detail on a narrow column */
 }
+
+/* a line clicked on the map: the same content as its sheet, as a pop-up beside the click */
+.popover.line-pop { transform: none; width: 300px; max-height: calc(100vh - 96px); overflow-y: auto; gap: 8px; scrollbar-width: thin; }
+.line-pop .readings { grid-template-columns: repeat(3, 1fr); }
+.line-pop .eyebrow { margin: 2px 0 0; }

@@ -74,7 +74,7 @@ export type TopLine = { id: string; name: string | null; kv: number; zone: strin
 export type Trees = { trees: number; spots: number; corridor_m: number; source: string; many: boolean };
 /** GET /la/buildings: the building records in use and the priority ladder they fill. */
 export type BuildingRecords = {
-  sources: string[]; n: number; costar: number; by_kind: Record<string, number>;
+  sources: string[]; n: number; costar: number; homes: number; by_kind: Record<string, number>;
   ladder: { tier: number; name: string; why: string; kinds: string[]; n: number; names: string[] }[];
 };
 export type Feedback = { n: number; reasons: { id: string; text: string; n: number }[]; notes: string[]; choices?: Record<string, string> };
@@ -91,8 +91,8 @@ export type SimResult = {
 };
 /** Buildings downwind of the lines still live at high fire risk (backend/la/exposure.py): the cost of not acting. */
 export type FireExposure = {
-  by_kind: Record<string, number>; score: number; hospitals: number; n: number; severity: Severity | null;
-  sites: { name: string; kind: string; source: string; severity: Severity; line: string; distance_km: number }[];
+  by_kind: Record<string, number>; score: number; hospitals: number; n: number; critical: number; homes: number; severity: Severity | null;
+  sites: { name: string; kind: string; source: string; severity: Severity; line: string; distance_km: number; units?: number | null }[];
 };
 type Reading = { gust_ms: number | null; wind_ms: number | null; rh_pct: number | null; temp_c: number | null };
 /** GET /la/sensors: what each weather station measured against the weather the model ran on. */
@@ -179,6 +179,8 @@ export const la = {
     post<{ plan_status: Record<string, string>; feedback: Feedback }>(`/la/plans/${id}/reject`, { role, reasons, note }),
   feedback: () => get<Feedback>("/la/feedback"),
   buildings: () => get<BuildingRecords>("/la/buildings"),
+  cut: (event: string, t: string, line: string, actions: Action[] = []) =>
+    post<BuildingsOut & { customers: number }>("/la/cut", { event, t, line, actions }),
   escalate: (id: string) => post<{ plan_status: Record<string, string>; authority: Authority }>(`/la/plans/${id}/escalate`),
   record: () => get<{ entries: RecordEntry[]; basis: string }>("/la/record"),
   reset: () => post<{ entries: RecordEntry[] }>("/la/reset"),

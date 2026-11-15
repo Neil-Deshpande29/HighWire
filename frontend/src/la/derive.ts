@@ -58,9 +58,11 @@ export function riskFrame(s: LAStatic, ids: string[]): { lat: number; lon: numbe
 /** The four big numbers on the Situation card. */
 export function situationNumbers(a: {
   hour: Hour; series: Series; heat: boolean; study: boolean; past: boolean; revealed: boolean; sit: Situation | null | undefined;
+  /** hospitals, water plants and other tier 1 to 3 buildings downwind of a live high-risk line (from the same physics call) */
+  criticalDownwind: number | null;
   nHigh: number; worst: { text: string; sub: string } | null; studySim: SimResult | null; onReveal: () => void;
 }): BigNumber[] {
-  const { hour, series, heat, study, past, revealed, sit, nHigh, worst, studySim, onReveal } = a;
+  const { hour, series, heat, study, past, revealed, sit, nHigh, worst, studySim, onReveal, criticalDownwind } = a;
   const numbers: BigNumber[] = [];
   if (heat) {
     numbers.push({ value: String(study ? sit?.n_overloaded ?? "…" : hour.n_overloaded), label: "lines over their rating", tone: (study ? sit?.n_overloaded : hour.n_overloaded) ? "act" : "ok" });
@@ -68,7 +70,7 @@ export function situationNumbers(a: {
   } else {
     numbers.push({ value: String(nHigh), label: "power lines at high fire risk", tone: nHigh ? "act" : "ok" });
     numbers.push({ value: sit ? fmtPeople(sit.people_downwind) : "…", label: "people downwind of them" });
-    numbers.push({ value: sit ? String(sit.hospitals_downwind + sit.water_plants_downwind) : "…", label: "hospitals and water plants downwind" });
+    numbers.push({ value: criticalDownwind != null ? String(criticalDownwind) : "…", label: "hospitals and other critical sites downwind" });
   }
   if (study) numbers.push({ value: studySim ? fmtInt(studySim.customers_out) : "…", label: "customers losing power", sub: "in this study" });
   else if (past && revealed) {
