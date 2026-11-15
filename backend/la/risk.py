@@ -60,7 +60,7 @@ def register(st, actions=None) -> dict:
         if not bulk:  # what switching this one line off would cost, on top of the actions already taken
             newly = st._cut_off(list(actions or []) + [{"type": "open_line", "target": b["id"]}]) - base_off
             cut = B.outage_impact(sorted(newly))
-            cut["customers"] = int(sum(st.buses[x]["load_mw"] for x in newly) * CUSTOMERS_PER_MW)
+            cut["customers"] = int(st.served_mw(newly, actions) * CUSTOMERS_PER_MW)
         matrix["high"][band].append(b["id"])
         rows.append({
             "id": b["id"], "name": b["name"], "kv": b["kv"], "zone": b["zone"], "class": "bulk" if bulk else "sub",

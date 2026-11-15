@@ -185,3 +185,27 @@ def test_on_a_heat_day_the_planner_trims_demand_before_switching_an_overloaded_l
     kinds = {s["action"]["type"] for s in best["steps"]}
     assert "open_line" not in kinds and "shed_load" in kinds  # switching it off would drop its load on its neighbours
     assert "of its rating" in best["steps"][0]["why"] and "shutoff" not in best["steps"][0]["why"]
+
+
+def test_a_heat_plan_keeps_every_step_it_needs(grid, no_feedback):
+    """Five lines over their rating need five moves. Checking only the first three left two overloads and called the
+    hour unsolvable, under a title that still listed all five."""
+    st = LAState("H2", "2022-09-01T05:00:00+00:00", grid=grid)
+    assert len([v for v in st.sim["violations"] if "loading" in v]) == 5
+    out = run_mock(st.copy_for_planning(), JobLog(), pace=0)
+    best = out["plans"][0]
+    assert len(best["steps"]) == len(best["actions"]) == 5
+    assert best["result"]["is_safe"] and not out.get("no_safe_option")
+
+
+def test_a_plan_with_too_many_steps_is_dropped_not_cut_short(grid):
+    from backend.agents.tools import MAX_STEPS, verify_output
+
+    st = LAState("H2", "2022-09-01T05:00:00+00:00", grid=grid)
+    bus = next(b for b in st.buses if st.buses[b]["load_mw"] > 20)
+    step = {"action": {"type": "shed_load", "target": bus, "mw": 1}, "why": "trim"}
+    log = JobLog()
+    out = verify_output(st, {"mode": "mock", "plans": [{"id": "P1", "title": "long", "steps": [step] * (MAX_STEPS + 1)},
+                                                        {"id": "P2", "title": "fits", "steps": [step] * MAX_STEPS}]}, log)
+    assert [p["title"] for p in out["plans"]] == ["fits"] and len(out["plans"][0]["actions"]) == MAX_STEPS
+    assert any(f"more than {MAX_STEPS} steps" in e["message"] for e in log.entries)

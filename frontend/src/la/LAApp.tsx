@@ -142,14 +142,16 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const approvedActions: Action[] = useMemo(() => (approved?.opened ?? []).map((id) => ({ type: "open_line", target: id })), [approved]);
 
   // ---------------------------------------------------------------- physics calls (/la/simulate)
-  const [opSim] = useSim(!study && !playing && t ? `${eid}|${t}|${JSON.stringify(approvedActions)}` : null, () => la.simulate(eid, t!, approvedActions), 250);
-  const [stagedSim, stagedBusy] = useSim(!study && staged.length && t ? `${eid}|${t}|${JSON.stringify(staged)}|${JSON.stringify(approvedActions)}` : null,
+  // every cached answer is keyed by the forecast it was worked out on: after "refresh forecast" the same hour is new weather
+  const rev = `${eid}@${version}`;
+  const [opSim] = useSim(!study && !playing && t ? `${rev}|${t}|${JSON.stringify(approvedActions)}` : null, () => la.simulate(eid, t!, approvedActions), 250);
+  const [stagedSim, stagedBusy] = useSim(!study && staged.length && t ? `${rev}|${t}|${JSON.stringify(staged)}|${JSON.stringify(approvedActions)}` : null,
     () => la.simulate(eid, t!, [...approvedActions, ...staged]));
   const studyAll = useMemo(() => [...approvedActions, ...studyActions], [approvedActions, studyActions]);
-  const [studySim, studyBusy] = useSim(study && t ? `${eid}|${t}|${JSON.stringify(studyAll)}|${JSON.stringify(cond)}` : null,
+  const [studySim, studyBusy] = useSim(study && t ? `${rev}|${t}|${JSON.stringify(studyAll)}|${JSON.stringify(cond)}` : null,
     () => la.simulate(eid, t!, studyAll, cond), 150);
   // the what-if grid before your switches, to show what each switch does to the lines that stay on
-  const [studyBase] = useSim(study && t && studyActions.length ? `${eid}|${t}|base|${JSON.stringify(approvedActions)}|${JSON.stringify(cond)}` : null,
+  const [studyBase] = useSim(study && t && studyActions.length ? `${rev}|${t}|base|${JSON.stringify(approvedActions)}|${JSON.stringify(cond)}` : null,
     () => la.simulate(eid, t!, approvedActions, cond), 150);
   const job = study ? stJob : opJob;
   const jobT = study ? stT : opT;
@@ -160,7 +162,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // ---------------------------------------------------------------- options: every choice through the same physics call
   const alarm = hour?.line_alarm ?? s.calibration.fire.line_alarm;
   const planBase = study ? studyAll : NO_ACTIONS; // what the plans were made on top of
-  const simKey = (actions: Action[]) => `${eid}|${jobT}|${study ? JSON.stringify(cond) : ""}|${JSON.stringify(actions)}`;
+  const simKey = (actions: Action[]) => `${rev}|${jobT}|${study ? JSON.stringify(cond) : ""}|${JSON.stringify(actions)}`;
   const simSpec = (actions: Action[]) => ({ key: simKey(actions), run: () => la.simulate(eid, jobT!, actions, study ? cond : undefined) });
   const sims = useSims(done ? [simSpec(planBase), ...plans.map((p) => simSpec([...planBase, ...p.actions]))] : []);
   const nothingSim = done ? sims[simKey(planBase)] ?? null : null;
@@ -209,7 +211,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     return () => { live = false; window.clearTimeout(h); };
   }, [eid, t, playing]);
   const registerActions = study ? studyAll : approvedActions;
-  const registerKey = t ? `${eid}|${t}|${JSON.stringify(registerActions)}|${study ? JSON.stringify(cond) : ""}` : null;
+  const registerKey = t ? `${rev}|${t}|${JSON.stringify(registerActions)}|${study ? JSON.stringify(cond) : ""}` : null;
   const wantRegister = !!boxes.risk || !!selLine || showReport;
   useEffect(() => { // worked out when first needed, then kept for this hour and these changes
     if (!wantRegister || !registerKey || !t || register?.key === registerKey) return;
@@ -220,7 +222,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   }, [wantRegister, registerKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const reg = register && register.key === registerKey ? register.data : null;
   // what switching the selected line off would cut: asked for any line, not only the risky ones the register lists
-  const cutKey = selLine && t ? `${eid}|${t}|${selLine}|${JSON.stringify(registerActions)}` : null;
+  const cutKey = selLine && t ? `${rev}|${t}|${selLine}|${JSON.stringify(registerActions)}` : null;
   useEffect(() => {
     if (!cutKey || cutOf?.key === cutKey) return;
     let live = true;
