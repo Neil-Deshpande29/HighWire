@@ -6,7 +6,7 @@ import type { ColorLayer } from "../ui/LayersMenu";
 import type { Health } from "../desk/StatusBox";
 import type { AgentChip } from "../ui/TeamPanel";
 export type BigNumber = { value: string; label: string; sub?: string; tone?: "act" | "ok" | "muted"; onClick?: () => void; action?: string };
-import type { Branch, Hour, LAStatic, LightStage, Series, SimResult } from "./api";
+import type { Branch, Hour, LAStatic, Series, SimResult } from "./api";
 import { C, damageColor, loadColor, riskColor } from "./LAScene";
 
 /** What the operator approved in this session: lines switched off, the plan's hour, substations left without power. */
@@ -54,18 +54,6 @@ export function riskFrame(s: LAStatic, ids: string[], minSpan = 65): { lat: numb
   const dist = pts.map((p) => Math.hypot((p[0] - lat) * 110.5, (p[1] - lon) * 92)).sort((x, y) => x - y);
   const span = 2.4 * dist[Math.floor(0.8 * (dist.length - 1))];
   return { lat, lon, spanKm: Math.min(120, Math.max(minSpan, span)) };
-}
-
-/** What the LED strip shows (backend/lights.py). The strip is the grid laid out west to east: green is normal, a red
- *  stretch is where lines are at high fire risk or overloaded, and that stretch goes dark once a line is switched off
- *  (`cut`: the lines turned off by hand or by an approved plan). */
-export function lightScene(s: LAStatic, hour: Hour | null, alarm: number, cut: string[]): { stage: LightStage; at: number } {
-  if (!hour) return { stage: "normal", at: 0.5 };
-  const trouble = s.branches.filter((b, k) => (!b.cable && hour.lines.risk[k] >= alarm) || hour.lines.loading[k] > 100).map((b) => b.id);
-  const where = trouble.length ? trouble : cut;
-  if (!where.length) return { stage: "normal", at: 0.5 };
-  const at = (riskFrame(s, where).lon - s.bbox.lon_min) / (s.bbox.lon_max - s.bbox.lon_min);
-  return { stage: cut.length ? "cut" : "event", at: Math.round(100 * Math.min(1, Math.max(0, at))) / 100 };
 }
 
 /** How every line is doing right now, counted by level: the status box's indicator and the map's key in one. */

@@ -5,7 +5,6 @@ export type LAEvent = {
   start: string; end: string; has_replay: boolean; fires: string[];
   v4a: { lead_time_h: number | null; spearman_la: number; first_alarm_utc: string | null; first_spike_utc: string | null } | null;
 };
-export type LightStage = "normal" | "event" | "cut";
 export type Branch = {
   id: string; kv: number; kv_class: number; cable: boolean; name: string | null; zone: string;
   from_bus: string; to_bus: string; length_km: number; rating_a: number; geometry: [number, number][];
@@ -191,8 +190,9 @@ export const la = {
   escalate: (id: string) => post<{ plan_status: Record<string, string>; authority: Authority }>(`/la/plans/${id}/escalate`),
   record: () => get<{ entries: RecordEntry[]; basis: string }>("/la/record"),
   reset: () => post<{ entries: RecordEntry[] }>("/la/reset"),
-  /** The LED strip, if one is plugged in (backend/lights.py). */
-  lights: (stage: LightStage, at: number) => post<{ connected: boolean }>("/lights", { stage, at }),
+  /** The LED strip, if one is plugged in: tell the server which hour is on screen and what was switched by hand.
+   *  The server works out the scene and changes the strip itself when a plan is approved (backend/routes_la.py). */
+  lights: (event: string, t: string, actions: Action[]) => post<{ connected: boolean }>("/lights", { event, t, actions }),
   sensors: (eid: string, t: string) => get<Sensors>(`/la/sensors/${eid}?t=${encodeURIComponent(t)}`),
   risk: (event: string, t: string, actions: Action[] = [], conditions?: Conditions) =>
     post<RiskRegister>("/la/risk", { event, t, actions, conditions }),

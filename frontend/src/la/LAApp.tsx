@@ -23,7 +23,7 @@ import {
   type RecordEntry, type RiskRegister, type Role, type Sensors, type Series,
 } from "./api";
 import {
-  agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHealth, lineHoverText, lightScene, lineImpact, riskFrame, sameHour,
+  agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHealth, lineHoverText, lineImpact, riskFrame, sameHour,
   situationNumbers, userPlanFrom, type ApprovedPlan,
 } from "./derive";
 import { useBackendOnline, usePoll, useSim, useSims } from "./hooks";
@@ -347,23 +347,20 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const offNow = (id: string, bi: number) => (energized ? !energized[bi] : false) || studyActions.concat(staged).some((a) => a.type === "open_line" && a.target === id);
   const stage = (a: Action) => { if (study) setStudyActions((l) => mergeAction(l, a)); else setStaged((l) => mergeAction(l, a)); setPop(null); };
   const verb = study ? "Applies to the study grid right away." : "Adds to Your changes. Nothing is switched until you approve a plan.";
-  // the LED strip (if one is plugged in) follows the map: red where lines are in trouble, dark there the moment a line
-  // is turned off by hand or by an approved plan, green again when it is back on and the trouble has passed
-  const cutLines = useMemo(() => {
-    const hand = study ? studyActions : staged;
-    const back = new Set(hand.filter((a) => a.type === "close_line").map((a) => a.target));
-    return [...offLines([...approvedActions, ...hand])].filter((id) => !back.has(id));
-  }, [study, studyActions, staged, approvedActions]);
-  const light = useMemo(() => lightScene(s, hour, alarm, cutLines), [s, hour, alarm, cutLines]);
+  // the LED strip (if one is plugged in): the server drives it from the system's own state and changes it by itself
+  // when a plan is approved. The screen only says which hour it shows and what was switched by hand.
+  const handSwitches = study ? studyActions : staged;
+  const lightKey = t ? `${eid}|${t}|${JSON.stringify(handSwitches)}` : null;
   useEffect(() => {
-    if (!hour) return;
-    const send = () => { la.lights(light.stage, light.at).catch(() => null); };
-    const onShow = () => { if (document.visibilityState === "visible") send(); };
+    if (!lightKey) return;
+    const send = () => { la.lights(eid, t!, handSwitches).catch(() => null); };
+    const ifShown = () => { if (document.visibilityState === "visible") send(); };
     send();
-    document.addEventListener("visibilitychange", onShow); // coming back to this tab puts its scene on the strip again
+    const beat = window.setInterval(ifShown, 10000); // a restarted server learns the hour again without a click
+    document.addEventListener("visibilitychange", ifShown);
     window.addEventListener("focus", send);
-    return () => { document.removeEventListener("visibilitychange", onShow); window.removeEventListener("focus", send); };
-  }, [light.stage, light.at, !hour]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { window.clearInterval(beat); document.removeEventListener("visibilitychange", ifShown); window.removeEventListener("focus", send); };
+  }, [lightKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const hovered = hover && hour ? s.branches[hover.bi] : null;
   const hoverText = hovered && hover && hour ? lineHoverText(hovered, hover.bi, hour, { energized, color, loading, risk, alarm, cur }) : "";
   const selBi = selLine ? s.branches.findIndex((b) => b.id === selLine) : -1;

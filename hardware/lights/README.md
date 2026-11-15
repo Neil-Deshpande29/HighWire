@@ -9,6 +9,9 @@ A 30-LED strip that stands for the grid, laid out west to east. It follows the m
 | A line is switched off: **Turn this line off**, or **Approve** on a plan | That stretch goes dark, the rest stays green |
 | The line is back on and the trouble has passed | Every LED green again |
 
+The server changes the strip by itself, at the moment the system changes: about 40 ms after **Approve** is pressed,
+before the approval's own work is finished. Nothing waits on the strip, and the strip waits on nothing.
+
 The strip is optional. With nothing plugged in the app runs exactly the same.
 
 ## Wiring
@@ -23,7 +26,13 @@ QT Py, which drives the LEDs.
 ## Use it
 
 Plug the ESP32 into the computer that runs the backend, then start the app as usual. The backend finds the port by
-itself. To name it, set `LIGHTS_PORT` (for example `/dev/cu.usbserial-10`); `LIGHTS_PORT=off` never opens a port.
+itself and opens it when it starts. To name it, set `LIGHTS_PORT` (for example `/dev/cu.usbserial-10`);
+`LIGHTS_PORT=off` never opens a port.
+
+Plug the QT Py into the same computer too if you can. The scene then also goes straight to it, so the strip stays
+right even if the wire between the two boards stops carrying commands, and the backend restarts the ESP32 when that
+happens. `http://localhost:8000/lights` shows what is connected and whether the wire is "carrying commands" or "silent".
+Do not open either board's port in another program while the backend runs: the two would take each other's replies.
 
 Without the app, from the repo folder:
 
