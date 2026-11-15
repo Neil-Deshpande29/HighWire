@@ -30,8 +30,16 @@ export type LAStatic = {
   calibration: { fire: { g50: number; h50: number; c50: number; line_alarm: number; region_alarm: number };
                  storm: { onset: number; tau: number; rain_tau: number; alarm: number } | null };
 };
+/** The background risk score for one hour (backend/la/watch.py): when to call the agents. */
+export type Watch = {
+  level: "green" | "yellow" | "red"; score: number; reasons: string[]; yellow_from: number; red_from: number;
+  checks: { name: string; label: string; now: number; per_hour: number; heading: number; counts: number }[];
+};
 export type Hour = {
   event: string; i: number; n: number; t_utc: string; t_local: string;
+  watch?: Watch;
+  /** Lines an earlier approved plan switched off, still off at this hour. */
+  standing?: { opened: string[] };
   lines: { risk: number[]; loading: number[]; temp: number[]; clear: number[]; gust: number[]; rh: number[]; flow: number[] };
   region_index: number; region_alarm: number; line_alarm: number; load_mw: number;
   demand: { LDWP: number; SCE: number }; outages: Record<string, number | null>;

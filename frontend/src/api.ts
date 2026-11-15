@@ -36,6 +36,8 @@ export type CopilotOutput = {
 };
 export type Synthesis = {
   mode: string;
+  /** One overall confidence figure for the run, worked out by code (backend/agents/synthesis.py). Not a probability. */
+  confidence?: { score: number; level: "high" | "medium" | "low"; reasons: string[] };
   agents: { id: string; name: string; findings: number; act_now: number; log_lines: number; raised_steps: number }[];
   coordinator: { candidates: number | null; disagreements: number; feedback: number };
   physics: { screened: number | null; safe: number | null; verified: number };

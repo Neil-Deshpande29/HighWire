@@ -16,6 +16,7 @@ import LineSearch from "../ui/LineSearch";
 import ReportPage from "../ui/ReportPage";
 import TeamPanel, { AgentLog, PriorityLadder } from "../ui/TeamPanel";
 import PlayerBar from "../ui/PlayerBar";
+import WatchCard from "../desk/WatchCard";
 import type { Mode } from "../ui/TopBar";
 import {
   imageryUrl, la, NO_CONDITIONS, surroundUrl, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView,
@@ -138,7 +139,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const hasApproval = (v: LAView | null | undefined) => !!v && Object.values(v.plan_status ?? {}).includes("approved");
   // this session's latest Operate state wins; otherwise what the server already holds for this hour
   const approved = view && sameHour(view.t_utc, t) ? (hasApproval(view) ? view : null) : hasApproval(hour?.copilot) ? hour!.copilot : null;
-  const approvedActions: Action[] = useMemo(() => (approved?.opened ?? []).map((id) => ({ type: "open_line", target: id })), [approved]);
+  // what an approved plan switched off stays off as the clock moves on: at this hour's own approval, or carried from an earlier one
+  const standing = hour?.standing?.opened;
+  const approvedActions: Action[] = useMemo(() => (approved?.opened ?? standing ?? []).map((id) => ({ type: "open_line", target: id })), [approved, standing]);
 
   // ---------------------------------------------------------------- physics calls (/la/simulate)
   // every cached answer is keyed by the forecast it was worked out on: after "refresh forecast" the same hour is new weather
@@ -181,8 +184,10 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     if (cur) return cur.energized;
     if (!study && staged.length && stagedSim) return stagedSim.lines.energized;
     if (approved) return s.branches.map((b) => approved.lines[b.id]?.energized ?? true);
+    if (opSim && sameHour(opSim.t_utc, t) && standing?.length) return opSim.lines.energized;
+    if (standing?.length) { const off = new Set(standing); return s.branches.map((b) => !off.has(b.id)); } // while the clock runs
     return null;
-  }, [previewSim, cur, study, staged.length, stagedSim, approved, s]);
+  }, [previewSim, cur, study, staged.length, stagedSim, approved, s, standing, opSim, t]);
   const colors = useMemo(() => lineColors(s, hour, energized, color, loading, risk, alarm), [s, hour, energized, color, loading, risk, alarm]);
   const dimBuses = (previewSim ? previewSim.buses_out : cur ? studySim!.buses_out : !study && staged.length && stagedSim ? stagedSim.buses_out : []) ?? [];
 
@@ -237,7 +242,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
 
   const runCopilot = useCallback(async () => {
     if (!t) return;
-    setErr(null); setPlaying(false); setSelPlan(null); setPeek(false); openBox("plan"); openBox("team");
+    setErr(null); setSelPlan(null); setPeek(false); openBox("plan"); openBox("team"); // the clock keeps running while they work
     const risky = hour?.over_alarm.map((l) => l.id) ?? [];
     if (risky.length) setFocus({ ...riskFrame(s, risky, 50), key: Date.now() }); // move in on the trouble while the agents work
     try {
@@ -246,20 +251,42 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     } catch (e) { setErr(String(e)); }
   }, [t, study, eid, studyAll, cond, startSt, startOp, hour, s, openBox]);
 
-  // The agents go first. In Operate each hour is analysed as soon as the clock rests on it; nobody has to ask.
-  // After an approval the result stays on screen until the operator starts over.
+  // The agents run when the operator calls them, and by themselves when the risk watch is red. The watch is a cheap score
+  // worked out for every hour as the clock moves (backend/la/watch.py). Red calls the agents once, and again only when
+  // things get clearly worse: lines in trouble where there were none, or twice as many as at the last call. Lines an
+  // approved plan already switched off do not count. A spell ends when the watch has been green again, so a watch that
+  // flickers between red and yellow does not call them twice.
   const serverApproved = hasApproval(hour?.copilot);
+  const watch = hour?.watch;
+  const spell = useRef<{ eid: string; called: boolean; trouble: number }>({ eid, called: false, trouble: 0 });
+  const [notice, setNotice] = useState<string | null>(null);
+  const troubleNow = useMemo(() => {
+    if (!hour) return 0;
+    const off = new Set(standing ?? []);
+    return s.branches.reduce((n, b, k) => n + ((!b.cable && hour.lines.risk[k] >= alarm && !off.has(b.id)) || hour.lines.loading[k] > 100 ? 1 : 0), 0);
+  }, [hour, standing, s, alarm]);
+  const callAgents = () => { spell.current = { eid, called: true, trouble: troubleNow }; runCopilot(); };
   useEffect(() => {
-    if (study || playing || !t || !hour || hour.t_utc !== t || approvedPlan || serverApproved) return;
-    if (opT && sameHour(opT, t)) return; // this hour is analysed, or being analysed
-    if (opT) { clearOp(); setOpT(null); setSelPlan(null); return; } // the clock moved: drop the other hour's plan first
-    const h = window.setTimeout(() => { runCopilot(); }, 700);
-    return () => window.clearTimeout(h);
-  }, [study, playing, t, hour, opT, approvedPlan, serverApproved, runCopilot]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (spell.current.eid !== eid) spell.current = { eid, called: false, trouble: 0 };
+    if (!watch || !hour || hour.t_utc !== t || study) return;
+    if (watch.level === "green") { spell.current.called = false; return; }
+    if (watch.level !== "red" || serverApproved || opJob?.status === "running") return;
+    const first = !spell.current.called;
+    const worse = !first && (spell.current.trouble === 0 ? troubleNow > 0 : troubleNow >= 2 * spell.current.trouble);
+    if (!first && !worse) return;
+    spell.current = { eid, called: true, trouble: troubleNow };
+    if (opT && sameHour(opT, t)) return; // this hour is already analysed, or being analysed
+    const when = timeLabel(t, { weekday: "short", hour: "numeric" });
+    setNotice(first ? `The watch turned red at ${when}. The agents were called; the text alert is under the bell.`
+      : `It got worse by ${when}: ${troubleNow} line${troubleNow === 1 ? "" : "s"} in trouble. The agents were called again.`);
+    try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Rewire: the risk watch is red", { body: watch.reasons[0] ?? "" }); } catch { /* no system notification here */ }
+    runCopilot();
+  }, [watch?.level, hour?.t_utc, eid, study, opJob?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!notice) return; const h = window.setTimeout(() => setNotice(null), 9000); return () => window.clearTimeout(h); }, [notice]);
   // When the team is done, the screen opens on its pick and the map moves to the lines that plan touches.
   const jobOut = job?.status === "done" ? job.output : null;
   useEffect(() => {
-    if (!jobOut || (!study && approvedPlan)) return; // after an approval the plan is not offered again
+    if (!jobOut || (!study && approvedPlan && sameHour(approvedPlan.t, jobT))) return; // after an approval that hour's plan is not offered again
     const ps = distinctPlans(jobOut.plans);
     const pick = ps.find((p) => p.result.is_safe) ?? ps[0];
     setSelPlan(pick ? pick.id : null); setPeek(false);
@@ -308,6 +335,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       setApprovedPlan({ off: [...offLines(p.actions)], t: jobT!, busesOut: null });
       // which substations the approved plan leaves without power (for the "got it right" check)
       la.simulate(eid, jobT!, p.actions).then((r) => setApprovedPlan((a) => a && { ...a, busesOut: r.buses_out })).catch(() => null);
+      if (series) la.hour(eid, i).then((h) => { if (h.event === eid) setHour(h); }).catch(() => null); // the hour on screen now carries the switch-off
     } catch (e) { setErr(String(e)); } finally { setActing(false); refreshRecord(); }
   };
   const rejectPlan = async (p: Plan, reasons: string[], note: string) => { // the reason goes to the coordinator for the next run
@@ -425,7 +453,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     : nHigh === 1 ? "power line at high fire risk" : "power lines at high fire risk";
   const cause = head.split(/(?<=\.)\s/)[0];
   const running = job?.status === "running";
-  const analysed = !!jobT && sameHour(jobT, t);
+  // a plan can be approved at its own hour or any later one: what it switches off holds from its hour onward
+  const analysed = !!jobT && !!t && new Date(jobT).getTime() <= new Date(t).getTime();
   const goTo = (iso: string | null) => { if (series && iso) setI(series.t_utc.findIndex((x) => sameHour(x, iso))); };
   const onNav = (cmd: NavCmd) => {
     if (cmd === "home") { const b = s.bbox; setFocus({ lat: (b.lat_min + b.lat_max) / 2, lon: (b.lon_min + b.lon_max) / 2, spanKm: 95, key: Date.now() }); }
@@ -460,6 +489,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <div className="labels" ref={overlay} />
       </div>
       {study && <div className="study-frame" />}
+      {notice && <div className="toast notice" role="status" onClick={() => setNotice(null)}><span className="watch-light red" aria-hidden="true" /> {notice}</div>}
       {series && ev && (
         <PlayerBar series={series} kind={kind} title={eventLabel(ev)} live={!past} i={i} playing={playing} speed={speed} revealed={revealed} canReveal={past}
           onSeek={setI} onPlay={() => setPlaying((p) => !p)} onSpeed={setSpeed} onReveal={() => { setRevealed(true); openBox("happened"); }} />
@@ -467,14 +497,16 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
 
       {/* left: the flow reads top to bottom. The agents work, and their plan sits directly under them */}
       <aside className="dock left">
+        <WatchCard watch={watch} running={running} called={!!job} study={study} canCall={!!hour && (study || !serverApproved)} onCall={callAgents} />
         <Section title="Agent team" summary={teamSummary} open={isOpen("team")} onToggle={() => toggle("team")}>
           {job ? (
             <TeamPanel job={job} chips={chips} shownPlans={plans.map((p) => p.id)} selectedPlan={selPlan}
               onPlan={(id) => { setSelPlan(id); setPeek(false); openBox("plan"); }} onLine={findLine} />
           ) : (
             <>
-              <p className="muted">{study ? "In What-if the agents wait until you ask them." : playing ? "The agents wait while the clock is running. Pause to have them analyse the hour." : approvedPlan || serverApproved ? "A plan is approved. Start over from the log to analyse again." : "Five agents analyse each hour as soon as the clock rests on it: fire, wind, heat, brownout and buildings."}</p>
-              {study && <button className="primary" disabled={!hour} onClick={runCopilot}>Ask the agents about this what-if</button>}
+              <p className="muted">{study ? "In What-if the agents wait until you ask them."
+                : serverApproved ? "A plan is approved for this hour. Start over from the log to analyse it again."
+                : "The agents wait until you call them. They are called by themselves when the watch turns red."}</p>
             </>
           )}
         </Section>
@@ -486,7 +518,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
               <pre className="bulletin">{bulletinText}</pre>
             </details>
           )}
-          {!study && !job && (approvedPlan || serverApproved) && !outcome
+          {!study && !job && serverApproved && !outcome
             ? <p className="muted">A plan was approved for this hour. <button className="link" onClick={resetSession}>Start over</button> to analyse it again.</p>
             : (
               <PlanPanel running={running} done={done} options={options} selected={selOption} base={nothingSim} s={s} heat={heat} peek={peek}

@@ -100,7 +100,36 @@ def replay(event_id: str, t: str | None = None, i: int | None = None):
     # the Operate state rides along when the operator has run the co-pilot for exactly this hour
     on_this_hour = st is not None and st.eid == event_id and str(st.t_utc) == str(pd.Timestamp(h["t_utc"]))
     h["copilot"] = st.view() if on_this_hour else None
+    from .la import watch
+
+    h["watch"] = watch.at(event_id, t=h["t_utc"])  # the background risk score: when to call the agents
+    h["standing"] = {"opened": _standing(event_id, h["t_utc"])}  # lines an earlier approval switched off and nobody has switched back
     return h
+
+
+# --------------------------------------------------------------------------- approved switching carries forward in time
+STANDING: dict = {"event": None, "lines": {}}  # line id -> the hour (UTC) an approved plan switched it off
+
+
+def _standing(event: str, t) -> list[str]:
+    """Lines still off at hour `t` because a plan approved at or before it switched them off. A line that is switched
+    off stays off as the clock moves on, until a later approved plan closes it or the session is reset."""
+    if STANDING["event"] != event:
+        return []
+    when = pd.Timestamp(t)
+    when = when.tz_localize("UTC") if when.tzinfo is None else when
+    return [l for l, since in STANDING["lines"].items() if since <= when]
+
+
+def _remember_switching(st) -> None:
+    """After an approval: what this state now holds off becomes the standing switching from its hour onward."""
+    if STANDING["event"] != st.eid:
+        STANDING.update(event=st.eid, lines={})
+    lines = STANDING["lines"]
+    for l in st.operator_opened:
+        lines[l] = min(lines.get(l, st.t_utc), st.t_utc)
+    for l in [l for l, since in lines.items() if since <= st.t_utc and l not in st.operator_opened]:
+        del lines[l]  # an approved plan closed it again
 
 
 @router.get("/la/series/{event_id}")
@@ -314,6 +343,9 @@ def la_copilot_run(body: LARunIn):
     _require_event(body.event)
     st = LAState(body.event, body.t, grid=_la_grid())
     study = _is_study(body)
+    carried = [] if study else _standing(st.eid, st.t_utc)
+    if carried:  # the agents plan on the grid as it stands: earlier approved switch-offs are still in force
+        st.apply_actions([{"type": "open_line", "target": l} for l in carried])
     if study:  # plan on a study copy; the Operate state (and its plans / approvals) is left alone
         st = st.with_conditions(body.conditions)
         if body.actions:
@@ -327,7 +359,9 @@ def la_copilot_run(body: LARunIn):
         st.alerts_on = True  # an Operate run: the code triggers fire now, and the orchestrator may use send_alert
         try:
             from . import notify
+            from .la import watch
 
+            notify.on_red(st, watch.at(st.eid, t=st.t_utc.isoformat()))  # one text that the watch is red and the agents are on it
             notify.on_hour(st)
         except Exception:  # noqa: BLE001  a text never breaks a run
             pass
@@ -395,6 +429,7 @@ def la_approve(plan_id: str, body: LARoleIn | None = None):
             for pid in st.plan_status:
                 st.plan_status[pid] = "approved" if pid == plan_id else "superseded"
             st.bulletin = la_bulletin(st, plan)
+        _remember_switching(st)  # what is now off stays off as the clock moves on
     finally:
         _strip_refresh()  # and settles on what the system now holds
     try:
@@ -474,6 +509,7 @@ def la_record():
 def la_reset():
     """Start the session over: forget the Operate state (plans, approvals, bulletin) and clear the record."""
     LA["state"], LA["study"] = None, None
+    STANDING.update(event=None, lines={})
     _strip_refresh()  # nothing is switched off any more
     from . import notify
 
@@ -535,7 +571,7 @@ def _strip_scene(extra: list[dict] | None = None) -> tuple[str, float] | None:
         return None
     h, s, st = RP.hour(event, t), RP.static(), LA["state"]
     live = st if st is not None and st.eid == event and str(st.t_utc) == str(pd.Timestamp(h["t_utc"])) else None
-    off = set(live.operator_opened) if live else set()
+    off = set(live.operator_opened) if live else set(_standing(event, h["t_utc"]))  # still off from an earlier approval
     demand_cut = bool(live and (live.shed or live.deenergized))
     for a in list(SCREEN["actions"]) + list(extra or []):
         kind = a.get("type")

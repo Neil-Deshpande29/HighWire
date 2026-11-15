@@ -2,9 +2,10 @@
 
 Two ways in, one function out (`send`), so both obey the same on/off switch, the same de-duplication and the same dry run:
 
-  1. Code, always on (`on_hour`, `on_approval`): a text when a line's fire index is well over its calibrated alarm, when
-     the storm model gives a line a high chance of being knocked down, and when the operator approves a plan that turns
-     lines off. Every number in these texts comes from the physics.
+  1. Code, always on (`on_red`, `on_hour`, `on_approval`): a text when the risk watch is red and the agents are called,
+     when a line's fire index is well over its calibrated alarm, when the storm model gives a line a high chance of
+     being knocked down, and when the operator approves a plan that turns lines off. Every number in these texts comes
+     from the physics.
   2. The orchestrator's `send_alert(message)` tool (`alert_tool`), for very high risk findings only.
 
 Settings come from the environment (.env, read by backend/llm.py): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
@@ -24,7 +25,7 @@ from . import llm as _env  # noqa: F401  importing it reads the repo's .env
 VERY_HIGH_RISK = 1.05  # a line's fire index at or above this multiple of the calibrated line alarm is "very high"
 LIKELY_OUT = 0.8  # storm model: a line with at least this chance of being knocked down
 COOLDOWN_S = 6 * 3600  # one text per line, per condition, per window this long of the scenario's own clock
-MAX_PER_HOUR = 3  # the worst few lines per condition per window get a text each, never the whole list
+MAX_PER_HOUR = 1  # the worst line per condition per window gets a text, never the whole list
 KEEP = 60  # alerts kept for the bell
 SYNC = False  # tests set this: send in the calling thread instead of a background one
 
@@ -165,6 +166,16 @@ def on_hour(st, source: str = "code") -> list[dict]:
                 out.append(e)
                 room -= 1
     return out
+
+
+def on_red(st, watch: dict) -> dict | None:
+    """The risk watch is red and the agents have been called: one text saying so, with the main reason. Once per
+    window of the scenario's clock, however often the agents are called in it."""
+    if watch.get("level") != "red":
+        return None
+    why = (watch.get("reasons") or ["A hard check is at or near its limit."])[0]
+    text = f"Rewire: the risk watch is RED ({st.t_utc.tz_convert('America/Los_Angeles'):%a %-I %p}). {why} The agents are working on a plan. Open Rewire."
+    return send(text, key=f"{st.eid}|watch|red|{_window(st.t_utc)}", source="code", why="risk watch is red")
 
 
 def on_approval(st, plan: dict) -> dict | None:

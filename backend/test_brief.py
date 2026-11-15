@@ -86,7 +86,8 @@ def test_la_prompts_carry_brief(state):
     for s in subagents:
         assert text in s["system_prompt"] and "Situation brief" in s["system_prompt"]
     assert text in prompt
-    assert lines == [("coordinator", "situation brief: " + build_brief(state)["headlines"][0])]
+    assert lines[0] == ("coordinator", "situation brief: " + build_brief(state)["headlines"][0])
+    assert all(a == "coordinator" and m.startswith("trend over the last hours") for a, m in lines[1:])  # how fast things are moving
     # the synthetic path is unchanged
     assert all("Situation brief" not in s["system_prompt"] for s in T._subagent_specs(state, lambda *a: None, T.SUBAGENTS))
 
