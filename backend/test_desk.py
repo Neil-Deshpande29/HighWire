@@ -188,3 +188,20 @@ def test_a_line_just_under_the_alarm_is_never_shown_or_counted_as_over_it(woolse
     cable = [b["cable"] for b in woolsey.grid.branches]
     shown = sum(on and r >= alarm and not c for r, on, c in zip(idle["lines"]["risk"], idle["lines"]["energized"], cable))
     assert idle["situation"]["n_high_risk"] == flagged == shown  # one count on the status box, the agents and the map
+
+
+def test_a_cut_does_not_count_demand_that_was_already_shed(woolsey):
+    """Switching a line off only takes away what is still being served behind it."""
+    from backend.la.state import CUSTOMERS_PER_MW
+
+    off = [{"type": "open_line", "target": "L5"}]
+    behind = sorted(woolsey._cut_off(off) - woolsey._cut_off([]))
+    whole = woolsey.cut_impact("L5")["customers"]
+    assert whole == int(sum(woolsey.buses[b]["load_mw"] for b in behind) * CUSTOMERS_PER_MW) > 0
+    half = [{"type": "shed_load", "target": b, "mw": woolsey.buses[b]["load_mw"] / 2} for b in behind]
+    after = woolsey.cut_impact("L5", half)["customers"]
+    assert after == pytest.approx(whole / 2, abs=2)
+    extra = woolsey.simulate(half + off)["totals"]["customers_out"] - woolsey.simulate(half)["totals"]["customers_out"]
+    assert after == pytest.approx(extra, abs=50)  # the same answer the power flow gives
+    row = next(r for r in risk.register(woolsey, half)["rows"] if r["id"] == "L5")
+    assert row["if_cut"]["customers"] == after  # the risk list uses the same sum

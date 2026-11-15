@@ -16,7 +16,7 @@ import re
 import time
 
 from ..physics import simulate
-from .tools import JobLog, summarize_result, verify_output
+from .tools import MAX_STEPS, JobLog, summarize_result, verify_output
 
 try:
     from ..la import data as D
@@ -25,7 +25,7 @@ except Exception:  # noqa: BLE001
 
 PACE_S = float(os.environ.get("MOCK_PACE", "0.12"))
 MAX_SIMS = 500
-HEAT_MOVES = 6  # most moves the coordinator strings together on a heat day (one per overloaded line)
+HEAT_MOVES = MAX_STEPS  # most moves the coordinator strings together on a heat day (one per overloaded line)
 ALT_SIMS = 20  # single-line exceptions tried when looking for a second plan (LA sim ~0.07 s)
 LA_AGENTS = ("fire_agent", "wind_agent", "heat_agent", "brownout_agent", "buildings_agent")  # the LA team; the toy region has nine
 OFF_TYPES = ("open_line", "deenergize_lines")

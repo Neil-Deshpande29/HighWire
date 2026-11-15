@@ -272,7 +272,9 @@ MALFORMED = {  # name -> (model output, plans that survive)
     "wrong field types": ({"plans": [{"title": 7, "steps": [{"action": GOOD, "why": 5, "raised_by": "fire_agent"}],
                                       "assumptions": "none", "attempts": "two", "confidence": "high", "tradeoffs": None}]}, 1),
     "shed mw as a numeric string": ({"plans": [{"steps": [{"action": {"type": "shed_load", "target": "B1", "mw": "20"}}]}]}, 1),
-    "four plans of five steps": ({"plans": [{"title": "p", "steps": [{"action": GOOD}] * 5} for _ in range(4)]}, None),
+    # more steps than the AI team may propose: dropped whole, never cut down to its first three under the same title
+    "four plans of five steps": ({"plans": [{"title": "p", "steps": [{"action": GOOD}] * 5} for _ in range(4)]}, 0),
+    "four plans of three steps": ({"plans": [{"title": "p", "steps": [{"action": GOOD}] * 3} for _ in range(4)]}, None),
 }
 
 

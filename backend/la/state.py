@@ -330,14 +330,21 @@ class LAState:
         """What loses grid power if this one line is switched off, on top of the current switching and `actions`:
         buildings by kind with their triage score, and the modeled customers behind the newly cut-off substations.
         Topology only (no power flow), and cached, because the screen asks for the riskiest lines on every refresh."""
-        key = (line_id, json.dumps(actions or [], sort_keys=True), tuple(self.operator_opened), tuple(self.deenergized))
+        key = (line_id, json.dumps(actions or [], sort_keys=True), tuple(self.operator_opened), tuple(self.deenergized),
+               tuple(sorted(self.shed.items())))
         if key not in self._cut_cache:
             base = list(actions or [])
             newly = self._cut_off(base + [{"type": "open_line", "target": line_id}]) - self._cut_off(base)
             impact = B.outage_impact(sorted(newly))
-            impact["customers"] = int(sum(self.buses[b]["load_mw"] for b in newly) * CUSTOMERS_PER_MW)
+            impact["customers"] = int(self.served_mw(newly, base) * CUSTOMERS_PER_MW)
             self._cut_cache[key] = impact
         return self._cut_cache[key]
+
+    def served_mw(self, bus_ids, actions=None) -> float:
+        """Demand still being served at these substations once `actions` and the shedding already in force are applied:
+        what a new cut there would take away. Demand that was already shed is not lost a second time."""
+        shed = self._topology(actions)[1]
+        return float(sum(max(self.buses[b]["load_mw"] - shed.get(b, 0.0), 0.0) for b in bus_ids))
 
     def _cut_off(self, actions) -> set[str]:
         """Substations with no supply once `actions` are applied on top of the current switching. Topology only."""

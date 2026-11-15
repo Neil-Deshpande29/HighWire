@@ -309,3 +309,14 @@ Optional hardware: a 30-LED strip that stands for the grid, west to east, and fo
 
 Also that night: the Google AI key went into `.env`. A quota refusal from Google is now said in plain words and the AI
 team is not asked again until the limit resets (`backend/agents/team.py`, `quota_refusal`).
+
+After the Codex adversarial review that night (three findings, all reproduced and fixed):
+
+- A plan is never cut short when it is verified. The rule-based planner may use up to 6 steps (`MAX_STEPS`), the AI
+  team 3 (`MODEL_STEPS`); a longer plan is dropped whole (`backend/agents/tools.py`, `verify_output`). Before, a
+  five-step heat plan was checked on its first three steps and shown as "no safe plan". Sampled heat-wave hours with a
+  safe plan went from 11 of 29 to 25 of 29.
+- Every cached answer on the screen is keyed by the forecast it came from (`rev` in `LAApp.tsx`), so "refresh
+  forecast" never reuses the old weather's physics.
+- A cut only counts demand still being served (`LAState.served_mw`): demand already shed is not lost twice in
+  `cut_impact` or the risk list.

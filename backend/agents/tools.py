@@ -490,6 +490,10 @@ def _code_confidence(n_actions: int, r: dict) -> float:
     return round(max(0.35, conf), 2)
 
 
+MAX_STEPS = 6  # the most steps a rule-based plan may carry (on a heat day: one move per overloaded line)
+MODEL_STEPS = 3  # the most steps the AI team is told a plan may carry (team.py prompts; simulate_plan refuses more)
+
+
 def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     """Never trust LLM-reported numbers: re-run physics on every plan and overwrite `result`.
 
@@ -521,7 +525,12 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
     proposed = output.get("plans")
     for i, given in enumerate(proposed if isinstance(proposed, list) else []):
         steps = given.get("steps") if isinstance(given, dict) else None
-        steps = [s for s in (steps if isinstance(steps, list) else []) if isinstance(s, dict) and isinstance(s.get("action"), dict)][:3]
+        steps = [s for s in (steps if isinstance(steps, list) else []) if isinstance(s, dict) and isinstance(s.get("action"), dict)]
+        limit = MODEL_STEPS if model else MAX_STEPS
+        if len(steps) > limit:  # never cut a plan short: its first steps alone are a different plan, with its title and reasons wrong
+            if log:
+                log("physics", f"dropped a proposed plan: it has more than {limit} steps")
+            continue
         actions = [_clean_action(state, s["action"]) for s in steps]
         if not actions or None in actions:
             if log:
