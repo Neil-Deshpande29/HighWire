@@ -142,6 +142,14 @@ def calibration() -> dict:
     return _calibration(f.stat().st_mtime) if f.exists() else DEFAULT_CAL
 
 
+def shown_risk(risk):
+    """A line's fire index as the screen shows it: three decimals, rounded DOWN. Decisions (the alarm, the plans) are
+    made on the unrounded index. Rounding to nearest let a line at 0.29996 show as 0.300 and be coloured and counted as
+    over a 0.30 alarm that it had not reached; rounding down means a shown value reaches the alarm only when the index did.
+    Works on a number or a numpy array."""
+    return np.floor(np.asarray(risk, dtype=float) * 1000 + 1e-9) / 1000 if isinstance(risk, np.ndarray) else float(np.floor(float(risk) * 1000 + 1e-9) / 1000)
+
+
 def results_dir() -> Path:
     d = ROOT / "validation" / "results"
     d.mkdir(parents=True, exist_ok=True)

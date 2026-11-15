@@ -163,7 +163,7 @@ def hour(eid: str, t: str | None = None, i: int | None = None) -> dict:
                  "max_precip_mm_h": _r(float(d["wx_precip"][h].max()), 1)}
     return {
         "event": eid, "i": h, "n": len(d["time"]), "t_utc": tt.isoformat(), "t_local": tt.tz_convert("America/Los_Angeles").isoformat(),
-        "lines": {"risk": np.round(risk, 3).tolist(), "loading": np.round(d["loading"][h], 1).tolist(),
+        "lines": {"risk": D.shown_risk(risk).tolist(), "loading": np.round(d["loading"][h], 1).tolist(),
                   "temp": np.round(d["line_temp"][h], 1).tolist(), "clear": np.round(d["line_clear"][h], 2).tolist(),
                   "gust": np.round(d["line_gust"][h], 1).tolist(), "rh": np.round(d["line_rh"][h], 0).tolist(),
                   "flow": np.round(d["flow_mw"][h], 1).tolist()},

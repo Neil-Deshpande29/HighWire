@@ -176,3 +176,15 @@ def test_every_simulation_carries_its_cost(woolsey):
     cut = R._sim_payload(woolsey, [{"type": "deenergize_lines", "target": "flagged", "targets": flagged}])
     assert cut["cost"]["customers"] == cut["customers_out"] > 0 and cut["cost"]["usd"]["8"] > 0
     assert R._sim_payload(woolsey, [])["cost"]["usd"] == {"8": 0, "24": 0}
+
+
+def test_a_line_just_under_the_alarm_is_never_shown_or_counted_as_over_it(woolsey):
+    from backend.la import data as D
+
+    assert D.shown_risk(0.29996) == 0.299 and D.shown_risk(0.3) == 0.3 and D.shown_risk(0.30049) == 0.3
+    idle = R._sim_payload(woolsey, [])
+    alarm = D.calibration()["fire"]["line_alarm"]
+    flagged = len([v for v in woolsey.sim["violations"] if "fire risk" in v]) + len(woolsey.sim["watch"])
+    cable = [b["cable"] for b in woolsey.grid.branches]
+    shown = sum(on and r >= alarm and not c for r, on, c in zip(idle["lines"]["risk"], idle["lines"]["energized"], cable))
+    assert idle["situation"]["n_high_risk"] == flagged == shown  # one count on the status box, the agents and the map

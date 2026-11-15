@@ -200,7 +200,7 @@ class LAState:
             lines[lid] = {"id": lid, "status": "open" if lid in opened else "closed", "energized": bool(on[i]),
                           "flow_mw": round(float(r["flow_mw"][0, i]), 1), "amps": round(float(r["amps"][0, i]), 0),
                           "loading_pct": round(loading, 1), "temp_c": round(temp, 1), "sag_m": round(float(r["line_sag"][0, i]), 2),
-                          "clearance_m": round(min(clr, 99.0), 2), "blowout_m": 0.0, "swing_deg": 0.0, "fire_risk": round(risk, 3),
+                          "clearance_m": round(min(clr, 99.0), 2), "blowout_m": 0.0, "swing_deg": 0.0, "fire_risk": D.shown_risk(risk),
                           "gust_ms": round(float(r["line_gust"][0, i]), 1), "rh_pct": round(float(r["line_rh"][0, i]), 0),
                           "cap_pct": float(cap_pct[i]), "violations": lv}
         P, load = g.injections(self.ldwp, self.sce, top, shed, imp)
