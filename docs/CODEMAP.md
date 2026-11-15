@@ -290,3 +290,22 @@ Replaces the layout described in sections 7 and 11. Styles: one dark theme, `fro
   Calculator 2 rates per interruption. The business share (1 in 8) is an assumption and the screen says so.
 - **Heat days.** `greedy()` in `backend/agents/mock_planner.py` tries moves that cut nobody off, then trimming demand
   where it relieves the overloaded line most, before switching that line off (up to `HEAT_MOVES`).
+
+## 13. The LED strip (2026-11-14, night)
+
+Optional hardware: a 30-LED strip that stands for the grid, west to east, and follows the map.
+
+- `frontend/src/la/derive.ts` `lightScene`: works out the scene from the hour on screen. Green when no line is in
+  trouble; a red stretch where lines are at high fire risk or overloaded (placed by their longitude); that stretch dark
+  once a line is off by hand ("Turn this line off") or by an approved plan. `LAApp.tsx` posts it when it changes.
+- `backend/lights.py`: `POST /lights` turns the scene into one text line (`grid normal`, `grid event A B`,
+  `grid cut A B`) and a background thread sends it to the ESP32 over USB serial, repeating it every 5 s because the
+  wire to the strip is one-way. No strip, or no pyserial: a quiet no-op. `python -m backend.lights demo` plays the four
+  steps without the app.
+- `hardware/lights/`: the two boards' MicroPython programs (the `grid` command was added to both) and a README.
+- `backend/test_lights.py` runs both board programs on fake hardware against every line the app sends.
+- `conftest.py` (repo root): empties the API keys and turns the strip off for every test, so a real key in `.env`
+  never reaches a test.
+
+Also that night: the Google AI key went into `.env`. A quota refusal from Google is now said in plain words and the AI
+team is not asked again until the limit resets (`backend/agents/team.py`, `quota_refusal`).
