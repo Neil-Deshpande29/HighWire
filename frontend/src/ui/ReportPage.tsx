@@ -32,7 +32,7 @@ export default function ReportPage({ title, when, basis, study, headline, number
   const [copied, setCopied] = useState(false);
   const out = job?.status === "done" ? job.output : null;
   const made = new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-  const planner = !out ? null : out.mode === "llm" ? "the AI agent team" : out.fallback_reason ? `the rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "the rule-based planner (no AI key is set)";
+  const planner = !out ? null : out.mode === "llm" ? "the AI agent team" : out.fallback_reason ? `the rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "the rule-based planner";
   const screened = job?.log.find((e) => e.agent === "physics" && /^screened /.test(e.message))?.message;
   const copy = () => navigator.clipboard.writeText(body.current?.innerText ?? "").then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); });
   const nothing = options.find((o) => o.kind === "nothing")?.sim ?? null;

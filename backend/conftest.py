@@ -26,11 +26,12 @@ def _no_local_costar(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def _no_paused_ai_team(monkeypatch):
+def _no_paused_ai_team(monkeypatch, tmp_path):
     """A quota refusal pauses the AI team for hours (backend/agents/team.py). Each test starts with it free to run."""
     from backend.agents import team as T
 
     monkeypatch.setitem(T._PAUSE, "until", 0.0)
+    monkeypatch.setattr(T, "_PAUSE_FILE", tmp_path / "ai_team_pause.json")  # and no test reads or writes this machine's saved pause
 
 
 @pytest.fixture(autouse=True)

@@ -195,6 +195,17 @@ def test_a_used_up_quota_is_said_plainly_and_the_ai_is_not_asked_again_until_it_
     T.run_team(state, JobLog())
     assert len(asked) == 2
     assert T.quota_refusal(RuntimeError("connection reset")) is None
+    # the pause outlives a restart: a fresh process reads it back and does not wait on Google again
+    saved = json.loads(T._PAUSE_FILE.read_text())
+    assert saved["until"] == T._PAUSE["until"] > 0
+    monkeypatch.setitem(T._PAUSE, "until", 0.0)  # what a restart does to the pause in memory
+    T._load_pause()
+    assert T._PAUSE["until"] == saved["until"] and _is_fallback(T.run_team(state, JobLog()), "daily limit") and len(asked) == 2
+    monkeypatch.setitem(T._PAUSE, "until", 0.0)
+    monkeypatch.setenv("AGENT_PLANNER", "rules")  # the setting that never asks the AI team at all
+    chosen = T.run_team(state, JobLog())
+    assert chosen["mode"] == "mock" and chosen["fallback_reason"] is None and len(asked) == 2
+    monkeypatch.delenv("AGENT_PLANNER")
     assert T.quota_refusal(RuntimeError("429 RESOURCE_EXHAUSTED requests per minute 'retryDelay': '12s'")) == ("Google is limiting how fast this key may ask", 30.0)
 
 
