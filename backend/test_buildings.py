@@ -46,7 +46,8 @@ def test_impact_counts_sites_not_substations():
 
 def test_no_buildings_no_impact():
     empty = B.outage_impact([])
-    assert {k: v for k, v in empty.items() if k != "ladder"} == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "severity": None}
+    assert {k: v for k, v in empty.items() if k != "ladder"} == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "critical": 0,
+                                                                  "homes": 0, "severity": None}
     assert [t["n"] for t in empty["ladder"]] == [0] * len(B.TIERS)
 
 
@@ -179,3 +180,89 @@ def test_costar_extract_is_read_by_column_name(tmp_path):
     assert any("leases.csv: skipped, no latitude and longitude" in n for n in notes) and any("la.csv: kept 2 of 4 rows" in n for n in notes)
     assert CI.find_columns(["LAT", "Lng", "Building Name", "Primary Property Type"]) == {
         "lat": "LAT", "lon": "Lng", "name": "Building Name", "property_type": "Primary Property Type"}
+
+
+def test_costar_kit_is_read_as_its_own_notes_describe(tmp_path, monkeypatch):
+    """A tiny made-up kit in the real kit's layout: names come from the enums, homes from the apartment record, the
+    year from the construction-complete event, and only tenancies with no end date count as current tenants."""
+    from backend.la import costar_import as CI
+
+    lat, lon = 34.05, -118.25  # downtown Los Angeles, inside the grid's area
+    (tmp_path / "data").mkdir()
+    (tmp_path / "schemas").mkdir()
+    (tmp_path / "schemas" / "enums.json").write_text(json.dumps({
+        "PropertyType": {"1": "Hospitality", "3": "Land", "5": "Office", "11": "Multifamily", "13": "Healthcare"},
+        "PropertySubtype": {"0": "Unknown", "58": "MultiFamily_Apartments", "30": "Hospitality_Hotel", "29": "HealthCare_Hospital"},
+        "ApartmentLifestyleType": {"1": "All", "2": "Senior"}, "ConstructionEventType": {"2": "ConstructionComplete", "4": "RenovationFinished"},
+        "IndustryType": {"0": "Unknown", "15": "HealthCareAndSocialAssistance", "16": "LawFirms"}}))
+    addr = lambda dy, dx=0.0: {"latitude": lat + dy, "longitude": lon + dx, "streetNumber": "100", "streetName": "Test", "streetType": "St", "city": "Los Angeles"}  # noqa: E731
+    props = [
+        {"id": 1, "primaryAddress": addr(0.001), "propertyType": 11, "propertySubtype": 58, "buildingName": "Sunrise Villas",
+         "propertyApartment": {"totalNumUnits": 120, "apartmentLifestyleType": 2}, "constructionEvents": [{"eventType": 4, "year": 2015}, {"eventType": 2, "year": 1990}]},
+        {"id": 2, "primaryAddress": addr(0.002), "propertyType": 11, "propertySubtype": 58, "propertyApartment": {"totalNumUnits": 40, "apartmentLifestyleType": 1}},
+        {"id": 3, "primaryAddress": addr(0.003), "propertyType": 5, "propertySubtype": 0, "buildingName": "Care Tower", "rentableBuildingAreaSquareFeet": 50000.0},
+        {"id": 4, "primaryAddress": addr(0.004), "propertyType": 5, "propertySubtype": 0, "buildingName": "Law Tower"},
+        {"id": 5, "primaryAddress": addr(0.005), "propertyType": 1, "propertySubtype": 30, "buildingName": "Grand Hotel"},
+        {"id": 6, "primaryAddress": addr(0.006), "propertyType": 3, "propertySubtype": 0, "buildingName": "Empty lot"},
+        {"id": 7, "primaryAddress": {"latitude": 29.76, "longitude": -95.37}, "propertyType": 5, "propertySubtype": 0, "buildingName": "Houston Tower"},
+    ]
+    (tmp_path / "data" / "commercial-property.jsonl").write_text("\n".join(json.dumps(p) for p in props))
+    tenancy = lambda pid, tenant, to=None, industry=0: {"propertyId": pid, "tenantLocationId": tenant, "toDate": to, "industryType": industry}  # noqa: E731
+    (tmp_path / "data" / "location-occupancy.jsonl").write_text("\n".join(json.dumps(t) for t in [
+        tenancy(3, 901), tenancy(3, 902), tenancy(3, None, industry=16), tenancy(3, 903, to="2020-01-01T00:00:00Z"),  # two clinics, one law firm, one gone
+        tenancy(4, 904), tenancy(4, None, industry=16)]))
+    (tmp_path / "data" / "company-detail.jsonl").write_text("\n".join(json.dumps(c) for c in [
+        {"id": 901, "profile": {"industryType": 15}}, {"id": 902, "profile": {"industryType": 15}},
+        {"id": 903, "profile": {"industryType": 15}}, {"id": 904, "profile": {"industryType": 16}}]))
+
+    rows, notes = CI.convert(tmp_path)
+    by_id = {r["id"]: r for r in rows}
+    assert sorted(by_id) == [1, 2, 3, 4, 5]  # the land parcel and the Houston tower are left out
+    assert by_id[1] == {"id": 1, "name": "Sunrise Villas", "property_type": "Multifamily", "secondary_type": "MultiFamily_Apartments",
+                        "lat": lat + 0.001, "lon": lon, "size_sf": None, "year_built": 1990, "address": "100 Test St, Los Angeles",
+                        "units": 120, "lifestyle": "Senior", "heavy_power": None, "tenants": None}
+    assert by_id[2]["name"] == "100 Test St" and by_id[3]["tenants"] == {"current": 3, "known": 3, "health": 2}
+    assert by_id[4]["tenants"] == {"current": 2, "known": 2, "health": 0} and "3 current" not in notes[1] and "5 current tenancies in 2" in notes[1]
+
+    f = tmp_path / "buildings.json"
+    f.write_text(json.dumps(rows))
+    monkeypatch.setattr(B, "COSTAR_FILE", f)
+    B.clear_cache()
+    try:
+        mine = {r["name"]: r for r in B.rows() if r["source"] == "costar"}
+        assert {n: r["kind"] for n, r in mine.items()} == {"Sunrise Villas": "senior_housing", "100 Test St": "residential", "Care Tower": "medical",
+                                                           "Law Tower": "office", "Grand Hotel": "lodging"}
+        impact = B.impact_of(list(mine.values()))
+        assert impact["homes"] == 160 and impact["critical"] == 2  # senior housing and the medical office are tier 3
+        assert [(t["tier"], t["n"]) for t in impact["ladder"]] == [(1, 0), (2, 0), (3, 2), (4, 2), (5, 1)]
+        assert next(s for s in impact["sites"] if s["name"] == "Sunrise Villas")["units"] == 120
+    finally:
+        monkeypatch.undo()
+        B.clear_cache()
+
+
+def test_kinds_from_costar_names():
+    assert B.kind_of("Hospitality", "Hospitality_Hotel") == "lodging"  # not a hospital: the word is inside "hospitality"
+    assert B.kind_of("Healthcare", "HealthCare_Hospital") == B.kind_of("Health Care", "Hospital") == "hospital"
+    assert B.kind_of("Office", "Office_Medical") == "medical" and B.kind_of("Specialty", "Specialty_Schools") == "school"
+    assert B.kind_of("Multifamily", "MultiFamily_Apartments") == "residential"
+    assert B.kind_of("Multifamily", "MultiFamily_Apartments", "Senior") == "senior_housing" and B.kind_of("Office", None, "Senior") == "office"
+    assert B.kind_of("Office", None, None, {"known": 4, "health": 2}) == "medical" and B.kind_of("Office", None, None, {"known": 4, "health": 1}) == "office"
+    assert B.kind_of("Office", None, None, {"known": 1, "health": 1}) == "office"  # one tenant is not enough to call it a medical site
+    assert B.kind_of("GeneralRetail", "GeneralRetail_Restaurant") == "retail" and B.kind_of("Flex", "Flex_RAndD") == "industrial"
+    assert B.tier_of("senior_housing") == 3 and B.severity("senior_housing") == "medium"
+
+
+def test_a_costar_hospital_next_to_a_mapped_hospital_is_listed_once(tmp_path, monkeypatch):
+    known = next(r for r in B.rows() if r["kind"] == "hospital")
+    f = tmp_path / "buildings.json"
+    f.write_text(json.dumps([
+        {"id": "same", "name": "Same hospital", "property_type": "Healthcare", "secondary_type": "HealthCare_Hospital", "lat": known["lat"] + 0.0005, "lon": known["lon"]},
+        {"id": "other", "name": "Another hospital", "property_type": "Healthcare", "secondary_type": "HealthCare_Hospital", "lat": known["lat"] + 0.05, "lon": known["lon"]}]))
+    monkeypatch.setattr(B, "COSTAR_FILE", f)
+    B.clear_cache()
+    try:
+        assert [r["name"] for r in B.rows() if r["source"] == "costar"] == ["Another hospital"]
+    finally:
+        monkeypatch.undo()
+        B.clear_cache()

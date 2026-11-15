@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Action, Plan } from "../api";
+import type { Action, BuildingsOut, Plan } from "../api";
 import DecisionBar from "../desk/DecisionBar";
 import LineSheet, { type LineFinding } from "../desk/LineSheet";
 import OptionsTable, { OptionDetail, planNums, type Option } from "../desk/OptionsTable";
@@ -27,7 +27,8 @@ import { useBackendOnline, usePoll, useSim, useSims } from "./hooks";
 import LAScene, { type Focus, type Layers } from "./LAScene";
 
 const NO_ACTIONS: Action[] = [];
-type Pop = { id: string; x: number; y: number }; // the substation popover; lines open a sheet in the right column instead
+// the pop-up at a map click: a line (what it reads, the switch) or a substation (shed load)
+type Pop = { kind: "line"; id: string; x: number; y: number } | { kind: "bus"; id: string; x: number; y: number };
 type SheetKind = "inputs" | "risk" | "record" | "affected";
 const SHEET_NAME: Record<SheetKind, string> = { inputs: "Sensors", risk: "Risk by line", record: "Log", affected: "Who is affected" };
 const AGENT_WORD: Record<string, string> = { fire_agent: "Fire agent", wind_agent: "Wind agent", heat_agent: "Heat agent", brownout_agent: "Brownout agent", buildings_agent: "Buildings agent" };
@@ -78,6 +79,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [showReport, setShowReport] = useState(false);
   // the desk: who is acting, which sheet is open, the sensor check, the risk register, the decision record
   const [records, setRecords] = useState<BuildingRecords | null>(null); // which building records are loaded, and the priority ladder
+  const [cutOf, setCutOf] = useState<{ key: string; data: BuildingsOut & { customers: number } } | null>(null);
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [peek, setPeek] = useState(false); // show the map as it is, without the selected option
   const [acting, setActing] = useState(false);
@@ -208,12 +210,20 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     return () => { live = false; };
   }, [wantRegister, registerKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const reg = register && register.key === registerKey ? register.data : null;
+  // what switching the selected line off would cut: asked for any line, not only the risky ones the register lists
+  const cutKey = selLine && t ? `${eid}|${t}|${selLine}|${JSON.stringify(registerActions)}` : null;
+  useEffect(() => {
+    if (!cutKey || cutOf?.key === cutKey) return;
+    let live = true;
+    la.cut(eid, t!, selLine!, registerActions).then((data) => { if (live) setCutOf({ key: cutKey, data }); }).catch(() => null);
+    return () => { live = false; };
+  }, [cutKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { refreshRecord(); }, [refreshRecord, opJob?.status]);
   // a sheet opens at its top; coming back restores where the plans were scrolled to
-  const sheetOpen = !!(selLine || sheet);
+  const sheetOpen = !!((selLine && pop?.kind !== "line") || sheet);
   useLayoutEffect(() => { if (mid.current) mid.current.scrollTop = sheetOpen ? 0 : homeScroll.current; }, [sheetOpen, sheet, selLine]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (selLine) setSelLine(null); else setSheet(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (selLine) { setSelLine(null); setPop(null); } else setSheet(null); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selLine]);
@@ -234,7 +244,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const staleHours = !past && ev.fetched_utc ? (Date.now() - new Date(ev.fetched_utc).getTime()) / 3.6e6 : 0;
 
   const numbers = hour && series
-    ? situationNumbers({ hour, series, heat, study, past, revealed, sit, nHigh, worst, studySim, onReveal: () => setRevealed(true) })
+    ? situationNumbers({ hour, series, heat, study, past, revealed, sit, nHigh, worst, studySim, onReveal: () => setRevealed(true),
+      criticalDownwind: (study ? studySim : opSim && sameHour(opSim.t_utc, t) ? opSim : null)?.fire_exposure.critical ?? null })
     : [];
   const head = hour && worst ? headline(hour, kind, nHigh, tops[0]?.zone ?? null, {
     future: !past && !!series?.now_utc && new Date(hour.t_utc) > new Date(series.now_utc), worst: worst.text,
@@ -315,11 +326,11 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     : null;
   const findLine = (id: string) => { // select it and bring its midpoint into view
     const g = s.branches.find((b) => b.id === id)?.geometry;
-    setSelLine(id); setPop(null);
+    setSelLine(id); setPop(null); // from a list or the search box: the line opens in the right column
     if (g?.length) { const [lat, lon] = g[Math.floor(g.length / 2)]; setFocus({ lat, lon, spanKm: 40, key: Date.now() }); }
   };
   const simForBus = study ? studySim : opSim;
-  const popBus = pop ? s.buses.find((b) => b.id === pop.id) : null;
+  const popBus = pop?.kind === "bus" ? s.buses.find((b) => b.id === pop.id) : null;
   const trayActions = study ? studyActions : staged;
 
   // ---------------------------------------------------------------- the selected line: where it sits in the plans and findings
@@ -351,13 +362,17 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
 
   const backTo = sheet ? SHEET_NAME[sheet] : done ? "your options" : "the situation";
   const home = done ? "your options" : "the situation";
-  const lineSheet = selBranch && hour && (
+  // a line clicked on the map opens as a pop-up at the click; a line picked from a list opens in the right column
+  const popLine = pop?.kind === "line" && selBranch?.id === pop.id ? pop : null;
+  const lineView = selBranch && hour && (
     <LineSheet key={selBranch.id} line={selBranch} bi={selBi} hour={hour} lines={mapSim?.lines ?? cur} alarm={alarm} isOff={offNow(selBranch.id, selBi)}
       capPct={trayActions.find((a) => a.type === "limit_line" && a.target === selBranch.id)?.pct} verb={verb}
       register={reg && reg !== "error" ? reg.rows.find((r) => r.id === selBranch.id) : undefined} top={tops.find((l) => l.id === selBranch.id)}
-      planNotes={planNotes} findings={lineFindings} modelText={out?.mode === "llm"} back={backTo}
-      onAction={(a) => stage({ ...a, target: selBranch.id })} onShow={() => findLine(selBranch.id)} onClose={() => setSelLine(null)} />
+      cut={cutOf && cutOf.key === cutKey ? cutOf.data : undefined}
+      planNotes={planNotes} findings={lineFindings} modelText={out?.mode === "llm"} back={backTo} at={popLine ? { x: popLine.x, y: popLine.y } : undefined}
+      onAction={(a) => stage({ ...a, target: selBranch.id })} onShow={() => findLine(selBranch.id)} onClose={() => { setSelLine(null); setPop(null); }} />
   );
+  const lineSheet = popLine ? null : lineView;
   const sheetEl = lineSheet ? null
     : sheet === "inputs" ? <InputsSheet inputs={inputs} sensors={sensors} back={home} onClose={() => setSheet(null)} />
     : sheet === "risk" ? <RiskSheet reg={reg} back={home} onLine={setSelLine} onClose={() => setSheet(null)} />
@@ -365,7 +380,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     : sheet === "affected" && selOption ? <AffectedSheet option={selOption} back={selOption.label} onLine={setSelLine} onClose={() => setSheet(null)} />
     : null;
   // the priority ladder shows what the selected plan (or the agents' pick) puts on backup power, rung by rung
-  const ladderOf = selOption?.kind === "plan" ? selOption : options.find((o) => o.kind === "plan") ?? null;
+  const ladderOf = selOption && selOption.kind !== "nothing" ? selOption : options.find((o) => o.kind === "plan") ?? null;
   const ladder = ladderOf?.sim?.buildings_out?.ladder ? { label: ladderOf.label, rungs: ladderOf.sim.buildings_out.ladder } : null;
 
   return (
@@ -375,8 +390,8 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           labelIds={labelIds} selected={selLine} dimBuses={dimBuses}
           showFires={past && revealed} focus={focus} overlay={overlay}
           onHoverLine={(bi, x, y) => setHover(bi == null ? null : { bi, x: x!, y: y! })}
-          onClickLine={(bi) => { setSelLine(s.branches[bi].id); setPop(null); }}
-          onClickBus={(id, x, y) => setPop({ id, x, y })}
+          onClickLine={(bi, x, y) => { setSelLine(s.branches[bi].id); setPop({ kind: "line", id: s.branches[bi].id, x, y }); }}
+          onClickBus={(id, x, y) => { setSelLine(null); setPop({ kind: "bus", id, x, y }); }}
           onMiss={() => { setPop(null); setSelLine(null); }} />
         <div className="labels" ref={overlay} />
       </div>
@@ -396,6 +411,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
           <span className="muted small">Click to open this line</span>
         </div>
       )}
+      {popLine && lineView}
       {popBus && pop && (
         <LineControls key={popBus.id} x={pop.x} y={pop.y} kind="bus" title={popBus.name} sub={`Substation · ${Math.round(popBus.kv)} kV`}
           maxShed={simForBus?.bus_load[popBus.id]} verb={study ? "Applies to the study grid right away." : "Adds to Your changes."}

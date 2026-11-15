@@ -25,7 +25,7 @@ def exposed(points: list[tuple[float, float, float, str]]) -> dict:
     Each building is counted once and names the nearest such line."""
     rows = B.rows()
     if not rows or not points:
-        return {"by_kind": {}, "score": 0, "hospitals": 0, "n": 0, "severity": None, "sites": []}
+        return {"by_kind": {}, "score": 0, "hospitals": 0, "n": 0, "critical": 0, "homes": 0, "severity": None, "sites": []}
     lat, lon = np.array([r["lat"] for r in rows]), np.array([r["lon"] for r in rows])
     near = np.full(len(rows), np.inf)
     line = np.full(len(rows), "", dtype=object)
@@ -46,8 +46,11 @@ def exposed(points: list[tuple[float, float, float, str]]) -> dict:
         "score": int(sum(weight(k) for k in hit)),
         "hospitals": int(counts.get("hospital", 0)),
         "n": len(hit),
+        "critical": int(sum(B.tier_of(rows[k]["kind"]) <= B.CRITICAL_TIERS for k in hit)),  # tiers 1 to 3
+        "homes": int(sum(rows[k].get("units") or 0 for k in hit if rows[k]["kind"] in ("residential", "senior_housing"))),
         "severity": B.severity(rows[ranked[0]]["kind"]) if ranked else None,  # the worst single building decides the level
         "sites": [{"name": rows[k]["name"], "kind": rows[k]["kind"], "source": rows[k].get("source", "osm"),
-                   "severity": B.severity(rows[k]["kind"]), "line": str(line[k]), "distance_km": round(float(near[k]), 1)}
+                   "severity": B.severity(rows[k]["kind"]), "line": str(line[k]), "distance_km": round(float(near[k]), 1),
+                   "units": rows[k].get("units")}
                   for k in ranked[:MAX_SITES]],
     }

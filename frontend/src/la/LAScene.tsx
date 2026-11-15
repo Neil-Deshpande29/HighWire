@@ -105,8 +105,35 @@ function Terrain({ s, proj, imagery }: { s: LAStatic; proj: Proj; imagery: strin
   );
 }
 
+// ---------------------------------------------------------------- zoom: lines thicken and dots stay small as you move in
+const ZOOM_REF = 110; // camera distance (km) of the overview; widths and dot sizes are given for this distance
+const PICK_PX = 10; // a line can be clicked or hovered this many pixels away from its drawn edge
+/** How far the camera is from the point it looks at. */
+function zoomDistance(st: { camera: THREE.Camera; controls: unknown }): number {
+  const target = (st.controls as { target?: THREE.Vector3 } | null)?.target;
+  return target ? st.camera.position.distanceTo(target) : st.camera.position.length();
+}
+/** Line widths are in pixels, so at a fixed width a line looks thinner and thinner against the ground as you zoom in.
+ *  This widens it with the zoom, up to four times, so it stays a thick stroke at every distance. */
+function useZoomWidth(base: number) {
+  const ref = useRef<{ material: { linewidth: number } } | null>(null);
+  useFrame((st) => {
+    const m = ref.current?.material;
+    if (!m) return;
+    const w = base * Math.min(4, Math.max(1, ZOOM_REF / zoomDistance(st)));
+    if (Math.abs(m.linewidth - w) > 0.05) m.linewidth = w;
+  });
+  return ref;
+}
+/** Lets a click or hover count when it lands near a line, not only on its few pixels. */
+function PickTolerance() {
+  const raycaster = useThree((st) => st.raycaster);
+  useEffect(() => { (raycaster.params as unknown as { Line2: { threshold: number } }).Line2 = { threshold: PICK_PX }; }, [raycaster]);
+  return null;
+}
+
 // ---------------------------------------------------------------- lines (merged segment sets by voltage tier)
-const TIERS = [{ kv: [0, 180], width: 1.8 }, { kv: [180, 400], width: 2.8 }, { kv: [400, 9999], width: 4 }];
+const TIERS = [{ kv: [0, 180], width: 2.4 }, { kv: [180, 400], width: 3.4 }, { kv: [400, 9999], width: 4.6 }];
 const lift = (kv: number) => 0.1 + (kv >= 400 ? 0.12 : kv >= 180 ? 0.08 : 0.04);
 
 function useLineGeometry(s: LAStatic, proj: Proj, height: (la: number, lo: number) => number) {
@@ -139,17 +166,24 @@ function LineTier({ pts, segBranch, width, colors, onHover, onClick }: {
     segBranch.forEach((bi) => { c.set(colors[bi]); out.push([c.r, c.g, c.b], [c.r, c.g, c.b]); });
     return out;
   }, [segBranch, colors]);
+  const ref = useZoomWidth(width);
   if (!pts.length) return null;
   const pick = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
     const fi = (e as unknown as { faceIndex?: number }).faceIndex ?? (e.intersections[0] as unknown as { faceIndex?: number })?.faceIndex;
     return fi != null ? segBranch[fi] : null;
   };
   return (
-    <Line points={pts} segments vertexColors={vcol} lineWidth={width}
+    <Line ref={ref as never} points={pts} segments vertexColors={vcol} lineWidth={width}
       onPointerMove={(e) => { e.stopPropagation(); const bi = pick(e); if (bi != null) { document.body.style.cursor = "pointer"; onHover(bi, e.nativeEvent.clientX, e.nativeEvent.clientY); } }}
       onPointerOut={() => { document.body.style.cursor = "default"; onHover(null); }}
       onClick={(e) => { e.stopPropagation(); const bi = pick(e); if (bi != null) onClick(bi, e.nativeEvent.clientX, e.nativeEvent.clientY); }} />
   );
+}
+
+/** The blue halo on the selected line; it widens with the zoom like the lines under it. */
+function SelectedLine({ points }: { points: [number, number, number][] }) {
+  const ref = useZoomWidth(9);
+  return <Line ref={ref as never} points={points} segments color="#007aff" lineWidth={9} transparent opacity={0.45} />;
 }
 
 // ---------------------------------------------------------------- a few faint wind arrows
@@ -205,13 +239,22 @@ function Points({ items, proj, height, color, size, onClick, y = 0.25 }: {
   color: string; size: number; onClick?: (id: string, x: number, y: number) => void; y?: number;
 }) {
   const ref = useRef<THREE.InstancedMesh>(null);
-  useLayoutEffect(() => {
+  const scale = useRef(1);
+  const place = (k: number) => { // dots are sized in km; shrinking them as the camera moves in keeps them small on screen
     const m = ref.current;
     if (!m) return;
     const o = new THREE.Object3D();
-    items.forEach((p, k) => { o.position.set(proj.x(p.lon), height(p.lat, p.lon) + y, proj.z(p.lat)); o.updateMatrix(); m.setMatrixAt(k, o.matrix); });
+    items.forEach((p, n) => { o.position.set(proj.x(p.lon), height(p.lat, p.lon) + y, proj.z(p.lat)); o.scale.setScalar(k); o.updateMatrix(); m.setMatrixAt(n, o.matrix); });
     m.instanceMatrix.needsUpdate = true;
-  }, [items, proj, height, y]);
+    m.boundingSphere = null; // recomputed on the next pick, so clicks still land
+  };
+  useLayoutEffect(() => { place(scale.current); }, [items, proj, height, y]); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame((st) => {
+    const k = Math.min(1, Math.max(0.1, zoomDistance(st) / ZOOM_REF));
+    if (Math.abs(k - scale.current) / scale.current < 0.04) return;
+    scale.current = k;
+    place(k);
+  });
   if (!items.length) return null;
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]}
@@ -276,15 +319,16 @@ export default function LAScene({ s, hour, colors, layers, imagery, labelIds, se
         <ambientLight intensity={1.6} />
         <directionalLight position={[-80, 120, 30]} intensity={1.1} />
         <Terrain s={s} proj={proj} imagery={layers.imagery ? imagery : null} />
+        <PickTolerance />
         {tiers.map((tier, k) => <LineTier key={k} {...tier} colors={colors} onHover={onHoverLine} onClick={onClickLine} />)}
-        {selSeg.length > 0 && <Line points={selSeg} segments color="#007aff" lineWidth={7} transparent opacity={0.45} />}
+        {selSeg.length > 0 && <SelectedLine points={selSeg} />}
         {hour && layers.wind && <WindArrows hour={hour} proj={proj} height={height} />}
         {hour && layers.redflag && hour.redflag_active.map((u) => (s.redflag_zones[u] ?? []).map((ring, k) => {
           const seg = ringSegments(ring, s, proj, height);
           return seg.length ? <Line key={u + k} points={seg} segments color="#ff2d55" lineWidth={1.4} dashed dashSize={0.9} gapSize={0.6} transparent opacity={0.7} /> : null;
         }))}
-        <Points items={subs} proj={proj} height={height} color="#ffffff" size={0.32} onClick={onClickBus} />
-        {layers.hospitals && <Points items={hosp} proj={proj} height={height} color={HOSPITAL} size={0.34} y={0.45} />}
+        <Points items={subs} proj={proj} height={height} color="#ffffff" size={0.2} onClick={onClickBus} />
+        {layers.hospitals && <Points items={hosp} proj={proj} height={height} color={HOSPITAL} size={0.22} y={0.45} />}
         {dimBuses.map((id) => {
           const b = busById.get(id);
           return b ? (

@@ -1,6 +1,6 @@
 import type { Action } from "../api";
 import type { LAStatic, SimResult } from "../la/api";
-import { actionText, fmtInt, plainViolation } from "./format";
+import { actionText, buildingsText, fmtInt, homesText, plainViolation } from "./format";
 
 export default function ChangesTray({ s, actions, result, loading, study, onRemove, onClear, onCompare, onCopyToPlan }: {
   s: LAStatic; actions: Action[]; result: SimResult | null; loading: boolean; study: boolean;
@@ -21,7 +21,9 @@ export default function ChangesTray({ s, actions, result, loading, study, onRemo
       <div className={`tray-nums ${loading ? "stale" : ""}`}>
         {result ? (<>
           <span><b>{fmtInt(result.customers_out)}</b> customers losing power</span>
-          <span><b>{result.hospitals_on_backup}</b> hospitals on backup</span>
+          <span title={result.buildings_out?.n ? `${buildingsText(result.buildings_out.by_kind, ", ")}${homesText(result.buildings_out.homes)}` : "None"}>
+            <b>{result.buildings_out?.critical ?? result.hospitals_on_backup}</b> critical sites on backup</span>
+          {result.buildings_out?.homes ? <span><b>{fmtInt(result.buildings_out.homes)}</b> apartment homes</span> : null}
           <span className={result.situation.n_high_risk ? "act" : ""}><b>{result.situation.n_high_risk}</b> high-risk lines still on</span>
           <span className={result.is_safe ? "pass" : "fail"}><b>{result.is_safe ? "Passes" : `${result.n_violations} problem${result.n_violations === 1 ? "" : "s"}`}</b> physics check</span>
         </>) : <span className="muted">Running the physics…</span>}

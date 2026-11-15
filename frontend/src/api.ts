@@ -6,8 +6,9 @@ export type Action = { type: string; target: string; mw?: number; pct?: number; 
 export type Severity = "high" | "medium" | "low";
 export type BuildingsOut = {
   by_kind: Record<string, number>; score: number; n: number; hospitals?: number; severity?: Severity | null;
-  ladder?: { tier: number; name: string; n: number }[];
-  sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string; severity?: Severity }[];
+  /** `critical` counts tiers 1 to 3 (hospitals, water plants, medical sites, senior housing, schools); `homes` is apartment homes from CoStar. */
+  critical?: number; homes?: number; ladder?: { tier: number; name: string; n: number }[];
+  sites: { name: string; kind: string; bus: string; backup_hours: number | null; source: string; severity?: Severity; units?: number | null }[];
 };
 /** Who may approve (backend/la/authority.py): the operator alone, only with a supervisor, or nobody (fails physics). */
 export type Authority = { level: "operator" | "supervisor" | "blocked"; reasons: string[]; basis: string };

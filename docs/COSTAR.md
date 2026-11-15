@@ -1,7 +1,7 @@
 # CoStar, Vexcel and HighWire
 
 The CoStar track asks for at least two of its three data layers (CoStar data extract, Matterport, Vexcel).
-HighWire uses **Vexcel** (live) and **CoStar** (one import away). This page says what each does and how to load it.
+HighWire uses **Vexcel** (live) and the **CoStar data kit** (imported). This page says what each does and how to load it.
 
 ## Vexcel: live
 
@@ -19,19 +19,35 @@ Set `VEXCEL_API_KEY` in `.env` (git-ignored). The key is sent only in the `X-API
 - Tree counts and the vegetation share (from USDA infrared photos) never change the fire index. They order the work.
 - Request shapes follow Vexcel's hackathon quickstart. Imagery and counts are cached under `data/processed/`, git-ignored.
 
-## CoStar: load the extract
+## CoStar: loaded from the data kit
 
-The extract (Houston and Los Angeles) is handed out in the track Discord. One teammate does this once:
+The kit (Houston and Los Angeles) comes from the track Discord (`/costar-keys`). It is licensed, so it stays outside
+the repo. Unzip it anywhere, then:
 
-1. In the track Discord, run `/costar-keys`. The reply has the download link and its password.
-2. Download and unzip it anywhere on this machine.
-3. Run `make costar FILE=/path/to/the/extract` (a file or a folder; csv, xlsx, json or geojson).
-4. Restart the backend.
+```
+make costar FILE=/path/to/costar-hackathon-kit
+```
 
-The importer finds columns by name (latitude, longitude, property type, ...), keeps properties inside the LA grid,
-prints what it used, and writes `data/processed/costar/buildings.json` (git-ignored). It stops with a clear message if
-it finds no coordinates. Until then the building list is 218 hospitals and water plants from OpenStreetMap, and the
-screen says so.
+and restart the backend. The importer (`backend/la/costar_import.py`) reads the kit as its own notes describe:
+
+| From the kit | Used for |
+|---|---|
+| `data/commercial-property.jsonl`: type, subtype, location | which rung of the ladder a building is on, and which substation serves it |
+| `propertyApartment.totalNumUnits` | apartment homes behind a cut |
+| `propertyApartment.apartmentLifestyleType` = Senior | senior housing, tier 3 |
+| `data/location-occupancy.jsonl` + `data/company-detail.jsonl`: current tenants by industry | an office where half or more of the known tenants are in health care counts as a medical site |
+| `schemas/enums.json` | the names behind every code |
+
+It writes `data/processed/costar/buildings.json` (git-ignored). On the hackathon kit that is 1,578 Los Angeles
+properties with 89,986 apartment homes: 1 hospital, 12 medical sites, 10 senior housing sites, 1 school, 1,407
+apartment buildings, 34 industrial sites, 1 hotel, 86 offices, 24 shops. Land parcels are left out. Any other table
+(csv, xlsx, json, geojson) also works: columns are found by name.
+
+**Where it shows.** The kit covers the properties on CoStar's Matterport list, which sit in the central basin
+(Hollywood, downtown, the Westside). 61 substations serve them and 33 single lines would cut some of them off. Try
+"Find a line" with `L182`: turning it off cuts 2 hospitals, 2 medical sites, 106 apartment buildings (3,668 homes) and
+12 offices. The fire-risk lines in the Woolsey replay are in the western valleys, outside that area, so that plan's
+own cut reaches no CoStar property; its hospitals and water plants come from OpenStreetMap.
 
 ## What the building data drives
 
@@ -41,14 +57,15 @@ screen says so.
 |---|---|---|
 | 1 | Life safety | hospitals, emergency services |
 | 2 | Lifelines | water plants |
-| 3 | Cannot ride through an outage | medical sites, data centers, cold stores, schools |
+| 3 | Cannot ride through an outage | medical sites, data centers, senior housing, cold stores, schools |
 | 4 | Homes and industry | residential, hotels, industrial |
 | 5 | Offices and shops | offices, retail, other |
 
 - Each CoStar property type maps to a kind (`buildings.kind_of`) and each property to its nearest substation.
 - When two lines are equally risky, the one that reaches a lower tier is cut first.
 - Among safe plans, the one that puts fewer high-tier buildings on backup ranks first.
-- Every plan and every plan step lists what it puts on backup power, by tier.
+- Every plan and every plan step lists what it cuts off, by tier, with the apartment homes behind it.
+- Clicking any line says what switching it off would cut (`POST /la/cut`), not only the lines at high risk.
 - The AI team gets the same data through the `get_building_impact` tool; the rule-based planner reads it directly.
 
 The ladder and its weights are in `backend/la/buildings.py` (`TIERS`, `WEIGHTS`). They are a stated judgement, not a model.

@@ -90,7 +90,8 @@ def test_fire_exposure_names_buildings_downwind_of_live_lines(woolsey):
     assert exp["hospitals"] >= 1 and exp["severity"] == "high" and exp["n"] == sum(exp["by_kind"].values())
     assert all(s["line"] in ids and 0 <= s["distance_km"] <= 10 for s in exp["sites"])
     assert exp["sites"] == sorted(exp["sites"], key=lambda s: (-B.WEIGHTS[s["kind"]], s["distance_km"], s["name"]))
-    assert X.exposed([]) == {"by_kind": {}, "score": 0, "hospitals": 0, "n": 0, "severity": None, "sites": []}
+    assert X.exposed([]) == {"by_kind": {}, "score": 0, "hospitals": 0, "n": 0, "critical": 0, "homes": 0, "severity": None, "sites": []}
+    assert exp["critical"] == exp["n"] and exp["homes"] == 0  # the public list is all hospitals and water plants, no apartments
 
 
 def test_simulation_carries_exposure_and_authority(woolsey):
