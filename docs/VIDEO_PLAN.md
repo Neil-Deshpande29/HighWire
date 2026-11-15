@@ -2,7 +2,7 @@
 
 Deadline: Sunday Nov 15, 8:00 am EST. Have the upload started by 7:30. Uploads are slow.
 
-**The finished cut is `rewire_cut_v3.mp4` (1:56, 1080p).** It is built from the takes in `film/`. `rewire_cut_v3_no_music.mp4` is the same cut without the music bed. `rewire_cut_v2.mp4` is the cut before the extra voice recording, and `rewire_cut_v1.mp4` is the older stand-in version; the sections below the notes on the finished cut describe how that one was planned.
+**The finished cut is `rewire_cut_v4.mp4` (1:59.9, 1080p).** It is built from the takes in `film/`. `rewire_cut_v3.mp4` is the same cut without the couch opening, and `rewire_cut_v1.mp4` is the older stand-in version; the sections below the notes on the finished cut describe how that one was planned.
 
 Everything is in `HighWire-work/video/` on Sohum's laptop. The clips are not in git because they show licensed Vexcel imagery.
 
@@ -12,18 +12,20 @@ Your voices play at their real speed. Only the cards and app clips were retimed 
 
 | Time | Picture | Voice (take) |
 |---|---|---|
-| 0:00 | Cold open card: the two fires | `01_coldopen_voice`, face in a circle, bottom right |
-| 0:12 | The four of you, full screen. The control-room picture covers "made across multiple screens" (0:21 to 0:23.6) | `02_intros` |
-| 0:25.6 | Logo | music only |
-| 0:28.2 | 3D map, the clock runs, the watch turns red on the word "red" (0:44.5), dive to the hazard | `04_part2_webcam`, circle |
-| 0:51.6 | Agent graph, shared files, physics check, the plan | `03_part2_webcam`, circle |
-| 1:17.3 | The Approve click lands on the word "approve" (1:19.3), the line goes dark | `05_part4_webcam`, first 4.6 s, circle |
-| 1:23.3 | Phone alert card, then the dark lines and the real fire's label, with two captions. Slowed so the captions can be read | `10_proof_voice`, the extra recording |
-| 1:36.4 | Landscape card, then the proof card, both moved left | `0708_proofquote`, large circle on the right |
-| 1:51.6 | End card, with rewire.wiki | `09_close` |
+| 0:00 | The four of you on the couch. Right after "Oh shoot" the lights flicker and the room goes dark; the alert sound and the lines about it play in the dark | `00_intro` |
+| 0:06.7 | Cold open card: the two fires | `01_coldopen_voice`, face in a circle, bottom right |
+| 0:18.7 | The four of you, full screen. The control-room picture covers "made across multiple screens" | `02_intros` |
+| 0:32.3 | Logo | music only |
+| 0:34.3 | 3D map, the clock runs, the watch turns red on the word "red" (0:50.6), dive to the hazard | `04_part2_webcam`, circle |
+| 0:57.7 | Agent graph, shared files, physics check, the plan | `03_part2_webcam`, circle |
+| 1:23.4 | The Approve click lands on the word "approve" (1:25.4), the line goes dark | `05_part4_webcam`, first 4.6 s, circle |
+| 1:29.4 | Phone alert card, then the dark lines and the real fire's label, with two captions. Slowed so the captions can be read | `10_proof_voice`, the extra recording |
+| 1:42.5 | Landscape card, then the proof card, both moved left | `0708_proofquote`, large circle on the right |
+| 1:57.7 | End card, with rewire.wiki, played fast | `09_close` |
 
 ### What was changed, and why
 
+- **The opening.** `00_intro` has 2.5 s of dead air cut out, between "Oh shoot" (ends at 1.4 s) and the alert sound (starts at 4.15 s). The room is darkened in the edit from just after "Oh shoot" to the end of the clip, and the alert sound is turned up. To stay under 2:00 the logo runs 2 s and the end card 2.2 s.
 - **File names.** `03_part2_webcam` is the agents part and `04_part2_webcam` is the map part. They are placed by what is said.
 - **Speaker 4's last sentence is not in the cut.** The take says the line we flagged "ended up igniting in the Woolsey fire". It did not: the line the plan switches off is about 9 km from where the fire started. The take stops after "The line then powers off."
 - **Four words are cut from the extra recording.** It says "the line that caused this fire was ranked top one percent". The wire that started the fire is a small 16 kV circuit our grid model does not include, so "that caused this fire" is cut. It now says "in our replay, the line was ranked top one percent for fire risk", and the caption says which line: the one nearest the real ignition, out of 829.
