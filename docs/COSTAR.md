@@ -74,11 +74,3 @@ The ladder and its weights are in `backend/la/buildings.py` (`TIERS`, `WEIGHTS`)
 
 - Lines of 66 kV and up are modelled. "Loses power" means the substation serving the area is cut off; no feeder is traced to a building.
 - Matterport is not used.
-
-## Matterport: "See inside"
-
-The kit's `commercial-properties.csv` maps each property to its Matterport model ids. `backend/la/costar_import.py` keeps
-up to six per property (`tours`), `backend/la/buildings.py` passes them on, and every list of buildings that would lose
-power names up to six that have a tour (`tours`, `n_tours`), the ones that matter most first. The screen opens a tour in
-Matterport's own public viewer (`frontend/src/desk/Tours.tsx`); no key is used. Model ids come from the licensed kit
-and stay in the git-ignored `data/processed/costar/buildings.json`.

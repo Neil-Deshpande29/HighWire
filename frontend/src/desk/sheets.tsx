@@ -1,4 +1,3 @@
-import Tours from "./Tours";
 import { useState, type ReactNode } from "react";
 import type { Band, RecordEntry, RiskRegister, RiskRow, Sensors, SimResult, Station } from "../la/api";
 import { buildingsText, fmtInt, fmtPeople, homesText, kindWord, mph, timeLabel } from "../ui/format";
@@ -153,7 +152,6 @@ export function AffectedSheet({ option, back, onLine, onClose }: { option: Optio
             ))}
             {out && out.n > 12 && <li className="muted">and {out.n - 12} more</li>}
           </Sites>
-          <Tours out={out} />
           <Sites title={`Still downwind of a risky line (${exp?.n ?? 0})`} n={exp?.n ?? 0} empty="Nobody. No listed building is downwind of a line left on at high risk.">
             {exp?.sites.slice(0, 12).map((b) => (
               <li key={`${b.name}|${b.line}`}><Sev level={b.severity} /> <b>{b.name}</b>

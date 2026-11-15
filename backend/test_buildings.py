@@ -46,7 +46,7 @@ def test_impact_counts_sites_not_substations():
 
 def test_no_buildings_no_impact():
     empty = B.outage_impact([])
-    assert {k: v for k, v in empty.items() if k != "ladder"} == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "tours": [], "n_tours": 0, "critical": 0,
+    assert {k: v for k, v in empty.items() if k != "ladder"} == {"by_kind": {}, "score": 0, "hospitals": 0, "sites": [], "n": 0, "critical": 0,
                                                                   "homes": 0, "severity": None}
     assert [t["n"] for t in empty["ladder"]] == [0] * len(B.TIERS)
 
@@ -207,10 +207,6 @@ def test_costar_kit_is_read_as_its_own_notes_describe(tmp_path, monkeypatch):
         {"id": 7, "primaryAddress": {"latitude": 29.76, "longitude": -95.37}, "propertyType": 5, "propertySubtype": 0, "buildingName": "Houston Tower"},
     ]
     (tmp_path / "data" / "commercial-property.jsonl").write_text("\n".join(json.dumps(p) for p in props))
-    # the kit's starter list: one row per property and Matterport model; a property scanned twice has two rows
-    (tmp_path / "commercial-properties.csv").write_text("PropertyId,MatterportModelId,Address,City,State\n"
-                                                         "1,AAA111aaa11,100 Test St,Los Angeles,CA\n1,BBB222bbb22,100 Test St,Los Angeles,CA\n"
-                                                         "1,AAA111aaa11,100 Test St,Los Angeles,CA\n2,,100 Test St,Los Angeles,CA\n4,CCC333ccc33,100 Test St,Los Angeles,CA\n")
     tenancy = lambda pid, tenant, to=None, industry=0: {"propertyId": pid, "tenantLocationId": tenant, "toDate": to, "industryType": industry}  # noqa: E731
     (tmp_path / "data" / "location-occupancy.jsonl").write_text("\n".join(json.dumps(t) for t in [
         tenancy(3, 901), tenancy(3, 902), tenancy(3, None, industry=16), tenancy(3, 903, to="2020-01-01T00:00:00Z"),  # two clinics, one law firm, one gone
@@ -224,8 +220,7 @@ def test_costar_kit_is_read_as_its_own_notes_describe(tmp_path, monkeypatch):
     assert sorted(by_id) == [1, 2, 3, 4, 5]  # the land parcel and the Houston tower are left out
     assert by_id[1] == {"id": 1, "name": "Sunrise Villas", "property_type": "Multifamily", "secondary_type": "MultiFamily_Apartments",
                         "lat": lat + 0.001, "lon": lon, "size_sf": None, "year_built": 1990, "address": "100 Test St, Los Angeles",
-                        "units": 120, "lifestyle": "Senior", "heavy_power": None, "tenants": None, "tours": ["AAA111aaa11", "BBB222bbb22"]}
-    assert by_id[2]["tours"] == [] and by_id[4]["tours"] == ["CCC333ccc33"] and "2 of those properties have a Matterport 3D tour" in notes[-1]
+                        "units": 120, "lifestyle": "Senior", "heavy_power": None, "tenants": None}
     assert by_id[2]["name"] == "100 Test St" and by_id[3]["tenants"] == {"current": 3, "known": 3, "health": 2}
     assert by_id[4]["tenants"] == {"current": 2, "known": 2, "health": 0} and "3 current" not in notes[1] and "5 current tenancies in 2" in notes[1]
 
@@ -241,10 +236,6 @@ def test_costar_kit_is_read_as_its_own_notes_describe(tmp_path, monkeypatch):
         assert impact["homes"] == 160 and impact["critical"] == 2  # senior housing and the medical office are tier 3
         assert [(t["tier"], t["n"]) for t in impact["ladder"]] == [(1, 0), (2, 0), (3, 2), (4, 2), (5, 1)]
         assert next(s for s in impact["sites"] if s["name"] == "Sunrise Villas")["units"] == 120
-        # "See inside": the buildings that lose power and have a 3D tour, the one that matters most first
-        assert impact["n_tours"] == 2 and impact["tours"] == [
-            {"name": "Sunrise Villas", "kind": "senior_housing", "units": 120, "models": ["AAA111aaa11", "BBB222bbb22"]},
-            {"name": "Law Tower", "kind": "office", "units": None, "models": ["CCC333ccc33"]}]
     finally:
         monkeypatch.undo()
         B.clear_cache()
