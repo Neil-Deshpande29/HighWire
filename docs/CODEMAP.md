@@ -325,3 +325,15 @@ After the Codex adversarial review that night (three findings, all reproduced an
   forecast" never reuses the old weather's physics.
 - A cut only counts demand still being served (`LAState.served_mw`): demand already shed is not lost twice in
   `cut_impact` or the risk list.
+
+## 14. The agent team driven by rules (2026-11-15)
+
+- `backend/agents/scripted.py`: `RulesModel` is a chat model with no model in it. It plays the orchestrator and every
+  specialist through the real deepagents graph, taking each step from a script (`build_script`) that the rule-based
+  planner works out for the hour. `run` returns the planner's output after the graph has acted it out.
+- `backend/agents/team.py`: `planner_choice` reads `AGENT_PLANNER` (`agents` default, `gemini`, `rules`);
+  `run_rules_team` runs the scripted team and re-checks it with physics, and hands over to the plain rule-based planner
+  if the graph cannot be run. With `gemini`, the rule-driven team is the parallel backup.
+- The callback (`_make_callback(..., trusted=True)`) shows the rule-driven team's words as written: code wrote them,
+  so the number filter for model text does not apply.
+- `simulate_plan` takes up to six actions (`MAX_STEPS`), so a heat-day plan can be judged whole.

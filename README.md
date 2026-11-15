@@ -83,6 +83,25 @@ state is never touched), a `limit_line {target, pct}` operator-derate action, an
 - The rule-based planner sometimes returns two plans that switch the same lines; the UI shows one.
 - Resident ground reports on the LA grid are still not built (AUDIT.md, "To finish").
 
+## Which planner runs: the agent team is driven by rules by default (2026-11-15)
+
+The deep-agents team (an orchestrator, five specialists, the shared files) used to need Gemini to decide each step, and
+the free-tier key could not finish one run. The team is now **driven by rules by default**: the same graph, the same
+tools and hand-offs, deepagents' own file system, with each step decided by a script the rule-based planner works out
+for the hour (`backend/agents/scripted.py`). Every step is a real agent call (the dispatch note, each `task` hand-off,
+the specialists' tool reads, the findings files, `ls` and `read_file`, `simulate_plan`), and nothing depends on an
+outside service. A run takes a few seconds.
+
+`AGENT_PLANNER` in `.env` picks the planner:
+
+| Value | What runs |
+| --- | --- |
+| `agents` (default) | The deep-agents team driven by rules. No AI model, no network. |
+| `gemini` | The same team with Gemini deciding each step. Falls back to `agents` on a timeout, an error or a used-up quota. |
+| `rules` | The plain rule-based planner, with no agent graph. Also what answers if the graph cannot be run. |
+
+The result says which one answered (`planner`), and the screen shows it under the agent graph.
+
 ## Agents: routing, shared files, synthesis (2026-11-15)
 
 One run goes in three steps, and the same three happen with the AI team (Gemini) and with the rule-based planner that

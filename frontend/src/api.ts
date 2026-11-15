@@ -25,6 +25,8 @@ export type CopilotOutput = {
   do_nothing: { violations: string[]; unserved_mw: number; customers_out: number; critical_on_backup: string[]; n1_warnings: string[] };
   brief?: Brief | null;
   fallback_reason?: string | null;
+  /** Who decided each step: "agents" = the deep-agents team driven by rules, "gemini" = the same team on Gemini, "rules" = no agent graph. */
+  planner?: "agents" | "gemini" | "rules";
   /** Rule-based planner only: what each agent flagged, with the physical values it read (computed by code). */
   agent_findings?: Record<string, { target: string; issue: string; evidence: string; severity: number }[]>;
   /** What the coordinator did with the operator's earlier rejections. */

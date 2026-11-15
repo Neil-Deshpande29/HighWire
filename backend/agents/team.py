@@ -121,9 +121,10 @@ def _file_text(data) -> str:
     return "\n".join(c) if isinstance(c, list) else "" if c is None else str(c)
 
 
-def _make_callback(log, names=None):
+def _make_callback(log, names=None, trusted: bool = False):
     """Turns the team's tool calls into the log's structured events (the live agent graph is drawn from these alone)
-    and mirrors every file the agents write into the run's shared files."""
+    and mirrors every file the agents write into the run's shared files. `trusted` says the agents' words were written
+    by code (the rule-driven team), so they are shown as written; a model's words go through the number filter."""
     from langchain_core.callbacks import BaseCallbackHandler
 
     def ev(agent, message, kind, /, **meta):  # events are for a log that keeps them; a plain line log gets none of these
@@ -151,8 +152,8 @@ def _make_callback(log, names=None):
                 m = _ROUTE_LINE.match(line.strip())
                 if m and m.group(1) in AGENT_NAMES and m.group(1) not in self.routed:
                     agent, called = m.group(1), m.group(2).upper() == "CALL"
-                    why, held = _words(m.group(3), names)
-                    why = "" if held else why[:120]
+                    why, held = (m.group(3).strip(), False) if trusted else _words(m.group(3), names)
+                    why = "" if held else why[:160]
                     self.routed.add(agent)
                     ev("coordinator", f"{'calling' if called else 'not calling'} {AGENT_NAMES[agent]}" + (f": {why}" if why else ""),
                          "route", agent=agent, called=called, reason=why)
@@ -198,7 +199,12 @@ def _make_callback(log, names=None):
                 return
             f = data.get("findings") if isinstance(data, dict) else None
             f = [item for item in f if isinstance(item, dict)] if isinstance(f, list) else []
-            for item in f[:2]:
+            if trusted:  # code wrote the summary: say every line of it, as the agent's own report
+                note = (getattr(log, "vfs", None) or {}).get(findings_path(sub, "md"), "")
+                for line in note.splitlines():
+                    if line.startswith("- ") and line[2:].strip() != "nothing to report":
+                        log(sub, line[2:].strip())
+            for item in ([] if trusted else f[:2]):
                 target, tw = _words(item.get("target"), names)
                 issue, iw = _words(item.get("issue"), names)
                 evidence, _ = _words(item.get("evidence"), names)
@@ -207,7 +213,7 @@ def _make_callback(log, names=None):
                     continue
                 line = f"{target}: {issue}" if target else issue
                 log(sub, f"{line} ({evidence})" if evidence else line)
-            if not f:
+            if not f and not trusted:
                 log(sub, "no significant findings")
             ev(sub, f"wrote {findings_path(sub)}" if wrote else "finished without a findings file", "agent_done",
                  agent=sub, wrote=wrote, findings=len(f))
@@ -403,21 +409,63 @@ def quota_refusal(err) -> tuple[str, float] | None:
     return ("Google's free daily limit for this key is used up" if daily else "Google is limiting how fast this key may ask"), wait
 
 
+def planner_choice() -> str:
+    """Which planner AGENT_PLANNER asks for.
+
+    "agents" (the default)  the deep-agents team driven by rules: real agent calls through the graph, no AI model
+    "gemini"                the same team with Gemini deciding each step; falls back to the rule-driven team
+    "rules"                 the plain rule-based planner, with no agent graph at all"""
+    c = os.environ.get("AGENT_PLANNER", "agents").strip().lower()
+    return "gemini" if c in ("gemini", "ai", "llm") else "rules" if c in ("rules", "rule-based", "mock") else "agents"
+
+
+def _plain_rules(state, log, why: str, alerts: bool = True, pace: float | None = None) -> dict:
+    out = run_mock(state, log, why, pace=pace, alerts=alerts)
+    out["planner"] = "rules"
+    return out
+
+
+def run_rules_team(state, log) -> dict:
+    """The deep-agents team driven by rules (backend/agents/scripted.py), re-checked by physics. If the agent graph
+    cannot be run for any reason, the plain rule-based planner answers instead, so there is always a result."""
+    first = len(getattr(log, "entries", ()))
+    try:
+        from . import scripted
+
+        out = scripted.run(state, log)
+        out = verify_output(state, out, log)
+    except Exception as e:  # noqa: BLE001
+        if hasattr(log, "entries"):
+            for entry in log.entries[first:]:  # a half-drawn graph helps nobody
+                entry.pop("kind", None), entry.pop("meta", None)
+            log.vfs.clear()
+        log("system", f"the agent graph could not be run ({type(e).__name__}); the rule-based planner answers instead")
+        return _plain_rules(state, log, "the agent graph could not be run")
+    out["vfs"] = dict(getattr(log, "vfs", None) or {})
+    out["planner"] = "agents"
+    emit(log, "coordinator", f"done: {len(out['plans'])} plan(s) ready for operator review", "plans",
+         plans=[{"id": q["id"], "safe": bool(q["result"]["is_safe"])} for q in out["plans"]])
+    return out
+
+
 def run_team(state, log: JobLog) -> dict:
     """Entry point used by the API. Always returns physics-verified output.
-    The rule-based planner runs IN PARALLEL with the LLM team (silently), so a timeout or error falls back instantly."""
-    if not LLM.enabled():
-        out = run_mock(state, log, "mock mode: no GEMINI_API_KEY")
-        out["fallback_reason"] = None  # no key is a setting, not a failure
-        return out
-    if os.environ.get("AGENT_PLANNER", "auto").strip().lower() in ("rules", "rule-based", "mock"):
-        out = run_mock(state, log, "the rule-based planner is selected (AGENT_PLANNER=rules)")
+
+    By default the deep-agents team is driven by rules, with no AI model (see planner_choice). With AGENT_PLANNER=gemini
+    and a key, Gemini decides each step, and the rule-driven team runs IN PARALLEL (silently), so a timeout, an error
+    or a used-up quota falls back at once."""
+    la, choice = hasattr(state, "grid"), planner_choice()
+    if choice != "gemini" or not LLM.enabled():
+        if la and choice != "rules":
+            out = run_rules_team(state, log)
+        else:  # the toy region has no rule-driven team; "rules" asks for no agent graph
+            out = _plain_rules(state, log, "mock mode: no GEMINI_API_KEY" if not LLM.enabled() else "the rule-based planner is selected (AGENT_PLANNER=rules)")
         out["fallback_reason"] = None  # a setting, not a failure
         return out
     left = _PAUSE["until"] - time.time()
     if left > 0:
         why = f"{_PAUSE['why']}; the AI team can be asked again in about {_about(left)}"
-        out = run_mock(state, log, why)
+        out = run_rules_team(state, log) if la else _plain_rules(state, log, why)
         out["fallback_reason"] = why
         return out
 
@@ -452,7 +500,7 @@ def run_team(state, log: JobLog) -> dict:
 
     def backup_worker():
         try:
-            backup["out"] = run_mock(state, backup["log"], "parallel backup", pace=0, alerts=False)
+            backup["out"] = run_rules_team(state, backup["log"]) if la else _plain_rules(state, backup["log"], "parallel backup", alerts=False, pace=0)
         except Exception as e:  # noqa: BLE001
             backup["err"] = e
 
@@ -477,9 +525,10 @@ def run_team(state, log: JobLog) -> dict:
                 for e in backup["log"].entries:
                     log(e["agent"], e["message"])
             out = backup["out"]
-            send_alerts(state, log)
+            if not la:
+                send_alerts(state, log)
         else:
-            out = run_mock(state, log, why, pace=0.05)
+            out = _plain_rules(state, log, why, pace=0.05)
         out["fallback_reason"] = why
         return out
 
@@ -496,7 +545,7 @@ def run_team(state, log: JobLog) -> dict:
                          else "the AI team's answer could not be used: it was not a JSON object")
 
     out = box["out"]
-    out["mode"] = "llm"
+    out["mode"], out["planner"] = "llm", "gemini"
     log("coordinator", "LLM plans received; backend re-running physics on each plan")
     try:
         out = verify_output(state, out, log)
