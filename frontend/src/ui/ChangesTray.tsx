@@ -2,16 +2,18 @@ import type { Action } from "../api";
 import type { LAStatic, SimResult } from "../la/api";
 import { actionText, buildingsText, fmtInt, homesText, plainViolation } from "./format";
 
-export default function ChangesTray({ s, actions, result, loading, study, onRemove, onClear, onCompare, onCopyToPlan }: {
-  s: LAStatic; actions: Action[]; result: SimResult | null; loading: boolean; study: boolean;
-  onRemove: (k: number) => void; onClear: () => void; onCompare?: () => void; onCopyToPlan?: () => void;
+/** What you switched by hand, and what it does: who loses power and which other lines pick up the load.
+ *  The physics answers at once; the agents are not asked, because nothing here is in doubt. */
+export default function ChangesTray({ s, actions, result, loading, study, impact, onRemove, onClear, onCopyToPlan }: {
+  s: LAStatic; actions: Action[]; result: SimResult | null; loading: boolean; study: boolean; impact: string | null;
+  onRemove: (k: number) => void; onClear: () => void; onCopyToPlan?: () => void;
 }) {
   if (!actions.length) return null;
   return (
     <div className={`tray glass ${study ? "study" : ""}`}>
       <div className="tray-head">
-        <b>{study ? "Study changes" : "Your changes"}</b>
-        <span className="muted small">{study ? "applied to the study grid" : "staged, not applied"}</span>
+        <b>{study ? "What-if changes" : "Your changes"}</b>
+        <span className="muted small">{study ? "applied to the what-if grid" : "tried on the map, not switched"}</span>
       </div>
       <div className="tray-items">
         {actions.map((a, k) => (
@@ -28,11 +30,11 @@ export default function ChangesTray({ s, actions, result, loading, study, onRemo
           <span className={result.is_safe ? "pass" : "fail"}><b>{result.is_safe ? "Passes" : `${result.n_violations} problem${result.n_violations === 1 ? "" : "s"}`}</b> physics check</span>
         </>) : <span className="muted">Running the physics…</span>}
       </div>
+      {result && impact && <div className="impact-line">{impact}</div>}
       {result && !result.is_safe && <div className="why-not small">{plainViolation(result.violations[0] ?? "")}</div>}
       <div className="tray-btns">
         <button className="secondary" onClick={onClear}>Clear</button>
         {onCopyToPlan && <button className="secondary" onClick={onCopyToPlan}>Copy to plan</button>}
-        {onCompare && <button className="primary" onClick={onCompare}>Compare with Co-Pilot</button>}
       </div>
     </div>
   );

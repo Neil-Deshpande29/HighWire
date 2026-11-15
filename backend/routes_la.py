@@ -167,7 +167,17 @@ def la_imagery():
     from .la import basemap
 
     m = basemap.meta()
-    return {"available": m is not None, **(m or {"source": basemap.source()["name"]})}
+    return {"available": m is not None, **(m or {"source": basemap.source()["name"]}), "surround": basemap.surround()}
+
+
+@router.get("/la/imagery/surround.jpg")
+def la_imagery_surround():
+    """The land and sea around the region, for the space outside the grid's own picture."""
+    from .la import basemap
+
+    if basemap.surround() is None:
+        raise HTTPException(404, "no surroundings yet (run `make imagery`)")
+    return FileResponse(basemap.SURROUND, media_type="image/jpeg")
 
 
 @router.get("/la/imagery/basemap.jpg")

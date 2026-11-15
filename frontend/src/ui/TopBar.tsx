@@ -1,58 +1,56 @@
 import type { LAEvent } from "../la/api";
-import { eventLabel, inGoTo, timeLabel } from "./format";
+import { inGoTo, scenarioLabel, timeLabel } from "./format";
 
 export type Mode = "operate" | "study";
 
-export function Clock({ ev, t, fcBusy, onRefresh }: { ev: LAEvent | undefined; t: string | null; fcBusy: boolean; onRefresh: () => void }) {
-  if (!ev) return null;
-  const live = ev.kind === "forecast";
-  return (
-    <div className="clock">
-      <div className="clock-time">{t ? timeLabel(t, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "…"}</div>
-      <div className={`badge ${live ? "live" : "past"}`}>
-        {live ? (<>
-          <span className="dot" />Live forecast · updated {ev.fetched_utc ? timeLabel(ev.fetched_utc, { hour: "numeric", minute: "2-digit" }) : "?"} ·{" "}
-          <button className="link" disabled={fcBusy} onClick={onRefresh}>{fcBusy ? "Refreshing…" : "Refresh"}</button>
-        </>) : <>Recorded weather · {eventLabel(ev)}</>}
-      </div>
-    </div>
-  );
-}
+/** Regions the tool could run on. Only Los Angeles has a grid loaded; the others are listed so the place to switch is clear. */
+const REGIONS: [string, string][] = [["la", "Los Angeles"], ["sd", "San Diego"], ["bay", "Bay Area"], ["hou", "Houston"]];
 
-export function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <div className="segmented" role="tablist">
-      <button className={mode === "operate" ? "on" : ""} onClick={() => onChange("operate")}>Operate</button>
-      <button className={mode === "study" ? "on study" : ""} onClick={() => onChange("study")}>Study</button>
-    </div>
-  );
-}
-
+/** The one bar that controls everything: where, when, which scenario, the clock you can scrub, and the mode.
+ *  The screen always reads as "now". A scenario replays recorded conditions through the same live view. */
 export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onMode, onRefresh, onPage }: {
   events: LAEvent[]; eid: string; t: string | null; mode: Mode; page: "map" | "evidence"; fcBusy: boolean;
   onGoTo: (id: string) => void; onMode: (m: Mode) => void; onRefresh: () => void; onPage: (p: "map" | "evidence") => void;
 }) {
   const ev = events.find((e) => e.id === eid);
-  const hasNow = events.some((e) => e.id === "FX");
+  const live = ev?.kind === "forecast";
   return (
-    <header className={`topbar glass ${mode === "study" ? "study" : ""}`}>
-      <div className="brand"><span className="logo">⚡</span>Highwire</div>
-      {page === "map" ? (<>
-        <Clock ev={ev} t={t} fcBusy={fcBusy} onRefresh={onRefresh} />
-        <div className="goto">
-          <select value={eid} onChange={(e) => onGoTo(e.target.value)} aria-label="Go to">
-            {events.filter(inGoTo).map((e) => <option key={e.id} value={e.id}>{e.id === "FX" ? "Now · live forecast" : `Go to: ${eventLabel(e)}`}</option>)}
+    <header className={`topbar ${mode === "study" ? "study" : ""}`}>
+      <div className="brand">
+        <span className="logo" aria-hidden="true">⚡</span>
+        <div className="brand-text">
+          <b>Highwire</b>
+          <select className="region" aria-label="Region" value="la" onChange={() => undefined}>
+            {REGIONS.map(([id, name]) => <option key={id} value={id} disabled={id !== "la"}>{name}{id !== "la" ? " (not loaded)" : " grid"}</option>)}
           </select>
-          {hasNow && eid !== "FX" && <button className="pill" onClick={() => onGoTo("FX")}>Back to now</button>}
         </div>
-        <div className="spacer" />
-        {mode === "study" && <span className="study-chip">Study mode · nothing here changes the real grid</span>}
-        <ModeToggle mode={mode} onChange={onMode} />
-        <button className="link" onClick={() => onPage("evidence")}>Evidence</button>
-      </>) : (<>
-        <div className="spacer" />
-        <button className="pill" onClick={() => onPage("map")}>Back to the map</button>
-      </>)}
+      </div>
+      {page === "map" ? (
+        <>
+          <div className="clock">
+            <div className="clock-time"><span className={`live-dot ${live ? "live" : "replay"}`} />Now {t ? timeLabel(t, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "…"}</div>
+            <div className="clock-sub">
+              {live
+                ? <>Live forecast from {ev?.fetched_utc ? timeLabel(ev.fetched_utc, { hour: "numeric", minute: "2-digit" }) : "?"} <button className="bar-link" disabled={fcBusy} onClick={onRefresh}>{fcBusy ? "Refreshing…" : "Refresh"}</button></>
+                : <>Fed by conditions recorded {t ? timeLabel(t, { month: "short", day: "numeric", year: "numeric" }) : ""}</>}
+            </div>
+          </div>
+          <label className="scenario">
+            <span>Scenario</span>
+            <select value={eid} onChange={(e) => onGoTo(e.target.value)}>
+              {events.filter(inGoTo).map((e) => <option key={e.id} value={e.id}>{scenarioLabel(e)}</option>)}
+            </select>
+          </label>
+          <div className="tl-slot" id="timeline-slot" />
+          <div className="segmented" role="tablist" aria-label="Mode">
+            <button className={mode === "operate" ? "on" : ""} onClick={() => onMode("operate")}>Operate</button>
+            <button className={mode === "study" ? "on study" : ""} onClick={() => onMode("study")}>What-if</button>
+          </div>
+          <button className="bar-link" onClick={() => onPage("evidence")}>Evidence</button>
+        </>
+      ) : (
+        <><div className="spacer" /><button className="bar-btn" onClick={() => onPage("map")}>Back to the map</button></>
+      )}
     </header>
   );
 }

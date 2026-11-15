@@ -1,30 +1,32 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Action, BuildingsOut, Plan } from "../api";
-import DecisionBar from "../desk/DecisionBar";
 import LineSheet, { type LineFinding } from "../desk/LineSheet";
-import OptionsTable, { OptionDetail, planNums, type Option } from "../desk/OptionsTable";
+import NavPad, { type NavCmd } from "../desk/NavPad";
+import type { Option } from "../desk/OptionsTable";
+import PlanPanel from "../desk/PlanPanel";
+import StatusBox from "../desk/StatusBox";
 import { AffectedSheet, InputsSheet, RecordSheet, RiskSheet, sensorsSentence, type InputRow } from "../desk/sheets";
 import ChangesTray from "../ui/ChangesTray";
 import ConditionsPanel from "../ui/ConditionsPanel";
 import { eventLabel, headline, isHeat, mergeAction, offLines, planSentence, startIndex, timeLabel, worstHour } from "../ui/format";
-import LayersMenu, { Legend, type ColorLayer } from "../ui/LayersMenu";
+import LayersMenu, { type ColorLayer } from "../ui/LayersMenu";
 import LineControls from "../ui/LineControls";
 import LineSearch from "../ui/LineSearch";
-import PlanList from "../ui/PlanList";
 import ReportPage from "../ui/ReportPage";
-import SituationCard from "../ui/SituationCard";
+import TeamPanel from "../ui/TeamPanel";
 import Timeline from "../ui/Timeline";
 import type { Mode } from "../ui/TopBar";
 import {
-  imageryUrl, la, NO_CONDITIONS, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView,
+  imageryUrl, la, NO_CONDITIONS, surroundUrl, type BuildingRecords, type Conditions, type Hour, type Imagery, type LAEvent, type LAStatic, type LAView,
   type RecordEntry, type RiskRegister, type Role, type Sensors, type Series,
 } from "./api";
 import {
-  agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHoverText, riskFrame, sameHour, situationNumbers,
-  userPlanFrom, type ApprovedPlan,
+  agentChips, distinctPlans, fireChecks, GRID_CHANGES, labelledLines, lineColors, lineHealth, lineHoverText, lineImpact, riskFrame, sameHour,
+  situationNumbers, userPlanFrom, type ApprovedPlan,
 } from "./derive";
 import { useBackendOnline, usePoll, useSim, useSims } from "./hooks";
-import LAScene, { type Focus, type Layers } from "./LAScene";
+import LAScene, { type Focus, type Layers, type Nav } from "./LAScene";
 
 const NO_ACTIONS: Action[] = [];
 // the pop-up at a map click: a line (what it reads, the switch) or a substation (shed load)
@@ -51,9 +53,12 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const [color, setColor] = useState<ColorLayer>("fire");
   // read once: a shared link reopens the same event, hour and imagery layer
   const link = useRef(new URLSearchParams(window.location.search));
-  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true, imagery: link.current.get("imagery") === "1" });
+  const [layers, setLayers] = useState<Layers>({ wind: false, redflag: true, hospitals: true, labels: true, imagery: link.current.get("imagery") !== "0" });
   const [imagery, setImagery] = useState<Imagery | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
+  const [nav, setNav] = useState<Nav | null>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null); // where the top bar wants the timeline drawn
+  useEffect(() => { setSlot(document.getElementById("timeline-slot")); }, []);
   const pendingFocus = useRef(true);
   const [err, setErr] = useState<string | null>(null);
   // Operate
@@ -116,7 +121,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   useEffect(() => { // keep the address bar a link to what is on screen
     if (!series || series.event !== eid) return;
     const q = new URLSearchParams({ event: eid, hour: String(i) });
-    if (layers.imagery) q.set("imagery", "1");
+    if (!layers.imagery) q.set("imagery", "0");
     window.history.replaceState(null, "", `?${q}`);
   }, [eid, i, layers.imagery, series]);
   useEffect(() => {
@@ -231,11 +236,39 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const runCopilot = useCallback(async () => {
     if (!t) return;
     setErr(null); setPlaying(false); setSelPlan(null); setPeek(false); setSheet(null);
+    const risky = hour?.over_alarm.map((l) => l.id) ?? [];
+    if (risky.length) setFocus({ ...riskFrame(s, risky, 50), key: Date.now() }); // move in on the trouble while the agents work
     try {
       if (study) { const r = await la.run(eid, t, studyAll.length ? studyAll : [], cond); setStT(t); startSt(r.job_id); }
       else { const r = await la.run(eid, t); setView(r.state); setOpT(t); setOutcome(null); startOp(r.job_id); }
     } catch (e) { setErr(String(e)); }
-  }, [t, study, eid, studyAll, cond, startSt, startOp]);
+  }, [t, study, eid, studyAll, cond, startSt, startOp, hour, s]);
+
+  // The agents go first. In Operate each hour is analysed as soon as the clock rests on it; nobody has to ask.
+  // After an approval the result stays on screen until the operator starts over.
+  const serverApproved = hasApproval(hour?.copilot);
+  useEffect(() => {
+    if (study || playing || !t || !hour || hour.t_utc !== t || approvedPlan || serverApproved) return;
+    if (opT && sameHour(opT, t)) return; // this hour is analysed, or being analysed
+    if (opT) { clearOp(); setOpT(null); setSelPlan(null); return; } // the clock moved: drop the other hour's plan first
+    const h = window.setTimeout(() => { runCopilot(); }, 700);
+    return () => window.clearTimeout(h);
+  }, [study, playing, t, hour, opT, approvedPlan, serverApproved, runCopilot]); // eslint-disable-line react-hooks/exhaustive-deps
+  // When the team is done, the screen opens on its pick and the map moves to the lines that plan touches.
+  const jobOut = job?.status === "done" ? job.output : null;
+  useEffect(() => {
+    if (!jobOut) return;
+    const ps = distinctPlans(jobOut.plans);
+    const pick = ps.find((p) => p.result.is_safe) ?? ps[0];
+    setSelPlan(pick ? pick.id : null); setPeek(false);
+    const ids = pick ? [...offLines(pick.actions)] : [];
+    if (ids.length) setFocus({ ...riskFrame(s, ids, 40), key: Date.now() });
+  }, [jobOut]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What a switch does to the lines that stay on, for whichever change is on the map: the selected option or your own.
+  const changeSim = study ? null : previewSim && sameHour(previewSim.t_utc, t) ? previewSim : staged.length && stagedSim && sameHour(stagedSim.t_utc, t) ? stagedSim : null;
+  const baseSim = changeSim && changeSim === previewSim ? nothingSim : opSim;
+  const impact = useMemo(() => lineImpact(s, baseSim, changeSim), [s, baseSim, changeSim]);
+  const impactOnMap = useMemo(() => (impact?.shifted ?? []).slice(0, 6).map((x) => ({ bi: x.bi, text: `+${Math.round(x.after - x.before)}%` })), [impact]);
 
   if (!ev) return <div className="loading">Loading…</div>;
   const worst = series ? worstHour(series, kind, i) : null;

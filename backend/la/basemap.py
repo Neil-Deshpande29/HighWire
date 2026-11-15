@@ -37,6 +37,12 @@ MUTE_COLOUR, MUTE_SCRIM = 0.6, 0.4  # keep 60% of the colour, then wash 40% towa
 VEXCEL_GRID = (4, 3)  # requests across and down that cover the region
 VEXCEL_CELL_PX = 1024  # width asked for per request: about 28 m per pixel, like the USGS picture
 VEXCEL_SIZE = (3648, 2640)  # the finished picture
+# The land and sea around the region, drawn flat and darker under the map so it does not float in empty space.
+# Always the public USGS picture: it reaches past any provider's coverage, and nothing is measured from it.
+SURROUND, SURROUND_META = DIR / "surround.jpg", DIR / "surround.json"
+SURROUND_PAD_LAT, SURROUND_PAD_LON = 0.55, 0.9  # degrees added on each side of the region
+SURROUND_ZOOM = 10
+SURROUND_DARK = 0.5  # how far the surroundings are pushed toward black, so the region itself stands out
 
 
 def source() -> dict:
@@ -172,6 +178,29 @@ def build(zoom: int = ZOOM, fetch=_fetch, ortho=vexcel.ortho) -> dict:
     return meta
 
 
+def build_surround(zoom: int = SURROUND_ZOOM, fetch=_fetch) -> dict:
+    """Build the wider picture around the region and cache it. Returns its metadata (the box it covers)."""
+    box = _region()
+    wide = {"lat_min": box["lat_min"] - SURROUND_PAD_LAT, "lat_max": box["lat_max"] + SURROUND_PAD_LAT,
+            "lon_min": box["lon_min"] - SURROUND_PAD_LON, "lon_max": box["lon_max"] + SURROUND_PAD_LON}
+    img, n = _tiles_picture(USGS, zoom, fetch, wide)
+    img = ImageEnhance.Color(img).enhance(MUTE_COLOUR)
+    img = Image.blend(img, Image.new("RGB", img.size, (10, 13, 17)), SURROUND_DARK)
+    DIR.mkdir(parents=True, exist_ok=True)
+    img.save(SURROUND, quality=82)
+    out = {"source": "USGS National Map", "bbox": wide, "size": list(img.size), "tiles": n,
+           "built_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    SURROUND_META.write_text(json.dumps(out, indent=1))
+    return out
+
+
+def surround() -> dict | None:
+    """Metadata of the cached surroundings, or None when they have not been built."""
+    if not (SURROUND.exists() and SURROUND_META.exists()):
+        return None
+    return json.loads(SURROUND_META.read_text())
+
+
 def meta() -> dict | None:
     """Metadata of the cached picture, or None when it has not been built."""
     if not (IMAGE.exists() and META.exists()):
@@ -187,3 +216,5 @@ if __name__ == "__main__":
     m = build(int(sys.argv[1]) if len(sys.argv) > 1 else ZOOM)
     print(f"built {IMAGE} from {m['source']}: {m['tiles']} requests, {m['size'][0]}x{m['size'][1]} px"
           + (f", {m['coverage']:.0%} covered" + (f", {m['fallback']} elsewhere" if m.get("fallback") else "") if "coverage" in m else ""))
+    w = build_surround()
+    print(f"built {SURROUND}: the surroundings, {w['tiles']} tiles, {w['size'][0]}x{w['size'][1]} px")

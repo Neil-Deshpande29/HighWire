@@ -23,6 +23,15 @@ export function eventLabel(e: LAEvent): string {
   return `${e.kind === "heat" ? "Heat wave" : e.name.split("(")[0].trim()} · ${when}`;
 }
 export const inGoTo = (e: LAEvent) => e.kind !== "control" && e.has_replay;
+/** Each event as a scenario the live view can run on: what kind of day it is, then whose conditions feed it. */
+const SCENARIO_LABEL: Record<string, string> = {
+  E1: "Wind storm · Woolsey conditions, Nov 2018", E2: "Wind storm · Saddleridge conditions, Oct 2019",
+  E3: "Wind storm · Eaton and Hurst conditions, Jan 2025", H1: "Heat wave · Aug 2020 conditions", H2: "Heat wave · Sep 2022 conditions",
+};
+export function scenarioLabel(e: LAEvent): string {
+  if (e.kind === "forecast") return "Today · live forecast";
+  return SCENARIO_LABEL[e.id] ?? `${e.kind === "heat" ? "Heat wave" : "Wind storm"} · ${eventLabel(e)}`;
+}
 
 const ZONE_WORD: Record<string, string> = { mountain: "in the mountains and foothills", valley: "in the valleys", coast: "along the coast", basin: "in the LA basin" };
 
