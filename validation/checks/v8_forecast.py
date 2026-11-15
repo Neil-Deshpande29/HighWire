@@ -4,7 +4,8 @@ i.e. what an operator could actually have known in advance. Nothing is refit her
 
 Part A (E3, Jan 2025 Eaton/Hurst/PSPS, test event): day-1 and day-2 ahead forecasts.
   * fire / storm alarm timing vs the first sustained LA County outage spike (warning time = alarm-vs-spike gap + 24 h x lead)
-  * rank of the line nearest each test ignition (Eaton, Hurst) at ignition time, from the forecast
+  * rank of the line scored for each test ignition (Eaton, Hurst) at ignition time, from the forecast; same rule as V5:
+    the line the incident report names when it is a modelled overhead line, else the nearest overhead line
 Part B (2024-01-20 .. 2024-12-31, every hour): day-ahead storm index vs the top-1% LA County outage hours (same
   threshold as V4b), against the same day-ahead forecast's max gust (same look-back rule as V4b).
 """
@@ -29,6 +30,34 @@ def _load(name):
     d = {k: z[k] for k in z.files}
     d["time"] = d["time"].astype("datetime64[h]")
     return d
+
+
+def _ignition_ranks(grid, cal, eid, times, r):
+    """Rank among overhead lines, at the ignition hour, of the line scored for each of the event's ignitions."""
+    cosl = np.cos(np.radians(34))
+    overhead = ~grid.cable
+    idx_oh = np.where(overhead)[0]
+    ranks = []
+    for fid, f in D.fires().items():
+        if f["event"] != eid:
+            continue
+        t = pd.Timestamp(f["ignition_utc"]).floor("h")
+        if t not in times:
+            continue
+        h = int(np.where(times == t)[0][0])
+        dist = np.hypot(grid.tlat - f["lat"], (grid.tlon - f["lon"]) * cosl) * 111.0
+        dist[~overhead[grid.tb]] = np.inf
+        near = int(grid.tb[int(np.argmin(dist))])
+        # same rule as V5: the line the incident report names when it is a modelled overhead line, else the nearest
+        # overhead line (ranks are taken among overhead lines only, so a named underground cable has no rank)
+        named = grid.lix.get(f.get("facility_line")) if f.get("facility_line") else None
+        li = named if named is not None and overhead[named] else near
+        pos = int(np.where(idx_oh == li)[0][0])
+        risk, gust = r["line_risk"][h][idx_oh], r["line_gust"][h][idx_oh]
+        ranks.append({"fire": f["name"], "line": grid.branches[li]["id"], "model_top_pct": pct_rank(risk, pos),
+                      "gust_only_top_pct": pct_rank(gust, pos), "line_risk": float(risk[pos]),
+                      "above_line_alarm": bool(risk[pos] >= cal["fire"]["line_alarm"])})
+    return ranks
 
 
 def _event_part(grid, cal, eid="E3"):
@@ -62,27 +91,6 @@ def _event_part(grid, cal, eid="E3"):
 
         fa = alarm_info(r["region_index"], cal["fire"]["region_alarm"])
         sa = alarm_info(sti, cal["storm"]["alarm"])
-        cosl = np.cos(np.radians(34))
-        overhead = ~grid.cable
-        idx_oh = np.where(overhead)[0]
-        ranks = []
-        for fid, f in D.fires().items():
-            if f["event"] != eid:
-                continue
-            t = pd.Timestamp(f["ignition_utc"]).floor("h")
-            if t not in times:
-                continue
-            h = int(np.where(times == t)[0][0])
-            dist = np.hypot(grid.tlat - f["lat"], (grid.tlon - f["lon"]) * cosl) * 111.0
-            dist[~overhead[grid.tb]] = np.inf
-            li = int(grid.tb[int(np.argmin(dist))])
-            if f.get("facility_line") in grid.lix:  # the line the incident report names (same rule as V5)
-                li = grid.lix[f["facility_line"]]
-            pos = int(np.where(idx_oh == li)[0][0])
-            risk, gust = r["line_risk"][h][idx_oh], r["line_gust"][h][idx_oh]
-            ranks.append({"fire": f["name"], "line": grid.branches[li]["id"], "model_top_pct": pct_rank(risk, pos),
-                          "gust_only_top_pct": pct_rank(gust, pos), "line_risk": float(risk[pos]),
-                          "above_line_alarm": bool(risk[pos] >= cal["fire"]["line_alarm"])})
         out[f"lead_{lead}d"] = {
             "weather": "recorded (reanalysis)" if lead == 0 else f"forecast issued ~{24 * lead} h ahead",
             "fire_first_alarm_utc": fa[0], "fire_alarm_vs_spike_h": fa[1], "fire_warning_time_h": fa[2],
@@ -91,7 +99,7 @@ def _event_part(grid, cal, eid="E3"):
             "fire_spearman_la": float(spearmanr(r["region_index"][ok], la[ok])[0]),
             "storm_spearman_la": float(spearmanr(sti[ok], la[ok])[0]),
             "peak_forecast_gust_ms": float(np.nanmax(wx["wind_gusts_10m"][E.hours_for(wx, ev["start_utc"], ev["end_utc"])])),
-            "ignitions": ranks}
+            "ignitions": _ignition_ranks(grid, cal, eid, times, r)}
     return {"event": eid, "first_outage_spike_utc": str(spike_t) if spike_t is not None else None,
             "exploratory_main_surge_utc": str(surge_t) if surge_t is not None else None, "outage_baseline_la": base,
             "spike_note": "the 2-day pre-event EAGLE-I window is mostly missing, so the baseline is tiny and a ~1,000-customer blip on Jan 6 "
