@@ -15,7 +15,7 @@ MAX_PHOTOS = 8
 
 
 def provider():
-    name = (os.environ.get("REWIRE_IMAGERY") or os.environ.get("HIGHWIRE_IMAGERY") or "naip").lower()  # old name still read
+    name = (os.environ.get("REWIRE_IMAGERY") or "naip").lower()
     if name not in PROVIDERS:
         raise KeyError(f"unknown imagery provider {name!r}; configured: {', '.join(sorted(PROVIDERS))}")
     return PROVIDERS[name]
