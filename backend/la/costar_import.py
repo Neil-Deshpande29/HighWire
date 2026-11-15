@@ -46,6 +46,8 @@ COLUMNS = {
 READABLE = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".json", ".geojson"}
 KIT_PROPERTIES, KIT_ENUMS = "data/commercial-property.jsonl", "schemas/enums.json"
 KIT_TENANCIES, KIT_COMPANIES = "data/location-occupancy.jsonl", "data/company-detail.jsonl"
+KIT_MODELS = "commercial-properties.csv"  # PropertyId, MatterportModelId: the 3D tours CoStar holds of each property
+MAX_TOURS = 6  # tours kept per property (a large community can have dozens of unit scans)
 BUILT = "ConstructionComplete"  # the construction event that gives the year built
 HEALTH = "HealthCareAndSocialAssistance"  # the tenant industry that makes an office a medical site
 
@@ -121,6 +123,19 @@ def _kit_tenants(source: Path, wanted: set, industries: dict) -> dict:
     return out
 
 
+def _kit_tours(source: Path) -> dict:
+    """{property id: [Matterport model id, ...]} from the kit's starter list, in file order, without repeats."""
+    import csv
+
+    out: dict = {}
+    with open(source / KIT_MODELS, newline="") as f:
+        for row in csv.DictReader(f):
+            pid, mid = (row.get("PropertyId") or "").strip(), (row.get("MatterportModelId") or "").strip()
+            if pid and mid and mid not in out.setdefault(pid, []):
+                out[pid].append(mid)
+    return out
+
+
 def convert_kit(source: Path) -> tuple[list[dict], list[str]]:
     """Read the hackathon kit and return (commercial properties inside the grid's area, notes on what was read).
     Land parcels are left out: there is no building on them to lose power."""
@@ -139,6 +154,11 @@ def convert_kit(source: Path) -> tuple[list[dict], list[str]]:
     if (source / KIT_TENANCIES).exists():
         tenants = _kit_tenants(source, {r["id"] for r in inside}, enums.get("IndustryType", {}))
         notes.append(f"{KIT_TENANCIES}: {sum(t['current'] for t in tenants.values()):,} current tenancies in {len(tenants):,} of those properties")
+    tours = {}
+    if (source / KIT_MODELS).exists():
+        tours = _kit_tours(source)
+        with_tour = sum(str(r["id"]) in tours for r in inside)
+        notes.append(f"{KIT_MODELS}: {with_tour:,} of those properties have a Matterport 3D tour")
     rows = []
     for r in inside:
         a, apt = r["primaryAddress"], r.get("propertyApartment") or {}
@@ -153,6 +173,7 @@ def convert_kit(source: Path) -> tuple[list[dict], list[str]]:
             "units": apt.get("totalNumUnits"), "lifestyle": name("ApartmentLifestyleType", apt.get("apartmentLifestyleType")),
             "heavy_power": ((r.get("propertyIndustrial") or r.get("propertyFlex") or {}).get("electric") or {}).get("hasHeavyPower"),
             "tenants": tenants.get(r["id"]),
+            "tours": tours.get(str(r["id"]), [])[:MAX_TOURS],  # Matterport model ids: what the inside of it looks like
         })
     return rows, notes
 

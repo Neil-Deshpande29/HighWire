@@ -46,6 +46,7 @@ TIERS = [
     {"tier": 5, "name": "Offices and shops", "kinds": ["office", "retail", "other"], "why": "they can close for the day"},
 ]
 MAX_SITES = 40  # names listed per impact; the counts always cover everything
+MAX_TOURED = 6  # buildings offered with a "See inside" tour per impact, the ones that matter most first
 HIGH_FROM, MEDIUM_FROM = 8, 4  # weight at or above which a building is a high or a medium warning
 CRITICAL_TIERS = 3  # tiers 1 to 3 are the "critical sites" the screen counts; homes and offices are listed, not counted there
 SAME_PLACE_M = 200.0  # a CoStar hospital this close to an OpenStreetMap hospital is the same hospital
@@ -148,7 +149,8 @@ def _costar_rows() -> list[dict]:
     return [{"id": f"costar:{p.get('id', k)}", "name": p.get("name") or "Unnamed property",
              "kind": kind_of(p.get("property_type"), p.get("secondary_type"), p.get("lifestyle"), p.get("tenants")),
              "bus": bus, "lat": float(p["lat"]), "lon": float(p["lon"]), "backup_hours": None, "source": "costar",
-             "units": num(p.get("units")), "size_sf": num(p.get("size_sf"))}
+             "units": num(p.get("units")), "size_sf": num(p.get("size_sf")),
+             "tours": [str(m) for m in (p.get("tours") or []) if m]}  # Matterport 3D tours of the building, where CoStar has them
             for k, (p, bus) in enumerate(zip(located, buses))]
 
 
@@ -196,6 +198,10 @@ def impact_of(rows: list[dict]) -> dict:
         "sites": [{"name": r["name"], "kind": r["kind"], "bus": r["bus"], "backup_hours": r.get("backup_hours"), "source": r.get("source", "osm"),
                    "severity": severity(r["kind"]), "units": r.get("units")} for r in ranked[:MAX_SITES]],
         "n": len(rows),
+        # buildings among these with a Matterport 3D tour (CoStar): the heaviest first, then the most homes
+        "tours": [{"name": r["name"], "kind": r["kind"], "units": r.get("units"), "models": r["tours"][:4]}
+                  for r in sorted((r for r in rows if r.get("tours")), key=lambda r: (-weight(r), -(r.get("units") or 0), r["name"]))[:MAX_TOURED]],
+        "n_tours": int(sum(bool(r.get("tours")) for r in rows)),
         "critical": int(sum(tier_of(r["kind"]) <= CRITICAL_TIERS for r in rows)),  # tiers 1 to 3
         "homes": int(sum(r.get("units") or 0 for r in rows if r["kind"] in ("residential", "senior_housing"))),  # apartment homes, from CoStar
         "severity": severity(ranked[0]["kind"]) if ranked else None,  # the worst single building decides the level
