@@ -34,6 +34,18 @@ def test_mock_planner_every_scenario_has_safe_plan_or_nothing_to_do():
         assert not out["no_safe_option"], sc
 
 
+def test_toy_region_keeps_its_nine_agents():
+    """The LA team has four specialists; the synthetic region still speaks for all nine and keeps its fixed 0.3 alarm."""
+    s = GridState()
+    s.set_scenario("Wind Storm")
+    log = JobLog()
+    out = run_mock(s, log, pace=0)
+    assert {e["agent"] for e in log.entries} >= {"heat_agent", "wind_agent", "atmosphere_agent", "water_agent", "reports_agent",
+                                                 "brownout_agent", "fire_agent", "cascade_agent", "flood_agent"}
+    fiery = {l for l, v in s.sim["lines"].items() if v["energized"] and v["fire_risk"] >= 0.3}
+    assert fiery and {f["target"] for f in out["agent_findings"]["fire_agent"]} == fiery
+
+
 def test_api_demo_flow():
     import time
 
