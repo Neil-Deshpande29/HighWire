@@ -6,8 +6,8 @@ export type LAEvent = {
   v4a: { lead_time_h: number | null; spearman_la: number; first_alarm_utc: string | null; first_spike_utc: string | null } | null;
 };
 export type Alerts = {
-  on: boolean; dry_run: boolean; missing: string[]; to: string | null;
-  alerts: { n: number; at_utc: string; message: string; source: string; status: string; why: string }[];
+  on: boolean; dry_run: boolean; missing: string[]; to: string | null; trial?: boolean;
+  alerts: { n: number; at_utc: string; message: string; source: string; status: string; why: string; note?: string }[];
 };
 export type Branch = {
   id: string; kv: number; kv_class: number; cable: boolean; name: string | null; zone: string;

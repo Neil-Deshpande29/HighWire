@@ -138,6 +138,11 @@ Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` and `ALERT_P
 the from-number is not a real number, alerts run as a dry run: the bell in the top bar lists each one as "would have
 sent". The bell also has a "Send test text" button and an on/off switch.
 
+A Twilio **trial** account cannot send its own wording, only Twilio's stock templates. On a trial account the
+red-watch, approval and test texts therefore go out as Twilio's stock alert ("Alert: System downtime detected…"): the
+phone buzzes, but the wording is Twilio's, and the bell says so next to what we meant to send. Per-line texts are
+recorded and not sent. Upgrading the Twilio account sends every text as written, with no code change.
+
 ## The accuracy figure
 
 The "94% accurate over a 10-minute window" in the top bar and on the Evidence page is a **placeholder**. It is one
