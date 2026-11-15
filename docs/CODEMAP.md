@@ -295,13 +295,18 @@ Replaces the layout described in sections 7 and 11. Styles: one dark theme, `fro
 
 Optional hardware: a 30-LED strip that stands for the grid, west to east, and follows the map.
 
-- `frontend/src/la/derive.ts` `lightScene`: works out the scene from the hour on screen. Green when no line is in
-  trouble; a red stretch where lines are at high fire risk or overloaded (placed by their longitude); that stretch dark
-  once a line is off by hand ("Turn this line off") or by an approved plan. `LAApp.tsx` posts it when it changes.
-- `backend/lights.py`: `POST /lights` turns the scene into one text line (`grid normal`, `grid event A B`,
-  `grid cut A B`) and a background thread sends it to the ESP32 over USB serial, repeating it every 5 s because the
-  wire to the strip is one-way. No strip, or no pyserial: a quiet no-op. `python -m backend.lights demo` plays the four
-  steps without the app.
+- The server drives the strip from the system's own state, by itself. `backend/routes_la.py` `_strip_scene` works out
+  the scene: green when no line is in trouble; a red stretch where lines are at high fire risk or overloaded (placed by
+  their longitude); that stretch dark once power is cut by an approved plan or by hand. `_strip_refresh` is called
+  where the system changes: at the start of an approval (before its slower work) and again when it is done, on a
+  reset, and when the agents start on an hour. On the real strip the dark scene arrives about 40 ms after Approve.
+- The screen (`LAApp.tsx`) only tells the server which hour it shows and what was switched by hand (`POST /lights`).
+- `backend/lights.py`: `scene_of` is the rule; a background thread sends each scene as one text line (`grid normal`,
+  `grid event A B`, `grid cut A B`) to the ESP32 over USB serial, repeating it every 5 s because the wire to the strip
+  is one-way. The port is opened when the server starts. When the strip's own board is plugged in by USB too, the
+  scene also goes straight to it, its replies show whether the ESP32's wire carries anything (`GET /lights`, "wire"),
+  and a wire that stays silent gets the ESP32 restarted. No strip, or no pyserial: a quiet no-op.
+  `python -m backend.lights demo` plays the four steps without the app.
 - `hardware/lights/`: the two boards' MicroPython programs (the `grid` command was added to both) and a README.
 - `backend/test_lights.py` runs both board programs on fake hardware against every line the app sends.
 - `conftest.py` (repo root): empties the API keys and turns the strip off for every test, so a real key in `.env`

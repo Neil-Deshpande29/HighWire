@@ -54,8 +54,11 @@ class LACutIn(BaseModel):
 
 
 class LightsIn(BaseModel):
-    stage: str = "normal"  # "normal", "event" or "cut" (backend/lights.py)
-    at: float = 0.5  # where the trouble is along the strip: 0 = the grid's west edge, 1 = its east edge
+    event: str | None = None  # what the screen shows: the event,
+    t: str | None = None  # the hour,
+    actions: list[dict] = []  # and the switches made by hand there (not yet part of an approved plan)
+    stage: str | None = None  # instead of the above: one fixed scene, "normal", "event" or "cut" (the stand-alone demo)
+    at: float = 0.5  # with `stage`: where along the strip, 0 = the grid's west edge, 1 = its east edge
 
 
 class LARoleIn(BaseModel):
@@ -319,6 +322,8 @@ def la_copilot_run(body: LARunIn):
         LA["study"] = st
     else:
         LA["state"] = st
+        SCREEN.update(event=st.eid, t=st.t_utc.isoformat())  # the agents are on this hour: so is the strip
+        _strip_refresh()
     hour = st.t_utc.isoformat()
 
     def stamp(out: dict, log_entries: list[dict]):
@@ -375,11 +380,16 @@ def la_approve(plan_id: str, body: LARoleIn | None = None):
     auth = AUTH.of_result(plan["result"])
     if auth["level"] == "supervisor" and role != "supervisor":
         raise HTTPException(403, "Needs a supervisor's sign-off: " + "; ".join(auth["reasons"]) + ".")
-    st.apply_actions(plan["actions"])
-    with st.lock:
-        for pid in st.plan_status:
-            st.plan_status[pid] = "approved" if pid == plan_id else "superseded"
-        st.bulletin = la_bulletin(st, plan)
+    SCREEN.update(event=st.eid, t=st.t_utc.isoformat())
+    _strip_refresh(extra=plan["actions"])  # the strip changes now, while the switching and the bulletin are worked out
+    try:
+        st.apply_actions(plan["actions"])
+        with st.lock:
+            for pid in st.plan_status:
+                st.plan_status[pid] = "approved" if pid == plan_id else "superseded"
+            st.bulletin = la_bulletin(st, plan)
+    finally:
+        _strip_refresh()  # and settles on what the system now holds
     hour = st.t_utc.isoformat()
     REC.add("approved", f"Plan {plan_id.lstrip('P')} approved by the {role}.", role=role, event=st.eid, hour_utc=hour, plan=plan_id,
             authority=auth["level"], reasons=auth["reasons"], customers_out=plan["result"]["customers_out"],
@@ -451,6 +461,7 @@ def la_record():
 def la_reset():
     """Start the session over: forget the Operate state (plans, approvals, bulletin) and clear the record."""
     LA["state"], LA["study"] = None, None
+    _strip_refresh()  # nothing is switched off any more
     REC.clear()
     REC.add("reset", "Session reset: plans, approvals and the earlier record were cleared.")
     return {"entries": REC.entries()}
@@ -461,20 +472,73 @@ def la_state():
     return LA["state"].view() if LA["state"] else {}
 
 
-@router.get("/lights")
-def lights_status():
-    """Is a strip connected, and which scene was it last given?"""
+# --------------------------------------------------------------------------- the LED strip follows the system
+SCREEN: dict = {"event": None, "t": None, "actions": []}  # the hour the screen last said it shows, and its hand switches
+
+
+def _strip_scene(extra: list[dict] | None = None) -> tuple[str, float] | None:
+    """The strip's scene for the hour on screen, from the system's own state: the hour's line numbers, what an approved
+    plan has switched off there, and the switches made by hand. `extra` are actions about to be applied (an approval
+    in progress), so the strip does not wait for them to finish. None until a screen has said which hour it shows."""
     from . import lights
 
-    return lights.STRIP.status()
+    event, t = SCREEN["event"], SCREEN["t"]
+    if not event:
+        return None
+    h, s, st = RP.hour(event, t), RP.static(), LA["state"]
+    live = st if st is not None and st.eid == event and str(st.t_utc) == str(pd.Timestamp(h["t_utc"])) else None
+    off = set(live.operator_opened) if live else set()
+    demand_cut = bool(live and (live.shed or live.deenergized))
+    for a in list(SCREEN["actions"]) + list(extra or []):
+        kind = a.get("type")
+        if kind == "open_line":
+            off.add(a.get("target"))
+        elif kind == "deenergize_lines":
+            off.update(a.get("targets") or [])
+        elif kind == "close_line":
+            off.discard(a.get("target"))
+        elif kind in ("shed_load", "deenergize_bus"):
+            demand_cut = True
+    if live and not extra and "approved" in live.plan_status.values() and not off and not demand_cut and live.sim["is_safe"]:
+        return "normal", 0.5  # an approved plan that fixed the hour without cutting anyone off
+    return lights.scene_of(s["branches"], s["bbox"], h["lines"]["risk"], h["lines"]["loading"], h["line_alarm"], off, demand_cut)
+
+
+def _strip_refresh(extra: list[dict] | None = None) -> None:
+    """Put the system's current scene on the strip. Called wherever the system changes; never allowed to break a request."""
+    try:
+        from . import lights
+
+        scene = _strip_scene(extra)
+        if scene:
+            lights.show(*scene)
+    except Exception:  # noqa: BLE001  the strip is optional hardware
+        pass
+
+
+@router.get("/lights")
+def lights_status():
+    """Is a strip connected, which scene was it last given, and which hour does the server think the screen shows?"""
+    from . import lights
+
+    return {**lights.STRIP.status(), "screen": {"event": SCREEN["event"], "t": SCREEN["t"], "hand_switches": len(SCREEN["actions"])}}
 
 
 @router.post("/lights")
 def lights_show(body: LightsIn):
-    """The LED strip follows the map: all green, a red stretch where lines are in trouble, and that stretch dark once a
-    line is switched off. Optional hardware: with no strip plugged in this only answers that none is connected."""
+    """The screen says which hour it shows and which switches were made by hand; the server works out the scene and
+    keeps the strip on it from then on, changing it by itself when a plan is approved or the session is reset.
+    With `stage`, shows that one fixed scene instead. Optional hardware: with no strip plugged in this only answers
+    that none is connected."""
     from . import lights
 
-    if body.stage not in lights.STAGES:
-        raise HTTPException(400, "stage is one of: " + ", ".join(lights.STAGES))
-    return lights.show(body.stage, body.at)
+    if body.stage is not None:
+        if body.stage not in lights.STAGES:
+            raise HTTPException(400, "stage is one of: " + ", ".join(lights.STAGES))
+        return lights.show(body.stage, body.at)
+    if not body.event:
+        raise HTTPException(400, "say which event and hour the screen shows, or give a stage")
+    _require_event(body.event)
+    SCREEN.update(event=body.event, t=body.t, actions=[a for a in body.actions if isinstance(a, dict)])
+    _strip_refresh()
+    return lights.STRIP.status()

@@ -25,6 +25,16 @@ app.include_router(routes_synthetic.router)
 app.include_router(routes_la.router)
 app.mount("/results", StaticFiles(directory=str(LAD.results_dir())), name="results")
 
+
+
+@app.on_event("startup")
+def _connect_the_strip():
+    """Open the LED strip's port now (if one is plugged in), so its first scene does not wait for the ESP32 to start."""
+    from . import lights
+
+    lights.STRIP.warm()
+
+
 # Same objects the routes use; tests set up and inspect the Operate state through backend.app.LA.
 LA = routes_la.LA
 JOBS = jobs.JOBS
