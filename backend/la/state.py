@@ -72,16 +72,20 @@ class LAState:
         self.reports: list[dict] = []
         self.plans, self.plan_status, self.bulletin = {}, {}, None
         self.gens: dict = {}
-        crit = {}
+        crit: dict[str, list[dict]] = {}
         for c in D.grid()["critical_sites"]:
-            crit.setdefault(c["bus"], c)
+            crit.setdefault(c["bus"], []).append(c)
         P, load = g.injections(self.ldwp, self.sce, g.base_topology())
         self.buses = {}
         for i, b in enumerate(g.buses):
-            c = crit.get(b["id"])
+            sites = crit.get(b["id"], [])
+            c = sites[0] if sites else None  # critical_type / critical_name / backup_hours describe the first site only
             self.buses[b["id"]] = {"id": b["id"], "name": b["name"], "zone": "basin", "critical": c is not None,
                                    "critical_type": (c["type"] if c else "none"), "critical_name": c["name"] if c else None,
-                                   "backup_hours": float(c["backup_hours"]) if c else 0.0, "load_mw": float(load[0, i]),
+                                   "backup_hours": float(c["backup_hours"]) if c else 0.0,
+                                   "critical_sites": [{"name": s["name"], "type": s["type"], "backup_hours": float(s["backup_hours"])}
+                                                      for s in sites],
+                                   "load_mw": float(load[0, i]),
                                    "elevation_m": 0.0, "flood_threshold_m": 99.0, "x": b["lon"], "y": b["lat"]}
         elev_by_line = np.zeros(g.nl)
         np.add.at(elev_by_line, g.tb, g.telev)
@@ -219,9 +223,13 @@ class LAState:
         total_load = float(full.sum())
         if total_load > 0 and tot_uns > MAX_UNSERVED_FRACTION * total_load:
             viol.append(f"Blackout: {tot_uns:.0f} MW unserved is {tot_uns / total_load * 100:.0f}% of regional load (limit {MAX_UNSERVED_FRACTION * 100:.0f}%)")
+        # one substation can feed several critical sites: count and name the sites, not the substations
+        on_backup = [s for bid in backup for s in self.buses[bid]["critical_sites"]]
         return {"lines": lines, "buses": buses, "gens": {},
                 "totals": {"unserved_mw": round(tot_uns, 1), "customers_out": int(tot_uns * CUSTOMERS_PER_MW),
-                           "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0)},
+                           "critical_on_backup": backup, "violation_count": len(viol), "load_mw": round(float(full.sum()), 0),
+                           "hospitals_on_backup": sum(s["type"] == "hospital" for s in on_backup),
+                           "critical_names": [s["name"] for s in on_backup]},
                 "violations": viol, "n1_warnings": [], "watch": watch, "actions": actions or [], "is_safe": not viol,
                 "region_index": round(float(r["region_index"][0]), 1)}
 

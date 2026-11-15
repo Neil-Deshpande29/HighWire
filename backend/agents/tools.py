@@ -7,9 +7,11 @@ Also holds `verify_output`: the backend re-runs physics on every plan and overwr
 from __future__ import annotations
 
 import json
+import math
 import time
 
 from ..physics import simulate as _phys_simulate
+from ..textguard import guard
 from .brief import TRUST_CHECKS, brief_text, build_brief
 
 
@@ -124,17 +126,22 @@ def critical_sites(state) -> list[dict]:
 
 
 def summarize_result(r: dict) -> dict:
-    return {
+    tot = r["totals"]
+    out = {
         "is_safe": r["is_safe"],
-        "unserved_mw": r["totals"]["unserved_mw"],
-        "customers_out": r["totals"]["customers_out"],
-        "critical_on_backup": r["totals"]["critical_on_backup"],
+        "unserved_mw": tot["unserved_mw"],
+        "customers_out": tot["customers_out"],
+        "critical_on_backup": tot["critical_on_backup"],
         "n_violations": len(r["violations"]),
         "violations": r["violations"][:5],  # top 5 only: dozens of lines per revision swamp the LLM context
         "n1_warnings": r["n1_warnings"][:5],
         "n_watch": len(r.get("watch", [])),
         "watch": r.get("watch", [])[:5],
     }
+    # LA results also count hospital sites and name every site on backup: several sites can share one substation, so
+    # counting `critical_on_backup` (substations) undercounts them
+    out.update({k: tot[k] for k in ("hospitals_on_backup", "critical_names") if k in tot})
+    return out
 
 
 # --------------------------------------------------------------------------- tool factory
@@ -183,8 +190,15 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
                 actions = actions.get("actions", [actions])
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": f"bad JSON: {e}"})
+        if not isinstance(actions, list):
+            return json.dumps({"error": "actions_json must be a JSON list of actions"})
         if len(actions) > 3:
             return json.dumps({"error": "a plan may have at most 3 actions"})
+        actions = [_clean_action(state, a) if isinstance(a, dict) else None for a in actions]
+        if None in actions:
+            return json.dumps({"error": "an action cannot be run on this grid: use an action type, ids and a numeric amount that "
+                                        "exist here (get_candidate_actions lists valid actions)"})
+        _guard_labels(actions, _grid_ids(state))  # the description below goes to the activity log
         r = summarize_result(simulate(state, actions))
         desc = ", ".join(_action_label(a) for a in actions) or "do nothing"
         if r["is_safe"]:
@@ -221,9 +235,10 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
         from ..la import replay
 
         log(agent, "reading storm-damage model")
-        h = replay.hour(state.eid, t=state.t_utc.isoformat())
+        ctx = replay.hour_context(state.eid, state.t_utc.isoformat())
         val = {c["id"]: {k: c[k] for k in ("headline", "baseline", "status")} for c in _trusted_cards()}
-        return json.dumps({"storm": h.get("storm"), "customers_out_this_hour": h["outages"], "validation": val}, default=str)
+        out = {"storm": ctx["storm_damage"], **{k: ctx[k] for k in ("customers_out_this_hour",) if k in ctx}, "validation": val}
+        return json.dumps(out, default=str)
 
     def get_candidate_actions() -> str:
         """The valid switching actions for this grid state (real line, bus and import IDs), pre-screened by the
@@ -294,8 +309,138 @@ def _action_label(a: dict) -> str:
 
 
 # --------------------------------------------------------------------------- verification
+OUTPUT_KEYS = ("mode", "situation", "plans", "disagreements")  # all a model's reply may carry into the result
+PLAN_KEYS = ("title", "steps", "result", "tradeoffs", "confidence", "assumptions", "attempts")
+TEXT_LIMIT = 400
+_VERBS = {"open_line": "de-energize", "close_line": "re-close", "deenergize_bus": "de-energize substation", "limit_line": "limit"}
+_AMOUNTS = {"shed_load": "mw", "dispatch_gen": "mw", "limit_line": "pct"}
+
+
+def _strs(x) -> list[str]:
+    """A list of strings from whatever shape arrived: one string is a one-item list, anything not a string is dropped."""
+    return [x] if isinstance(x, str) else [v for v in x if isinstance(v, str)] if isinstance(x, list) else []
+
+
+def _agents(x) -> list[str]:
+    return [a for a in _strs(x) if a in TEAMS]
+
+
+def _number(x) -> float | int | None:
+    """A finite number, or None. A numeric string is coerced; None, a bool or "20 MW" is not a number."""
+    if isinstance(x, str):
+        try:
+            x = float(x)
+        except ValueError:
+            return None
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
+
+
+def _dispatchable(state) -> set[str]:
+    """Ids dispatch_gen may name: import points on the LA grid, generators on the synthetic region."""
+    if hasattr(state, "grid"):
+        from ..la import data as D
+
+        return {x["id"] for x in D.grid()["imports"]}
+    return set(state.gens)
+
+
+def _clean_action(state, a: dict) -> dict | None:
+    """The action with only its own fields, coerced, or None when it cannot be run on this grid (unknown type or id,
+    missing or non-numeric amount). Checked here so a malformed plan is dropped rather than simulated as something else."""
+    kind, target = a.get("type"), a.get("target")
+    if kind == "deenergize_lines":
+        targets = a.get("targets")
+        if not isinstance(targets, list) or not targets or not all(isinstance(t, str) and t in state.lines for t in targets):
+            return None
+        return {"type": kind, "target": target if isinstance(target, str) and target else "selected lines", "targets": targets}
+    if not isinstance(target, str):
+        return None
+    known = (state.lines if kind in ("open_line", "close_line", "limit_line") else state.buses if kind in ("deenergize_bus", "shed_load")
+             else _dispatchable(state) if kind == "dispatch_gen" else ())
+    if target not in known:
+        return None
+    out = {"type": kind, "target": target}
+    if kind in _AMOUNTS:
+        amount = _number(a.get(_AMOUNTS[kind]))
+        if amount is None:
+            return None
+        out[_AMOUNTS[kind]] = amount
+    return out
+
+
+def _grid_ids(state) -> set[str]:
+    """Every id on this grid. In model-written text these are names, not quantities, although they hold digits."""
+    return set(state.lines) | set(state.buses) | _dispatchable(state)
+
+
+def _guard_labels(actions: list[dict], names: set[str]) -> bool:
+    """The label of a group shut-off is model-written prose that reaches titles and the activity log: replace it, in
+    place, when it states a quantity. True when a label was withheld."""
+    held = False
+    for a in actions:
+        if a["type"] == "deenergize_lines":
+            label, withheld = guard(a["target"], names, 80)
+            a["target"], held = label or "selected lines", held or withheld
+    return held
+
+
+def _code_title(actions: list[dict]) -> str:
+    title = ", ".join(f"{_VERBS[a['type']]} {a['target']}" if a["type"] in _VERBS else _action_label(a) for a in actions)
+    return title[0].upper() + title[1:]
+
+
+def _code_why(a: dict, base: dict) -> str:
+    """What the do-nothing physics says about the lines this action switches."""
+    found = [v for lid in a.get("targets") or [a["target"]] for v in base["lines"].get(lid, {}).get("violations", [])]
+    return found[0] + (f" (and {len(found) - 1} more on these lines)" if len(found) > 1 else "") if found else ""
+
+
+def _code_tradeoffs(res: dict) -> str:
+    parts = ["Keeps every customer on" if res["unserved_mw"] < 0.05
+             else f"{res['unserved_mw']:.0f} MW (~{res['customers_out']:,} customers) without power"]
+    n_backup = len(res.get("critical_names") or res["critical_on_backup"])
+    if n_backup:
+        parts.append(f"{n_backup} critical site(s) on backup power")
+    if res["n_watch"]:
+        parts.append(f"{res['n_watch']} bulk line(s) above the fire alarm stay energized for patrol")
+    if not res["is_safe"]:
+        parts.append(f"{res['n_violations']} physics violation(s) remain")
+    return "; ".join(parts) + "."
+
+
+def _code_situation(state, base: dict) -> str:
+    v = base["violations"]
+    if not v:
+        return f"{state.scenario}: the grid is within limits with no action."
+    return f"{state.scenario}: {len(v)} physics violation(s) with no action, starting with {v[0]}."
+
+
+def _code_confidence(n_actions: int, r: dict) -> float:
+    """Heuristic 0-1 score from the re-simulated result, with the rule planner's own formula (mock_planner plan_json):
+    fewer actions, less unserved load and fewer N-1 warnings score higher. It is not a probability."""
+    conf = 0.93 - 0.05 * n_actions - min(0.3, r["totals"]["unserved_mw"] / 200) - 0.04 * len(r["n1_warnings"])
+    return round(max(0.35, conf), 2)
+
+
 def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
-    """Never trust LLM-reported numbers: re-run physics on every plan and overwrite `result`."""
+    """Never trust LLM-reported numbers: re-run physics on every plan and overwrite `result`.
+
+    The rule-based planner's output (mode "mock") keeps its text, which code wrote. Anything else is model-written: its
+    prose is shown only when it states no quantity (textguard), withheld or missing text is rebuilt here from the verified
+    result and flagged `text_withheld`, and confidence and attempts are computed here instead of copied. A plan that is
+    not an object, has no actions or names something this grid does not have is dropped, never simulated."""
+    model = output.get("mode") != "mock"
+    names = _grid_ids(state) if model else set()
+    if model:
+        for k in [k for k in output if k not in OUTPUT_KEYS]:
+            del output[k]
+
+    def text(value, limit: int = TEXT_LIMIT) -> tuple[str, bool]:
+        """(text to show, whether it was withheld). Rule-based text passes as written."""
+        if model:
+            return guard(value, names, limit)
+        return ("" if value is None else str(value)), False
+
     base = simulate(state)
     output["do_nothing"] = {
         "violations": base["violations"],
@@ -305,23 +450,46 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         "n1_warnings": base["n1_warnings"],
     }
     plans = []
-    for i, p in enumerate(output.get("plans") or []):
-        steps = [s for s in (p.get("steps") or []) if isinstance(s, dict) and isinstance(s.get("action"), dict)][:3]
-        actions = [s["action"] for s in steps]
+    proposed = output.get("plans")
+    for i, given in enumerate(proposed if isinstance(proposed, list) else []):
+        steps = given.get("steps") if isinstance(given, dict) else None
+        steps = [s for s in (steps if isinstance(steps, list) else []) if isinstance(s, dict) and isinstance(s.get("action"), dict)][:3]
+        actions = [_clean_action(state, s["action"]) for s in steps]
+        if not actions or None in actions:
+            if log:
+                log("physics", "dropped a proposed plan: " + ("an action cannot be run on this grid" if actions else "it has no actions"))
+            continue
         r = simulate(state, actions)
-        p["steps"] = steps
-        p["id"] = p.get("id") or f"P{i + 1}"
+        result = summarize_result(r)
+        result["verified_by"] = "physics engine"
+        p = {k: given.get(k) for k in PLAN_KEYS} if model else given
+        title, *held = text(given.get("title"), 120)
+        tradeoffs, w = text(given.get("tradeoffs"))
+        held.append(w)
+        assumptions = [text(a) for a in _strs(given.get("assumptions"))]
+        whys = [text(s.get("why")) for s in steps]
+        held += [w for _, w in assumptions + whys]
+        if model:
+            held.append(_guard_labels(actions, names))
+        p["title"] = title or _code_title(actions)
+        p["steps"] = [{"action": a, "why": why or (_code_why(a, base) if model else ""), "raised_by": _agents(s.get("raised_by"))}
+                      for s, a, (why, _) in zip(steps, actions, whys)]
+        p["id"] = (not model and given.get("id")) or f"P{i + 1}"
         p["actions"] = actions
-        p["result"] = summarize_result(r)
-        p["result"]["verified_by"] = "physics engine"
-        p.setdefault("attempts", 1)
-        p.setdefault("assumptions", [])
-        p.setdefault("tradeoffs", "")
-        p.setdefault("raised_by", [])
-        try:
-            p["confidence"] = max(0.0, min(1.0, float(p.get("confidence", 0.6))))
-        except (TypeError, ValueError):
-            p["confidence"] = 0.6
+        p["result"] = result
+        p["tradeoffs"] = tradeoffs or (_code_tradeoffs(result) if model else "")
+        p["assumptions"] = [a for a, _ in assumptions if a]
+        p["raised_by"] = _agents(given.get("raised_by"))
+        if model:
+            # the backend's own re-simulation is the one attempt it can vouch for
+            p["confidence"], p["attempts"], p["text_withheld"] = _code_confidence(len(actions), r), 1, any(held)
+        else:
+            attempts = _number(given.get("attempts"))
+            p["attempts"] = 1 if attempts is None else int(attempts)
+            try:
+                p["confidence"] = max(0.0, min(1.0, float(given.get("confidence", 0.6))))
+            except (TypeError, ValueError):
+                p["confidence"] = 0.6
         plans.append(p)
         if log:
             verdict = "safe" if r["is_safe"] else f"NOT SAFE ({r['violations'][0]})"
@@ -341,8 +509,15 @@ def verify_output(state, output: dict, log: JobLog | None = None) -> dict:
         plans = plans[:1]  # show only the least-bad plan, clearly labelled
         plans[0]["least_bad"] = True
     output["plans"] = plans[:3]
-    output.setdefault("disagreements", [])
-    output.setdefault("situation", "")
+    if model:
+        situation, held = text(output.get("situation"))
+        said = [text(d) for d in _strs(output.get("disagreements"))]
+        output["situation"] = situation or _code_situation(state, base)
+        output["disagreements"] = [d for d, _ in said if d]
+        output["text_withheld"] = held or any(w for _, w in said) or any(p["text_withheld"] for p in output["plans"])
+    else:
+        output.setdefault("disagreements", [])
+        output.setdefault("situation", "")
     try:  # the shared brief travels with every result; a brief failure never breaks planning
         output["brief"] = build_brief(state)
     except Exception as e:  # noqa: BLE001

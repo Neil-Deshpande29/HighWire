@@ -277,12 +277,16 @@ def la_site(line_id: str, event: str | None = None, i: int | None = None):
     The description is context for the operator, never an input to the physics."""
     from site_agent import agent as SA
 
-    if event is not None and event not in LAD.events():
+    if event is not None and event not in LAD.events() and event != "FX":
         raise HTTPException(404, "unknown event")
+    no_forecast = event == "FX" and not (_RESULTS / "replay_FX.npz").exists()
     try:
-        return SA.describe(line_id, event, i)
+        out = SA.describe(line_id, None if no_forecast else event, i)
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
+    if no_forecast:  # facts and photos do not depend on the hour; only the hour's weather and downwind counts do
+        out["notes"].append("No live forecast has been built yet, so this hour's weather and downwind counts are left out.")
+    return out
 
 
 @app.get("/la/site/{line_id}/photo/{n}.jpg")
@@ -354,8 +358,8 @@ def _sim_payload(st, actions: list[dict]) -> dict:
     load = {bid: round(st.buses[bid]["load_mw"], 1) for bid in st.buses if st.buses[bid]["load_mw"] > 0.5}
     return {
         "is_safe": sim["is_safe"], "unserved_mw": sim["totals"]["unserved_mw"], "customers_out": sim["totals"]["customers_out"],
-        "critical_on_backup": crit, "hospitals_on_backup": int(sum(st.buses[b]["critical_type"] == "hospital" for b in crit)),
-        "critical_names": [st.buses[b]["critical_name"] for b in crit],
+        "critical_on_backup": crit, "hospitals_on_backup": sim["totals"]["hospitals_on_backup"],
+        "critical_names": sim["totals"]["critical_names"],
         "violations": sim["violations"][:40], "n_violations": len(sim["violations"]), "watch": sim["watch"], "n1_warnings": [],
         "lines": {"risk": [l["fire_risk"] for l in L], "loading": [l["loading_pct"] for l in L], "energized": [l["energized"] for l in L],
                   "gust": [l["gust_ms"] for l in L], "rh": [l["rh_pct"] for l in L], "temp": [l["temp_c"] for l in L]},
@@ -426,24 +430,28 @@ def la_copilot_run(body: LARunIn):
     return {"job_id": job_id, "state": st.view(), "study": study}
 
 
-def _la_bulletin(st, plan):
-    g = st.grid
+def _la_bulletin(st, plan, plan_id: str | None = None):
+    """Responder bulletin for `st` as it stands after the plan. Only `st` is required reading: a plan without an id or a
+    title still gets a bulletin."""
     sim = st.sim
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"HIGHWIRE RESPONDER BULLETIN  {ts}", f"{'Forecast' if st.eid == 'FX' else 'Replay'}: {st.scenario}.  Plan approved: {plan['id']} - {plan['title']}", ""]
+    plan_id = plan.get("id") or plan_id or "plan"
+    approved = f"{plan_id} - {plan['title']}" if plan.get("title") else plan_id
+    lines = [f"HIGHWIRE RESPONDER BULLETIN  {ts}", f"{'Forecast' if st.eid == 'FX' else 'Replay'}: {st.scenario}.  Plan approved: {approved}", ""]
     lines.append("LINES SWITCHED OFF BY OPERATOR:")
     off = [st.lines[l] for l in st.operator_opened if l in st.lines]
-    lines += [f"  - {l['id']} {l['kv']:.0f} kV {l['zone']}{(' (' + l['name'] + ')') if l['name'] else ''}" for l in off[:40]] or ["  - none"]
+    lines += [f"  - {l['id']} {l['kv']:.0f} kV {l['zone']}{(' (' + l['name'] + ')') if l.get('name') else ''}" for l in off[:40]] or ["  - none"]
     if len(off) > 40:
         lines.append(f"  - ... and {len(off) - 40} more")
     hot = sorted([v for v in sim["lines"].values() if v["energized"] and v["fire_risk"] >= LAD.calibration()["fire"]["line_alarm"]], key=lambda v: -v["fire_risk"])
     lines.append("LINES STILL ENERGIZED ABOVE THE FIRE ALARM (assume LIVE, patrol):")
     lines += [f"  - {v['id']}: risk {v['fire_risk']:.2f}, gust {v['gust_ms']:.0f} m/s" for v in hot[:20]] or ["  - none"]
     lines.append("CRITICAL SITES ON BACKUP POWER:")
-    lines += [f"  - {st.buses[b]['critical_name']} (bus {b}): about {st.buses[b]['backup_hours']:.0f} h of backup" for b in sim["totals"]["critical_on_backup"]] or ["  - none"]
+    lines += [f"  - {s['name']} (bus {b}): about {s['backup_hours']:.0f} h of backup"
+              for b in sim["totals"]["critical_on_backup"] for s in st.buses[b]["critical_sites"]] or ["  - none"]
     lines += ["", f"Unserved load: {sim['totals']['unserved_mw']} MW (~{sim['totals']['customers_out']:,} customers, modeled).",
               "Electrical values are modeled from voltage class; weather is reanalysis.", "", SAFETY_LINE]
-    return {"timestamp": ts, "plan_id": plan["id"], "safety": SAFETY_LINE, "text": "\n".join(lines)}
+    return {"timestamp": ts, "plan_id": plan_id, "safety": SAFETY_LINE, "text": "\n".join(lines)}
 
 
 @app.post("/la/plans/{plan_id}/approve")
@@ -452,13 +460,19 @@ def la_approve(plan_id: str):
     if st is None or plan_id not in st.plans:
         raise HTTPException(404, "unknown plan (run the LA co-pilot first)")
     plan = st.plans[plan_id]
-    if not plan["result"]["is_safe"]:
+    if not (plan.get("result") or {}).get("is_safe"):
         raise HTTPException(400, "plan is not safe; it cannot be approved")
-    st.apply_actions(plan["actions"])
+    actions = plan.get("actions") or []
+    # Rehearse on a copy and write the bulletin from it first: if either step fails, the grid is left as it was instead
+    # of being switched with no bulletin for the responders.
+    after = st.with_conditions(None)
+    after.apply_actions(actions)
+    bulletin = _la_bulletin(after, plan, plan_id)
+    st.apply_actions(actions)
     with st.lock:
         for pid in st.plan_status:
             st.plan_status[pid] = "approved" if pid == plan_id else "superseded"
-        st.bulletin = _la_bulletin(st, plan)
+        st.bulletin = bulletin
     return {"bulletin": st.bulletin, "state": st.view()}
 
 
