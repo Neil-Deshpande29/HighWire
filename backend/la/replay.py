@@ -248,15 +248,29 @@ def validation_summary() -> dict:
     return s
 
 
-def event_context(eid: str, t: str | None = None) -> dict:
-    """Compact facts for the agents (no arrays): what the replay and validation files say about this hour/event."""
+def _context_of(h: dict) -> dict:
+    out = {"event": h["event"], "t_utc": h["t_utc"], "t_local": h["t_local"], "region_index": h["region_index"],
+           "region_alarm": h["region_alarm"], "lines_over_alarm": h["n_over_alarm"], "top_lines": h["over_alarm"][:8],
+           "weather": {k: h["weather"][k] for k in ("max_gust", "min_rh", "max_temp")},
+           "redflag_zones_active": h["redflag_active"], "storm_damage": h["storm"], "sources": [h["source"]]}
+    if any(v is not None for v in h["outages"].values()):  # forecast hours have no recorded outages
+        out["customers_out_this_hour"] = h["outages"]
+    return out
+
+
+def hour_context(eid: str, t: str | None = None) -> dict:
+    """What an operator could observe at this hour (no arrays). Safe to hand to an agent: no event name, no fires, no
+    validation of this event, nothing dated after the hour."""
+    return _context_of(hour(eid, t))
+
+
+def event_hindsight(eid: str, t: str | None = None) -> dict:
+    """HINDSIGHT view of an hour, for people reviewing a replay (never for agents): hour_context plus the event's name,
+    its fires with the time to each ignition, and how the whole event scored in validation."""
     h = hour(eid, t)
     ev = event_meta(eid)
     v4a = (_json("v4a_replay") or {}).get("events", {}).get(eid)
     v5 = [c for c in (_json("v5_ignition") or {}).get("cases", []) if c["event"] == eid]
-    return {"event": eid, "name": ev["name"], "split": ev["split"], "t_local": h["t_local"], "region_index": h["region_index"],
-            "region_alarm": h["region_alarm"], "lines_over_alarm": h["n_over_alarm"], "top_lines": h["over_alarm"][:8],
-            "actual_customers_out": h["outages"], "weather": {k: h["weather"][k] for k in ("max_gust", "min_rh", "max_temp")},
-            "redflag_zones_active": h["redflag_active"], "fires": h["fires"],
-            "storm_damage": h["storm"],
-            "validation_for_event": {"v4a": v4a, "v5_cases": v5}, "sources": [h["source"], "validation/results/v4a_replay.json"]}
+    ctx = _context_of(h)
+    return {**ctx, "name": ev["name"], "split": ev["split"], "fires": h["fires"],
+            "validation_for_event": {"v4a": v4a, "v5_cases": v5}, "sources": ctx["sources"] + ["validation/results/v4a_replay.json"]}
