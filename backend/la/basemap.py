@@ -42,7 +42,7 @@ VEXCEL_SIZE = (3648, 2640)  # the finished picture
 SURROUND, SURROUND_META = DIR / "surround.jpg", DIR / "surround.json"
 SURROUND_PAD_LAT, SURROUND_PAD_LON = 0.55, 0.9  # degrees added on each side of the region
 SURROUND_ZOOM = 10
-SURROUND_DARK = 0.5  # how far the surroundings are pushed toward black, so the region itself stands out
+SURROUND_DARK = 0.3  # how far the surroundings are pushed toward black, so the region itself stands out
 
 
 def source() -> dict:

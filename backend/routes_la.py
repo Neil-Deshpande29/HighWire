@@ -217,6 +217,7 @@ def _base_state(event: str, t: str | None):
 def _sim_payload(st, actions: list[dict]) -> dict:
     """Plan-result shape + per-line arrays (branch order) + situation numbers, for the map and the changes tray."""
     from .la import consequence as C
+    from .la import costs
     from .la import exposure as X
 
     sim = st.simulate(actions)
@@ -248,6 +249,7 @@ def _sim_payload(st, actions: list[dict]) -> dict:
         # fire_exposure is what not acting leaves downwind of the lines still live at high risk
         "fire_exposure": X.exposed([(lat, lon, wf, g.branches[k]["id"]) for k, lat, lon, wf in hot]),
         "authority": AUTH.assess(sim["is_safe"], sim["totals"]["customers_out"], built["hospitals"]),
+        "cost": costs.outage_cost(sim["totals"]["customers_out"]),  # what the cut costs the customers it reaches, roughly
     }
 
 

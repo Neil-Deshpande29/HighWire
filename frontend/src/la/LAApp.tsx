@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Action, BuildingsOut, Plan } from "../api";
 import LineSheet, { type LineFinding } from "../desk/LineSheet";
 import NavPad, { type NavCmd } from "../desk/NavPad";
 import type { Option } from "../desk/OptionsTable";
 import PlanPanel from "../desk/PlanPanel";
+import Section from "../desk/Section";
 import StatusBox from "../desk/StatusBox";
 import { AffectedSheet, InputsSheet, RecordSheet, RiskSheet, sensorsSentence, type InputRow } from "../desk/sheets";
 import ChangesTray from "../ui/ChangesTray";
 import ConditionsPanel from "../ui/ConditionsPanel";
-import { eventLabel, headline, isHeat, mergeAction, offLines, planSentence, startIndex, timeLabel, worstHour } from "../ui/format";
+import { eventLabel, headline, isHeat, mergeAction, offLines, planSentence, startIndex, timeLabel, usd, worstHour } from "../ui/format";
 import LayersMenu, { type ColorLayer } from "../ui/LayersMenu";
 import LineControls from "../ui/LineControls";
 import LineSearch from "../ui/LineSearch";
 import ReportPage from "../ui/ReportPage";
-import TeamPanel from "../ui/TeamPanel";
+import TeamPanel, { AgentLog, PriorityLadder } from "../ui/TeamPanel";
 import Timeline from "../ui/Timeline";
 import type { Mode } from "../ui/TopBar";
 import {
@@ -31,8 +32,6 @@ import LAScene, { type Focus, type Layers, type Nav } from "./LAScene";
 const NO_ACTIONS: Action[] = [];
 // the pop-up at a map click: a line (what it reads, the switch) or a substation (shed load)
 type Pop = { kind: "line"; id: string; x: number; y: number } | { kind: "bus"; id: string; x: number; y: number };
-type SheetKind = "inputs" | "risk" | "record" | "affected";
-const SHEET_NAME: Record<SheetKind, string> = { inputs: "Sensors", risk: "Risk by line", record: "Log", affected: "Who is affected" };
 const AGENT_WORD: Record<string, string> = { fire_agent: "Fire agent", wind_agent: "Wind agent", heat_agent: "Heat agent", brownout_agent: "Brownout agent", buildings_agent: "Buildings agent" };
 const STALE_AFTER_H = 3; // a live forecast older than this gets a warning banner
 
@@ -85,14 +84,16 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // the desk: who is acting, which sheet is open, the sensor check, the risk register, the decision record
   const [records, setRecords] = useState<BuildingRecords | null>(null); // which building records are loaded, and the priority ladder
   const [cutOf, setCutOf] = useState<{ key: string; data: BuildingsOut & { customers: number } } | null>(null);
-  const [sheet, setSheet] = useState<SheetKind | null>(null);
+  // every box in the two docks is a drop-down: which ones are open. The plan and the agent team start open.
+  const [boxes, setBoxes] = useState<Record<string, boolean>>({ plan: true, team: true });
+  const isOpen = (id: string) => !!boxes[id];
+  const toggle = (id: string) => setBoxes((b) => ({ ...b, [id]: !b[id] }));
+  const openBox = useCallback((id: string) => setBoxes((b) => (b[id] ? b : { ...b, [id]: true })), []);
   const [peek, setPeek] = useState(false); // show the map as it is, without the selected option
   const [acting, setActing] = useState(false);
   const [sensors, setSensors] = useState<Sensors | null | "error">(null);
   const [register, setRegister] = useState<{ key: string; data: RiskRegister | "error" } | null>(null);
   const [record, setRecord] = useState<{ entries: RecordEntry[]; basis: string } | null>(null);
-  const mid = useRef<HTMLDivElement>(null);
-  const homeScroll = useRef(0);
   const refreshRecord = useCallback(() => { la.record().then(setRecord).catch(() => null); }, []);
 
   useEffect(() => { la.imagery().then(setImagery).catch(() => setImagery(null)); }, []); // is there an aerial picture to offer?
@@ -101,7 +102,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   // ---------------------------------------------------------------- clock
   useEffect(() => {
     if (!ev) return;
-    setPlaying(false); setRevealed(false); setSeries(null); setHour(null); setSelPlan(null); setSelLine(null); setPop(null); setSheet(null); setPeek(false);
+    setPlaying(false); setRevealed(false); setSeries(null); setHour(null); setSelPlan(null); setSelLine(null); setPop(null); setPeek(false);
     setStaged([]); setOutcome(null); setBulletinText(null); setView(null); setApprovedPlan(null); clearOp(); setOpT(null); setStudyActions([]); clearSt();
     setColor(kind === "heat" ? "loading" : "fire");
     pendingFocus.current = true;
@@ -147,6 +148,9 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const studyAll = useMemo(() => [...approvedActions, ...studyActions], [approvedActions, studyActions]);
   const [studySim, studyBusy] = useSim(study && t ? `${eid}|${t}|${JSON.stringify(studyAll)}|${JSON.stringify(cond)}` : null,
     () => la.simulate(eid, t!, studyAll, cond), 150);
+  // the what-if grid before your switches, to show what each switch does to the lines that stay on
+  const [studyBase] = useSim(study && t && studyActions.length ? `${eid}|${t}|base|${JSON.stringify(approvedActions)}|${JSON.stringify(cond)}` : null,
+    () => la.simulate(eid, t!, approvedActions, cond), 150);
   const job = study ? stJob : opJob;
   const jobT = study ? stT : opT;
   const plans: Plan[] = useMemo(() => distinctPlans(job?.output?.plans ?? []), [job?.output]);
@@ -206,7 +210,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   }, [eid, t, playing]);
   const registerActions = study ? studyAll : approvedActions;
   const registerKey = t ? `${eid}|${t}|${JSON.stringify(registerActions)}|${study ? JSON.stringify(cond) : ""}` : null;
-  const wantRegister = sheet === "risk" || !!selLine || showReport;
+  const wantRegister = !!boxes.risk || !!selLine || showReport;
   useEffect(() => { // worked out when first needed, then kept for this hour and these changes
     if (!wantRegister || !registerKey || !t || register?.key === registerKey) return;
     let live = true;
@@ -224,25 +228,22 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     return () => { live = false; };
   }, [cutKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { refreshRecord(); }, [refreshRecord, opJob?.status]);
-  // a sheet opens at its top; coming back restores where the plans were scrolled to
-  const sheetOpen = !!((selLine && pop?.kind !== "line") || sheet);
-  useLayoutEffect(() => { if (mid.current) mid.current.scrollTop = sheetOpen ? 0 : homeScroll.current; }, [sheetOpen, sheet, selLine]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (selLine) { setSelLine(null); setPop(null); } else setSheet(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key !== "Escape") return; setSelLine(null); setPop(null); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selLine]);
 
   const runCopilot = useCallback(async () => {
     if (!t) return;
-    setErr(null); setPlaying(false); setSelPlan(null); setPeek(false); setSheet(null);
+    setErr(null); setPlaying(false); setSelPlan(null); setPeek(false); openBox("plan"); openBox("team");
     const risky = hour?.over_alarm.map((l) => l.id) ?? [];
     if (risky.length) setFocus({ ...riskFrame(s, risky, 50), key: Date.now() }); // move in on the trouble while the agents work
     try {
       if (study) { const r = await la.run(eid, t, studyAll.length ? studyAll : [], cond); setStT(t); startSt(r.job_id); }
       else { const r = await la.run(eid, t); setView(r.state); setOpT(t); setOutcome(null); startOp(r.job_id); }
     } catch (e) { setErr(String(e)); }
-  }, [t, study, eid, studyAll, cond, startSt, startOp, hour, s]);
+  }, [t, study, eid, studyAll, cond, startSt, startOp, hour, s, openBox]);
 
   // The agents go first. In Operate each hour is analysed as soon as the clock rests on it; nobody has to ask.
   // After an approval the result stays on screen until the operator starts over.
@@ -265,9 +266,12 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     if (ids.length) setFocus({ ...riskFrame(s, ids, 40), key: Date.now() });
   }, [jobOut]); // eslint-disable-line react-hooks/exhaustive-deps
   // What a switch does to the lines that stay on, for whichever change is on the map: the selected option or your own.
-  const changeSim = study ? null : previewSim && sameHour(previewSim.t_utc, t) ? previewSim : staged.length && stagedSim && sameHour(stagedSim.t_utc, t) ? stagedSim : null;
-  const baseSim = changeSim && changeSim === previewSim ? nothingSim : opSim;
+  const handSim = study ? (studyActions.length ? studySim : null) : staged.length ? stagedSim : null; // your own switches
+  const changeSim = previewSim && sameHour(previewSim.t_utc, t) ? previewSim : handSim && sameHour(handSim.t_utc, t) ? handSim : null;
+  const baseSim = changeSim && changeSim === previewSim ? nothingSim : study ? studyBase : opSim;
   const impact = useMemo(() => lineImpact(s, baseSim, changeSim), [s, baseSim, changeSim]);
+  // move the map out to the lines that pick up the load, so the effect of a switch can be seen as well as read
+  const showImpact = impact?.shifted.length ? () => setFocus({ ...riskFrame(s, impact.shifted.slice(0, 6).map((x) => x.id), 40), key: Date.now() }) : undefined;
   const impactOnMap = useMemo(() => (impact?.shifted ?? []).slice(0, 6).map((x) => ({ bi: x.bi, text: `+${Math.round(x.after - x.before)}%` })), [impact]);
 
   if (!ev) return <div className="loading">Loading…</div>;
@@ -297,7 +301,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       const r = await la.approve(p.id, role);
       setView(r.state); setBulletinText(r.bulletin.text); setRevealed(true);
       setOutcome(`${planSentence(p, s, lineZone)}${past ? " What actually happened is now on the timeline." : ""}`);
-      setSelPlan(null); setSheet(null); setPeek(false);
+      setSelPlan(null); setPeek(false);
       setApprovedPlan({ off: [...offLines(p.actions)], t: jobT!, busesOut: null });
       // which substations the approved plan leaves without power (for the "got it right" check)
       la.simulate(eid, jobT!, p.actions).then((r) => setApprovedPlan((a) => a && { ...a, busesOut: r.buses_out })).catch(() => null);
@@ -314,7 +318,7 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     try {
       const r = await la.reset();
       setRecord((x) => ({ entries: r.entries, basis: x?.basis ?? "" }));
-      setView(null); setOutcome(null); setBulletinText(null); setApprovedPlan(null); clearOp(); setOpT(null); setStaged([]); setSelPlan(null); setRevealed(false); setSheet(null);
+      setView(null); setOutcome(null); setBulletinText(null); setApprovedPlan(null); clearOp(); setOpT(null); setStaged([]); setSelPlan(null); setRevealed(false);
       if (series) la.hour(eid, i).then(setHour).catch(() => null); // the hour no longer carries an approval
     } catch (e) { setErr(String(e)); }
   };
@@ -331,18 +335,6 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
   const selOption = options.find((o) => o.key === selPlan) ?? null;
   const optionSentence = (o: Option) => (o.kind === "nothing" ? "Leave every line on." : planSentence(o.plan!, s, lineZone));
   const plansElsewhere = !!jobT && !!t && !sameHour(jobT, t) && done;
-  const cards = !done ? null : (
-    <>
-      {plansElsewhere && (
-        <div className="note">These options are for {timeLabel(jobT!)}. <button className="link" onClick={() => series && setI(series.t_utc.findIndex((x) => sameHour(x, jobT)))}>Go there</button></div>
-      )}
-      <OptionsTable options={options} selected={selPlan} heat={heat} stale={plansElsewhere} onSelect={(k) => { setSelPlan(k); setPeek(false); }} />
-      {selOption && (
-        <OptionDetail option={selOption} base={nothingSim} s={s} sentence={optionSentence(selOption)} heat={heat}
-          peek={peek} onPeek={setPeek} onAffected={() => setSheet("affected")} />
-      )}
-    </>
-  );
 
   // ---------------------------------------------------------------- "Did Highwire get it right?" (V5 + replay file; never hard-coded)
   const checks = fireChecks(past, series, approvedPlan);
@@ -393,33 +385,55 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
     { name: "Real outages", source: "EAGLE-I county records", kind: "Recorded" },
   ];
 
-  const backTo = sheet ? SHEET_NAME[sheet] : done ? "your options" : "the situation";
-  const home = done ? "your options" : "the situation";
-  // a line clicked on the map opens as a pop-up at the click; a line picked from a list opens in the right column
+  // a line clicked on the map opens as a pop-up at the click; a line picked from a list opens as a box in the right dock
   const popLine = pop?.kind === "line" && selBranch?.id === pop.id ? pop : null;
   const lineView = selBranch && hour && (
     <LineSheet key={selBranch.id} line={selBranch} bi={selBi} hour={hour} lines={mapSim?.lines ?? cur} alarm={alarm} isOff={offNow(selBranch.id, selBi)}
       capPct={trayActions.find((a) => a.type === "limit_line" && a.target === selBranch.id)?.pct} verb={verb}
       register={reg && reg !== "error" ? reg.rows.find((r) => r.id === selBranch.id) : undefined} top={tops.find((l) => l.id === selBranch.id)}
       cut={cutOf && cutOf.key === cutKey ? cutOf.data : undefined}
-      planNotes={planNotes} findings={lineFindings} modelText={out?.mode === "llm"} back={backTo} at={popLine ? { x: popLine.x, y: popLine.y } : undefined}
+      planNotes={planNotes} findings={lineFindings} modelText={out?.mode === "llm"} at={popLine ? { x: popLine.x, y: popLine.y } : undefined}
       onAction={(a) => stage({ ...a, target: selBranch.id })} onShow={() => findLine(selBranch.id)} onClose={() => { setSelLine(null); setPop(null); }} />
   );
-  const lineSheet = popLine ? null : lineView;
-  const sheetEl = lineSheet ? null
-    : sheet === "inputs" ? <InputsSheet inputs={inputs} sensors={sensors} back={home} onClose={() => setSheet(null)} />
-    : sheet === "risk" ? <RiskSheet reg={reg} back={home} onLine={setSelLine} onClose={() => setSheet(null)} />
-    : sheet === "record" ? <RecordSheet entries={record?.entries ?? null} back={home} onReset={resetSession} onClose={() => setSheet(null)} />
-    : sheet === "affected" && selOption ? <AffectedSheet option={selOption} back={selOption.label} onLine={setSelLine} onClose={() => setSheet(null)} />
-    : null;
-  // the priority ladder shows what the selected plan (or the agents' pick) puts on backup power, rung by rung
+  // the priority ladder shows what the option on screen cuts off, rung by rung
   const ladderOf = selOption && selOption.kind !== "nothing" ? selOption : options.find((o) => o.kind === "plan") ?? null;
   const ladder = ladderOf?.sim?.buildings_out?.ladder ? { label: ladderOf.label, rungs: ladderOf.sim.buildings_out.ladder } : null;
+
+  // ---------------------------------------------------------------- what each box says while it is closed
+  const liveLines = study ? studySim?.lines ?? null : opSim && sameHour(opSim.t_utc, t) ? opSim.lines : null;
+  const health = hour ? lineHealth(s, hour, liveLines, heat, alarm) : null;
+  const nOver = study ? sit?.n_overloaded ?? 0 : hour?.n_overloaded ?? 0;
+  const nBad = heat ? nOver : nHigh;
+  const metricLabel = heat ? (nOver === 1 ? "line carrying more than its rating" : "lines carrying more than their rating")
+    : nHigh === 1 ? "power line at high fire risk" : "power lines at high fire risk";
+  const cause = head.split(/(?<=\.)\s/)[0];
+  const running = job?.status === "running";
+  const analysed = !!jobT && sameHour(jobT, t);
+  const goTo = (iso: string | null) => { if (series && iso) setI(series.t_utc.findIndex((x) => sameHour(x, iso))); };
+  const onNav = (cmd: NavCmd) => {
+    if (cmd === "home") { const b = s.bbox; setFocus({ lat: (b.lat_min + b.lat_max) / 2, lon: (b.lon_min + b.lon_max) / 2, spanKm: 95, key: Date.now() }); }
+    else setNav({ cmd, key: Date.now() });
+  };
+  const nPlans = options.filter((o) => o.kind === "plan").length;
+  const planSummary = running ? <span className="sum-busy">agents are working</span>
+    : !done ? (approvedPlan || serverApproved ? "approved" : study ? "ask the agents" : "waiting for the agents")
+    : outcome && !study ? <span className="sum-ok">approved</span>
+    : !nPlans ? <span className="sum-ok">nothing to do</span>
+    : selOption?.sim ? <>{selOption.label} · <span className={selOption.sim.is_safe ? "sum-ok" : "sum-act"}>{selOption.sim.is_safe ? "safe" : "not safe"}</span></> : `${nPlans} ready`;
+  const teamSummary = !job ? "standing by" : running ? <span className="sum-busy">analysing</span> : job.status === "error" ? <span className="sum-act">stopped</span> : <span className="sum-ok">done</span>;
+  const sensorSummary = sensors === "error" ? <span className="sum-act">not available</span> : !sn ? "loading"
+    : sn.level === "warn" ? <span className="sum-warn">▲ {sn.model_low.length + sn.drier.length} need a look</span> : `${sn.reporting} of ${sn.n} stations match`;
+  const affected = selOption && selOption.kind !== "nothing" ? selOption.sim : null;
+  // what the cut costs the customers it reaches: published survey rates times the customers cut off (backend/la/costs.py)
+  const bill = affected?.cost?.customers ? affected.cost : null;
+  const costLine = bill ? `Costs the customers cut off about ${usd(bill.usd["8"])} over 8 hours, ${usd(bill.usd["24"])} over a day.` : null;
+  const costNote = bill ? `Rough. ${bill.source}; assumes 1 customer in ${Math.round(1 / bill.business_share)} is a business.` : null;
 
   return (
     <div className={`screen ${study ? "study" : ""}`}>
       <div className="map-full">
         <LAScene s={s} hour={hour} colors={colors} layers={layers} imagery={imagery?.available ? imageryUrl(imagery.built_utc ?? "") : null}
+          surround={imagery?.surround ? { url: surroundUrl(imagery.surround.built_utc), bbox: imagery.surround.bbox } : null} nav={nav} impact={impactOnMap}
           labelIds={labelIds} selected={selLine} dimBuses={dimBuses}
           showFires={past && revealed} focus={focus} overlay={overlay}
           onHoverLine={(bi, x, y) => setHover(bi == null ? null : { bi, x: x!, y: y! })}
@@ -429,15 +443,45 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
         <div className="labels" ref={overlay} />
       </div>
       {study && <div className="study-frame" />}
-      <div className="map-ui-left">
-        <Legend color={color} anyOff={!!energized?.some((e) => !e)} hospitals={layers.hospitals} />
+      {slot && series && createPortal(
+        <Timeline series={series} kind={kind} i={i} playing={playing} revealed={revealed} canReveal={past}
+          onSeek={setI} onPlay={() => setPlaying((p) => !p)} onReveal={() => { setRevealed(true); openBox("happened"); }} />, slot)}
+
+      {/* left: the agents and how they got there */}
+      <aside className="dock left">
+        <Section title="Agent team" summary={teamSummary} open={isOpen("team")} onToggle={() => toggle("team")}>
+          {job ? (
+            <TeamPanel job={job} chips={chips} shownPlans={plans.map((p) => p.id)} selectedPlan={selPlan}
+              onPlan={(id) => { setSelPlan(id); setPeek(false); openBox("plan"); }} onLine={findLine} />
+          ) : (
+            <>
+              <p className="muted">{study ? "In What-if the agents wait until you ask them." : playing ? "The agents wait while the clock is running. Pause to have them analyse the hour." : approvedPlan || serverApproved ? "A plan is approved. Start over from the log to analyse again." : "Five agents analyse each hour as soon as the clock rests on it: fire, wind, heat, brownout and buildings."}</p>
+              {study && <button className="primary" disabled={!hour} onClick={runCopilot}>Ask the agents about this what-if</button>}
+            </>
+          )}
+        </Section>
+        {records && (
+          <Section title="Who is protected first" summary={ladder ? `cut off by ${ladder.label}` : `${records.n.toLocaleString("en-US")} buildings`} open={isOpen("ladder")} onToggle={() => toggle("ladder")}>
+            <PriorityLadder records={records} ladder={ladder} />
+          </Section>
+        )}
+        {job && (
+          <Section title="Agent log" summary={`${job.log.length} lines`} open={isOpen("agentlog")} onToggle={() => toggle("agentlog")}>
+            <AgentLog job={job} />
+          </Section>
+        )}
+      </aside>
+
+      {/* middle: the map, with its own small controls */}
+      <div className="map-tools">
         <LayersMenu color={color} layers={layers} hasStorm={!!hour?.line_damage} imagerySource={imagery?.available ? imagery.source : null}
           onColor={setColor} onLayers={setLayers} />
-        <LineSearch s={s} selected={selText} onFind={findLine} />
+        <LineSearch s={s} selected={selText} onFind={(id) => { findLine(id); openBox("line"); }} />
         {study && <ConditionsPanel value={cond} onChange={setCond} />}
       </div>
+      <NavPad onNav={onNav} />
       {hovered && hover && !pop && (
-        <div className="hover-tip glass" style={{ left: hover.x + 14, top: hover.y + 14 }}>
+        <div className="hover-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
           <b>{hovered.id}{hovered.name ? ` · ${hovered.name}` : ""}</b>
           <span className="muted">{Math.round(hovered.kv)} kV · {energized && !energized[hover.bi] ? "off" : "on"}</span>
           <span>{hoverText}</span>
@@ -447,52 +491,77 @@ export default function LAApp({ s, events, eid, mode, version, onMode, onTime }:
       {popLine && lineView}
       {popBus && pop && (
         <LineControls key={popBus.id} x={pop.x} y={pop.y} kind="bus" title={popBus.name} sub={`Substation · ${Math.round(popBus.kv)} kV`}
-          maxShed={simForBus?.bus_load[popBus.id]} verb={study ? "Applies to the study grid right away." : "Adds to Your changes."}
+          maxShed={simForBus?.bus_load[popBus.id]} verb={study ? "Applies to the what-if grid right away." : "Adds to Your changes."}
           onAction={(a) => stage({ ...a, target: popBus.id })} onClose={() => setPop(null)} />
       )}
-      <div className="bottom-left">
+      <div className="tray-slot">
         <ChangesTray s={s} actions={trayActions} result={study ? studySim : stagedSim} loading={study ? studyBusy : stagedBusy} study={study}
+          impact={changeSim && changeSim === handSim && impact ? impact.text : null} onShowImpact={showImpact}
           onRemove={(k) => (study ? setStudyActions : setStaged)((l) => l.filter((_, j) => j !== k))}
           onClear={() => (study ? setStudyActions([]) : setStaged([]))}
-          onCompare={study ? undefined : () => { if (!opJob || !sameHour(opT, t)) runCopilot(); }}
           onCopyToPlan={study ? () => { setStaged(studyActions.filter((a) => GRID_CHANGES.has(a.type))); onMode("operate"); } : undefined} />
       </div>
-      <aside className={`side desk ${done ? "has-plans" : ""}`}>
-        <div className="desk-top">
-          {!online && <div className="banner">▲ <b>Can't reach the HighWire backend.</b> Numbers may be out of date. Retrying…</div>}
-          {staleHours >= STALE_AFTER_H && <div className="banner">▲ <b>This forecast is {Math.round(staleHours)} hours old.</b> Press Refresh at the top.</div>}
-          {sn?.level === "warn" && <div className="banner">▲ {sensorsSentence(sn)} <button className="link" onClick={() => { setSelLine(null); setSheet("inputs"); }}>See the stations</button></div>}
-          {err && <div className="error" onClick={() => setErr(null)}>{err}</div>}
-          <SituationCard headline={head} numbers={numbers} onGetPlans={runCopilot} running={job?.status === "running"} canRun={!!hour} study={study} hasPlans={done}
-            links={[
-              { label: "Risk by line", onClick: () => { setSelLine(null); setSheet("risk"); } },
-              { label: "Sensors", alert: sn?.level === "warn" || sensors === "error", onClick: () => { setSelLine(null); setSheet("inputs"); } },
-              { label: "Report", onClick: () => setShowReport(true) },
-            ]} />
-        </div>
-        <div className="desk-mid" ref={mid} onScroll={(e) => { if (!sheetOpen) homeScroll.current = e.currentTarget.scrollTop; }}>
-          {lineSheet || sheetEl}
-          <div className="desk-home" style={{ display: lineSheet || sheetEl ? "none" : undefined }}>
-            {revealed && checks.length > 0 && (
-              <div className="card happened">
-                <div className="eyebrow">What really happened</div>
-                <ul>{checks.map((c) => <li key={c.text} className={c.lead ? "lead" : ""}>{c.text}</li>)}</ul>
-              </div>
+
+      {/* right: stacked drop-down boxes. Closed, each shows its one fact; the plan starts open because it is the main thing */}
+      <aside className="dock right">
+        {!online && <div className="banner">▲ <b>Can't reach the Highwire backend.</b> Numbers may be out of date. Retrying…</div>}
+        {staleHours >= STALE_AFTER_H && <div className="banner">▲ <b>This forecast is {Math.round(staleHours)} hours old.</b> Press Refresh at the top.</div>}
+        {sn?.level === "warn" && <div className="banner">▲ {sensorsSentence(sn)} <button className="link" onClick={() => openBox("sensors")}>See the stations</button></div>}
+        {err && <div className="error" onClick={() => setErr(null)}>{err}</div>}
+
+        <Section title="Grid status" open={isOpen("status")} onToggle={() => toggle("status")} tone={study ? "study" : undefined}
+          summary={<><b className={nBad ? "sum-act" : "sum-ok"}>{nBad}</b> {heat ? "over rating" : "at high fire risk"}{health ? <> · <b>{health.normal}</b> of {health.total} fine</> : null}</>}>
+          <StatusBox health={health} metric={String(nBad)} label={metricLabel} cause={cause} tone={nBad ? "act" : "ok"} onReport={() => setShowReport(true)} />
+        </Section>
+
+        <Section title="The plan" main summary={planSummary} open={isOpen("plan")} onToggle={() => toggle("plan")}>
+          {!study && outcome && <div className="outcome"><b>Plan approved.</b> {outcome}</div>}
+          {!study && bulletinText && (
+            <details className="drawer">
+              <summary>Bulletin for responders <button className="link" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(bulletinText); }}>Copy</button></summary>
+              <pre className="bulletin">{bulletinText}</pre>
+            </details>
+          )}
+          {!study && !job && (approvedPlan || serverApproved) && !outcome
+            ? <p className="muted">A plan was approved for this hour. <button className="link" onClick={resetSession}>Start over</button> to analyse it again.</p>
+            : (
+              <PlanPanel running={running} done={done} options={options} selected={selOption} base={nothingSim} s={s} heat={heat} peek={peek}
+                study={study} stale={plansElsewhere} canAct={!study && analysed} busy={acting} nRecord={record?.entries.length ?? 0}
+                staleNote={plansElsewhere ? `This plan is for ${timeLabel(jobT!)}.` : out?.no_safe_option ? "No safe plan was found this hour. The closest one is shown and can't be approved." : null}
+                onStale={plansElsewhere ? () => goTo(jobT) : undefined}
+                impact={changeSim === previewSim && impact ? impact.text : null} onShowImpact={showImpact} cost={costLine} costNote={costNote} describe={optionSentence}
+                onSelect={(k) => { setSelPlan(k); setPeek(false); }} onPeek={setPeek} onAffected={() => openBox("affected")}
+                onApprove={(role) => selOption?.plan && approvePlan(selOption.plan, role)} onReject={(reasons, note) => selOption?.plan && rejectPlan(selOption.plan, reasons, note)}
+                onRecord={() => { refreshRecord(); openBox("log"); }} onRerun={runCopilot} />
             )}
-            {(job || bulletinText) && (
-              <PlanList job={job} chips={chips} cards={cards} outcome={study ? null : outcome} verdict={null}
-                bulletin={study ? null : bulletinText} noSafe={!!out?.no_safe_option} records={records} ladder={ladder} shownPlans={plans.map((p) => p.id)} />
-            )}
-          </div>
-        </div>
-        {(done || study) && (
-          <DecisionBar option={selOption} study={study} canAct={!study && sameHour(jobT, t)} busy={acting}
-            note={selOption?.kind === "plan" && !sameHour(jobT, t) ? "Go to this plan's hour first." : undefined} nRecord={record?.entries.length ?? 0}
-            onApprove={(role) => selOption?.plan && approvePlan(selOption.plan, role)} onReject={(reasons, note) => selOption?.plan && rejectPlan(selOption.plan, reasons, note)}
-            onRecord={() => { setSelLine(null); refreshRecord(); setSheet("record"); }} />
+        </Section>
+
+        {selBranch && !popLine && (
+          <Section title={`Line ${selBranch.id}`} summary={selBranch.name ?? `${Math.round(selBranch.kv)} kV`} open={boxes.line !== false} onToggle={() => setBoxes((b) => ({ ...b, line: b.line === false }))}
+            onClose={() => setSelLine(null)}>
+            {lineView}
+          </Section>
         )}
-        {series && <Timeline series={series} kind={kind} i={i} playing={playing} revealed={revealed} canReveal={past}
-          onSeek={setI} onPlay={() => setPlaying((p) => !p)} onReveal={() => setRevealed(true)} />}
+        {affected && (
+          <Section title="Who is affected" open={isOpen("affected")} onToggle={() => toggle("affected")}
+            summary={`${affected.buildings_out?.critical ?? 0} critical sites${affected.buildings_out?.homes ? ` · ${affected.buildings_out.homes.toLocaleString("en-US")} homes` : ""}`}>
+            <AffectedSheet option={selOption!} onLine={setSelLine} />
+          </Section>
+        )}
+        {revealed && checks.length > 0 && (
+          <Section title="What really happened" summary={past ? "from the record" : ""} open={isOpen("happened")} onToggle={() => toggle("happened")}>
+            <ul className="happened">{checks.map((c) => <li key={c.text} className={c.lead ? "lead" : ""}>{c.text}</li>)}</ul>
+          </Section>
+        )}
+        <Section title="Risk by line" summary={health ? `${health.high} high · ${health.elevated} elevated` : ""} open={isOpen("risk")} onToggle={() => toggle("risk")}>
+          <RiskSheet reg={reg} onLine={setSelLine} />
+        </Section>
+        <Section title="Sensors" summary={sensorSummary} open={isOpen("sensors")} onToggle={() => toggle("sensors")}>
+          <InputsSheet inputs={inputs} sensors={sensors} />
+        </Section>
+        <Section title="Log" summary={`${record?.entries.length ?? 0} entries`} open={isOpen("log")} onToggle={() => { refreshRecord(); toggle("log"); }}>
+          <RecordSheet entries={record?.entries ?? null} onReset={resetSession} />
+        </Section>
       </aside>
       {showReport && hour && (
         <ReportPage title={eventLabel(ev)} when={timeLabel(hour.t_utc, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}

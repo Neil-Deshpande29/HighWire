@@ -16,7 +16,7 @@ export default function LineSheet({ line, bi, hour, lines, alarm, isOff, capPct,
   line: Branch; bi: number; hour: Hour; lines: SimResult["lines"] | null; alarm: number; isOff: boolean; capPct?: number; verb: string;
   register: RiskRow | undefined; top: TopLine | undefined; cut: (BuildingsOut & { customers: number }) | undefined;
   planNotes: string[]; findings: LineFinding[]; modelText: boolean;
-  back: string; at?: { x: number; y: number }; onAction: (a: Omit<Action, "target">) => void; onShow: () => void; onClose: () => void;
+  back?: string; at?: { x: number; y: number }; onAction: (a: Omit<Action, "target">) => void; onShow: () => void; onClose: () => void;
 }) {
   const [pct, setPct] = useState(capPct ?? 70);
   const risk = lines?.risk[bi] ?? hour.lines.risk[bi], loading = lines?.loading[bi] ?? hour.lines.loading[bi];
@@ -54,14 +54,14 @@ export default function LineSheet({ line, bi, hour, lines, alarm, isOff, capPct,
         <div className="muted small">{verb}</div>
       </div>
 
-      {(dw || cut) && (
+      {(dw || (cut && !isOff)) && (
         <div className="two-sides">
           {dw && <div><em>If left on</em><span>{near ? `${near} downwind` : "Nobody downwind."}</span></div>}
-          <div><em>If turned off</em>
+          {!isOff && <div><em>If turned off</em>
             {line.kv >= 180 ? <span>Stays on in every plan: it feeds the whole basin.</span>
               : cut ? <span>{cut.n || cut.customers ? <>{cut.severity && <Sev level={cut.severity} />} {cut.n ? `${buildingsText(cut.by_kind, ", ")}${homesText(cut.homes)} lose grid power · ` : ""}{fmtInt(cut.customers)} customers cut off</> : "Nobody loses power."}</span>
               : <span className="muted">working it out…</span>}
-          </div>
+          </div>}
         </div>
       )}
 
@@ -78,7 +78,7 @@ export default function LineSheet({ line, bi, hour, lines, alarm, isOff, capPct,
       )}
     </>
   );
-  if (!at) return <Sheet title={`Line ${line.id}`} back={back} onClose={onClose} sub={sub}>{body}</Sheet>;
+  if (!at) return <Sheet title={`Line ${line.id}`} back={back} sub={sub}>{body}</Sheet>; // inside its drop-down box in the right dock
   // beside the click, pulled back inside the window when the click is near an edge
   const left = Math.max(12, Math.min(at.x + 14, window.innerWidth - POP_W - 12));
   const topPx = Math.max(76, Math.min(at.y - 120, window.innerHeight - POP_H - 12));

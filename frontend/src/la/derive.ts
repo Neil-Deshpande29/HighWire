@@ -78,7 +78,7 @@ export function lineImpact(s: LAStatic, base: SimResult | null, sim: SimResult |
     .sort((a, b) => b.after - b.before - (a.after - a.before));
   const overloaded = shifted.filter((x) => x.after > 100 && x.before <= 100).length;
   const top = shifted[0];
-  const text = !top ? "No other line picks up extra load."
+  const text = !top ? "No other line picks up extra load: nothing reroutes."
     : `Power reroutes onto ${shifted.length} other line${shifted.length === 1 ? "" : "s"}. The most affected, ${top.id}, goes from ${Math.round(top.before)}% to ${Math.round(top.after)}% of its rating`
       + (overloaded ? `, and ${overloaded} line${overloaded === 1 ? " goes" : "s go"} over the limit.` : ".");
   return { shifted, overloaded, text };

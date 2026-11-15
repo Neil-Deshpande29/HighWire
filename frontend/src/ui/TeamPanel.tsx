@@ -4,9 +4,9 @@ import SynthesisGraph, { type NodeId } from "../desk/SynthesisGraph";
 import type { BuildingRecords } from "../la/api";
 import { kindPlural, plainAgentText } from "./format";
 
-/** The agent team, on the left: a live graph of how their findings become plans, and under it whatever the selected
- *  node read and concluded. While the team works the panel follows the agent that is busy; afterwards it opens on
- *  the coordinator's decisions.
+/** Inside the "Agent team" box on the left: a live graph of how the agents' findings become plans, and under it
+ *  whatever the selected node read and concluded. While the team works the panel follows the agent that is busy;
+ *  afterwards it opens on the coordinator's decisions.
  *
  *  Every value here was computed by the physics engine and copied by code. When the plans come from the AI model, its
  *  own free text is left out; only what it looked at is shown. */
@@ -44,10 +44,10 @@ function Findings({ findings, modelText, onLine }: { findings: Finding[]; modelT
 }
 
 /** The Buildings agent's ladder: who is protected first, and how many of each rung an option cuts off. */
-function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder: Ladder | null }) {
+export function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder: Ladder | null }) {
   return (
     <div className="ladder">
-      <div className="ladder-head"><b>Who is protected first</b><span className="muted">{ladder ? `cut off by ${ladder.label}` : "on record"}</span></div>
+      <div className="ladder-head"><span className="muted">Tier, most protected first</span><span className="muted">{ladder ? `cut off by ${ladder.label}` : "on record"}</span></div>
       {records.ladder.map((t) => {
         const n = ladder ? ladder.rungs.find((r) => r.tier === t.tier)?.n ?? 0 : t.n;
         return (
@@ -66,9 +66,15 @@ function PriorityLadder({ records, ladder }: { records: BuildingRecords; ladder:
   );
 }
 
-export default function TeamPanel({ job, chips, records, ladder, shownPlans, selectedPlan, onPlan, onLine }: {
-  job: Job; chips: AgentChip[]; records: BuildingRecords | null; ladder: Ladder | null; shownPlans: string[]; selectedPlan: string | null;
-  onPlan: (id: string) => void; onLine: (id: string) => void;
+/** Everything the agents wrote while working, newest at the bottom. */
+export function AgentLog({ job }: { job: Job }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight }); }, [job.log.length]);
+  return <div className="log" ref={ref}>{job.log.map((e, k) => <div key={k}><b>{e.agent}</b> {e.message}</div>)}</div>;
+}
+
+export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan, onLine }: {
+  job: Job; chips: AgentChip[]; shownPlans: string[]; selectedPlan: string | null; onPlan: (id: string) => void; onLine: (id: string) => void;
 }) {
   const out = job.output, running = job.status === "running";
   const modelText = out?.mode === "llm";
@@ -79,16 +85,10 @@ export default function TeamPanel({ job, chips, records, ladder, shownPlans, sel
   const focus: NodeId = picked ?? (running ? last?.agent ?? chips[0].id : "coordinator");
   const chip = chips.find((c) => c.id === focus);
   const lines = job.log.filter((e) => e.agent === focus);
-  const logRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [job.log.length]);
   const crew = out?.crew_staging, used = out?.feedback_used ?? [];
   const planner = !out ? null : out.mode === "llm" ? "AI agent team" : out.fallback_reason ? `Rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "Rule-based planner (no AI key is set)";
   return (
-    <section className="card team">
-      <div className="panel-head">
-        <h2 className="panel-title">Agent team</h2>
-        <span className={`team-status ${running ? "busy" : job.status}`}>{running ? "analysing" : job.status === "error" ? "stopped" : "done"}</span>
-      </div>
+    <>
       <SynthesisGraph job={job} chips={chips} shownPlans={shownPlans} selectedPlan={selectedPlan} focus={focus} onFocus={setPicked} onPlan={onPlan} />
       {job.status === "error" && <div className="error">The agents stopped: {job.error}</div>}
 
@@ -99,7 +99,6 @@ export default function TeamPanel({ job, chips, records, ladder, shownPlans, sel
             {running
               ? <p className="team-live">{lines.length ? lines[lines.length - 1].message : "Waiting for its turn."}</p>
               : <Findings findings={out?.agent_findings?.[chip.id] ?? []} modelText={modelText} onLine={onLine} />}
-            {chip.id === "buildings_agent" && out && records && <PriorityLadder records={records} ladder={ladder} />}
           </>
         )}
         {focus === "coordinator" && (
@@ -127,10 +126,6 @@ export default function TeamPanel({ job, chips, records, ladder, shownPlans, sel
       </div>
 
       {planner && <p className={`muted small planner ${out?.fallback_reason ? "warn" : ""}`}>{planner}. Every number was checked by physics.</p>}
-      <details className="drawer log-drawer">
-        <summary>Everything the agents logged ({job.log.length})</summary>
-        <div className="log" ref={logRef}>{job.log.map((e, k) => <div key={k}><b>{e.agent}</b> {e.message}</div>)}</div>
-      </details>
-    </section>
+    </>
   );
 }

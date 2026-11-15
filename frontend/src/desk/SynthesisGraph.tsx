@@ -63,7 +63,7 @@ export default function SynthesisGraph({ job, chips, shownPlans, selectedPlan, f
         <rect x={mid - 82} y={CY} width={164} height={CH} rx={10} className="box solid" />
         <text x={mid} y={CY + 18} className="n-name on-solid">Coordinator</text>
         <text x={mid} y={CY + 34} className="n-sub on-solid">
-          {coordState === "wait" ? "waiting for the agents" : Number.isFinite(candidates) ? `${candidates} possible moves weighed` : "weighing the findings"}
+          {coordState === "wait" ? "waiting for the agents" : Number.isFinite(candidates) ? `${candidates} possible move${candidates === 1 ? "" : "s"} weighed` : coordState === "done" ? "found nothing to switch" : "weighing the findings"}
           {syn?.coordinator.feedback ? " · used your feedback" : ""}
         </text>
       </g>
@@ -72,7 +72,7 @@ export default function SynthesisGraph({ job, chips, shownPlans, selectedPlan, f
         <title>Every option is run through the physics before it can reach you. Click for the details.</title>
         <rect x={mid - 82} y={PY} width={164} height={PH} rx={10} className="box check" />
         <text x={mid} y={PY + 18} className="n-name">Physics check</text>
-        <text x={mid} y={PY + 34} className="n-sub">{tested != null ? `${tested} options tested · ${safe} safe` : physState === "busy" ? "testing every option" : "waiting"}</text>
+        <text x={mid} y={PY + 34} className="n-sub">{tested != null ? `${tested} option${tested === 1 ? "" : "s"} tested · ${safe} safe` : physState === "busy" ? "testing every option" : physState === "done" ? "no options to test" : "waiting"}</text>
       </g>
 
       {!running && !failed && plans.length === 0 && <text x={mid} y={QY + 18} className="n-sub">no switching needed</text>}

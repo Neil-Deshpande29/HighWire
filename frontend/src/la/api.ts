@@ -88,6 +88,8 @@ export type SimResult = {
                max_temp: number; people_downwind: number; hospitals_downwind: number; water_plants_downwind: number };
   top_lines: TopLine[]; conditions: Conditions; t_utc: string;
   fire_exposure: FireExposure; authority: Authority;
+  /** what the cut costs the customers it reaches, in dollars, for an 8-hour and a 24-hour shut-off (backend/la/costs.py) */
+  cost?: { customers: number; usd: Record<string, number>; business_share: number; source: string };
 };
 /** Buildings downwind of the lines still live at high fire risk (backend/la/exposure.py): the cost of not acting. */
 export type FireExposure = {

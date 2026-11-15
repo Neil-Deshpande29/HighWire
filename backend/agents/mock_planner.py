@@ -23,6 +23,7 @@ except Exception:  # noqa: BLE001
 
 PACE_S = float(os.environ.get("MOCK_PACE", "0.12"))
 MAX_SIMS = 500
+HEAT_MOVES = 6  # most moves the coordinator strings together on a heat day (one per overloaded line)
 
 ASSUMPTIONS = {
     "Normal": ["Conditions stay as forecast for the next 3 hours"],
@@ -334,10 +335,20 @@ class _Planner:
         """Coordinator-style repair: fix the first violation, re-test, read the exact violation, revise."""
         plan, history = [], []
         r = base
-        for attempt in range(1, 4):
+        heat_only = not any("fire risk" in v for v in base["violations"])  # fire hours keep their own order of moves
+        # a heat day overloads several lines at once, and each needs its own small trim of demand
+        for attempt in range(1, (HEAT_MOVES if heat_only else 3) + 1):
             fix = None
             for v in r["violations"]:
-                fix = self._fix_for(v, cands, plan) or self._relief_for(v, r, plan)
+                fix = None
+                if heat_only and re.match(r"Line (\w+): (loading|conductor)", v):
+                    # On a heat day the ready-made answer to an overloaded line is to switch it off, which drops its
+                    # load onto its neighbours. Putting a path back, then trimming demand where it relieves the line
+                    # most, are the gentler moves, so they are tried first.
+                    used = {(c["action"]["type"], c["action"]["target"]) for c in plan}
+                    back = [c for c in cands if c["action"]["type"] == "close_line" and (c["action"]["type"], c["action"]["target"]) not in used]
+                    fix = (back[0] if back else None) or self._relief_for(v, r, plan)
+                fix = fix or self._fix_for(v, cands, plan) or self._relief_for(v, r, plan)
                 if fix:
                     break
             if not fix:
@@ -418,8 +429,9 @@ class _Planner:
             mw = float(round(min(served, excess * 1.2), 0)) or 1.0
         name = st.buses[b]["name"]
         crit = st.buses[b].get("critical_name") if st.buses[b]["critical"] else None
+        cause = f"The shutoff reroutes power onto {lid} ({L['loading_pct']:.0f}%)" if plan else f"{lid} is at {L['loading_pct']:.0f}% of its rating"
         return {"action": {"type": "shed_load", "target": b, "mw": mw},
-                "why": f"The shutoff reroutes power onto {lid} ({L['loading_pct']:.0f}%); rotate {mw:.0f} MW of non-critical load at {name} to bring it back within rating"
+                "why": f"{cause}; rotate {mw:.0f} MW of non-critical load at {name} to bring it back within rating"
                        + (f" ({crit}'s feeder stays on)." if crit else "."),
                 "raised_by": ["brownout_agent", "cascade_agent"], "label": f"shed {mw:.0f} MW at {name}"}
 

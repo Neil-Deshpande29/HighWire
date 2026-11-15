@@ -25,7 +25,7 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
           </select>
         </div>
       </div>
-      {page === "map" ? (
+      {page === "map" && (
         <>
           <div className="clock">
             <div className="clock-time"><span className={`live-dot ${live ? "live" : "replay"}`} />Now {t ? timeLabel(t, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "…"}</div>
@@ -41,16 +41,19 @@ export default function TopBar({ events, eid, t, mode, page, fcBusy, onGoTo, onM
               {events.filter(inGoTo).map((e) => <option key={e.id} value={e.id}>{scenarioLabel(e)}</option>)}
             </select>
           </label>
-          <div className="tl-slot" id="timeline-slot" />
+        </>
+      )}
+      {/* the map screen draws the timeline into this slot; it stays in place on other pages so the map finds it again */}
+      <div className="tl-slot" id="timeline-slot" style={{ visibility: page === "map" ? undefined : "hidden" }} />
+      {page === "map" ? (
+        <>
           <div className="segmented" role="tablist" aria-label="Mode">
             <button className={mode === "operate" ? "on" : ""} onClick={() => onMode("operate")}>Operate</button>
             <button className={mode === "study" ? "on study" : ""} onClick={() => onMode("study")}>What-if</button>
           </div>
           <button className="bar-link" onClick={() => onPage("evidence")}>Evidence</button>
         </>
-      ) : (
-        <><div className="spacer" /><button className="bar-btn" onClick={() => onPage("map")}>Back to the map</button></>
-      )}
+      ) : <button className="bar-btn" onClick={() => onPage("map")}>Back to the map</button>}
     </header>
   );
 }

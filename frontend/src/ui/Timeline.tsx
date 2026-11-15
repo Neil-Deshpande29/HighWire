@@ -36,10 +36,19 @@ export default function Timeline({ series, kind, i, playing, revealed, canReveal
     const px = ((clientX - r.left) / r.width) * W;
     onSeek(Math.max(0, Math.min(n - 1, Math.round(((px - pl) / (W - pl - pr)) * (n - 1)))));
   };
+  // the same clock from the keyboard: arrows move an hour, Page Up and Page Down six hours, Home and End the ends
+  const onKey = (e: React.KeyboardEvent) => {
+    const step: Record<string, number> = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -6, PageUp: 6 };
+    const to = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : e.key in step ? i + step[e.key] : null;
+    if (to == null) return;
+    e.preventDefault();
+    onSeek(Math.max(0, Math.min(n - 1, to)));
+  };
   return (
     <div className="timeline">
       <button className="play" onClick={onPlay} aria-label={playing ? "Pause" : "Play through the scenario"}>{playing ? "❚❚" : "▶"}</button>
-      <div className="tl-track" ref={box} title={heat ? "Busiest line, % of its rating, hour by hour. Drag to change the time." : "Lines at high fire risk, hour by hour. Drag to change the time."}>
+      <div className="tl-track" ref={box} role="slider" tabIndex={0} aria-label="Time" aria-valuemin={0} aria-valuemax={n - 1} aria-valuenow={i}
+        aria-valuetext={timeLabel(series.t_utc[i], { weekday: "long", hour: "numeric", minute: "2-digit" })} onKeyDown={onKey} title={heat ? "Busiest line, % of its rating, hour by hour. Drag to change the time." : "Lines at high fire risk, hour by hour. Drag to change the time."}>
         <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H}
           onPointerDown={(e) => { drag.current = true; (e.target as Element).setPointerCapture?.(e.pointerId); seekAt(e.clientX); }}
           onPointerMove={(e) => { if (drag.current) seekAt(e.clientX); }}

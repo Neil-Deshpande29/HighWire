@@ -4,8 +4,8 @@ import { actionText, buildingsText, fmtInt, homesText, plainViolation } from "./
 
 /** What you switched by hand, and what it does: who loses power and which other lines pick up the load.
  *  The physics answers at once; the agents are not asked, because nothing here is in doubt. */
-export default function ChangesTray({ s, actions, result, loading, study, impact, onRemove, onClear, onCopyToPlan }: {
-  s: LAStatic; actions: Action[]; result: SimResult | null; loading: boolean; study: boolean; impact: string | null;
+export default function ChangesTray({ s, actions, result, loading, study, impact, onShowImpact, onRemove, onClear, onCopyToPlan }: {
+  s: LAStatic; actions: Action[]; result: SimResult | null; loading: boolean; study: boolean; impact: string | null; onShowImpact?: () => void;
   onRemove: (k: number) => void; onClear: () => void; onCopyToPlan?: () => void;
 }) {
   if (!actions.length) return null;
@@ -30,7 +30,7 @@ export default function ChangesTray({ s, actions, result, loading, study, impact
           <span className={result.is_safe ? "pass" : "fail"}><b>{result.is_safe ? "Passes" : `${result.n_violations} problem${result.n_violations === 1 ? "" : "s"}`}</b> physics check</span>
         </>) : <span className="muted">Running the physics…</span>}
       </div>
-      {result && impact && <div className="impact-line">{impact}</div>}
+      {result && impact && <div className="impact-line">{impact} {onShowImpact && <button className="link" onClick={onShowImpact}>Show on map</button>}</div>}
       {result && !result.is_safe && <div className="why-not small">{plainViolation(result.violations[0] ?? "")}</div>}
       <div className="tray-btns">
         <button className="secondary" onClick={onClear}>Clear</button>
