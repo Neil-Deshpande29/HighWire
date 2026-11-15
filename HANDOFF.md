@@ -70,6 +70,8 @@ ignitions in the top 6% of 829. One storm so far; every result, including ties, 
   `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_PHONE`. Missing any of them means a dry run.
 - **Accuracy figure.** `ACCURACY_10MIN` in `frontend/src/config.ts` is a placeholder, not a measurement.
 - **Screen.** Player bar along the bottom; the plan under the agent graph; most boxes start closed.
+- **The agent team is driven by rules by default** (`backend/agents/scripted.py`, `AGENT_PLANNER=agents`): real
+  deep-agents calls, no AI model. `AGENT_PLANNER=gemini` puts Gemini back in charge of each step.
 - **Unfinished:** the AI team's new flow has not run against Gemini (free-tier key); no real text has been sent (no
   from-number); the accuracy figure needs a measured value.
 

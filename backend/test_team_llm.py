@@ -101,6 +101,7 @@ def fake(monkeypatch):
     model = FakeGemini()
     monkeypatch.setenv("GEMINI_API_KEY", "dummy-not-a-real-key")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("AGENT_PLANNER", "gemini")  # the AI team is opt-in; the default is the rule-driven team
     monkeypatch.setattr(LLM, "chat_model", lambda *a, **k: model)
     return model
 
@@ -205,7 +206,7 @@ def test_a_used_up_quota_is_said_plainly_and_the_ai_is_not_asked_again_until_it_
     monkeypatch.setenv("AGENT_PLANNER", "rules")  # the setting that never asks the AI team at all
     chosen = T.run_team(state, JobLog())
     assert chosen["mode"] == "mock" and chosen["fallback_reason"] is None and len(asked) == 2
-    monkeypatch.delenv("AGENT_PLANNER")
+    monkeypatch.setenv("AGENT_PLANNER", "gemini")
     assert T.quota_refusal(RuntimeError("429 RESOURCE_EXHAUSTED requests per minute 'retryDelay': '12s'")) == ("Google is limiting how fast this key may ask", 30.0)
 
 

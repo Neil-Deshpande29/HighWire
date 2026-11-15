@@ -117,7 +117,7 @@ export default function TeamPanel({ job, chips, shownPlans, selectedPlan, onPlan
   const files = out?.vfs ?? job.vfs ?? {};
   const lines = job.log.filter((e) => e.agent === focus);
   const crew = out?.crew_staging, used = out?.feedback_used ?? [];
-  const planner = !out ? null : out.mode === "llm" ? "AI agent team" : out.fallback_reason ? `Rule-based planner (the AI team did not finish: ${out.fallback_reason})` : "Rule-based planner";
+  const planner = !out ? null : out.mode === "llm" ? "AI agent team (Gemini)" : `${out.planner === "agents" ? "Agent team driven by rules, no AI model" : "Rule-based planner"}${out.fallback_reason ? ` (the AI team did not finish: ${out.fallback_reason})` : ""}`;
   return (
     <>
       <Confidence c={out?.synthesis?.confidence} running={running} />

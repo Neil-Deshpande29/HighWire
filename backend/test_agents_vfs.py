@@ -137,6 +137,7 @@ def test_the_ai_team_and_the_fallback_emit_the_same_kinds_of_event(grid, monkeyp
             return ChatResult(generations=[ChatGeneration(message=msg)])
 
     monkeypatch.setenv("GEMINI_API_KEY", "dummy-not-a-real-key")
+    monkeypatch.setenv("AGENT_PLANNER", "gemini")
     monkeypatch.setattr(LLM, "chat_model", lambda *a, **k: FilesGemini())
     log = JobLog()
     out = T.run_team(LAState(*WOOLSEY, grid=grid), log)

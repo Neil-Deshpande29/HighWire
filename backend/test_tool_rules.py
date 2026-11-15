@@ -335,6 +335,7 @@ def test_team_run_in_model_mode_shows_no_model_numbers(during, monkeypatch):
     reply = _model_plan(_shutoff(during), title="Plan A cuts risk by 97.3%", confidence=0.99, attempts=7)
     del reply["mode"]
     monkeypatch.setenv("GEMINI_API_KEY", "dummy-for-tests")
+    monkeypatch.setenv("AGENT_PLANNER", "gemini")  # the AI team is opt-in
     monkeypatch.setattr(LLM, "chat_model", no_model)
     monkeypatch.setattr(T, "_run_llm", lambda state, log: reply)
     out = T.run_team(during, JobLog())

@@ -240,8 +240,8 @@ def make_tools(state, log: JobLog, agent: str, names: list[str] | None = None):
             return json.dumps({"error": f"bad JSON: {e}"})
         if not isinstance(actions, list):
             return json.dumps({"error": "actions_json must be a JSON list of actions"})
-        if len(actions) > 3:
-            return json.dumps({"error": "a plan may have at most 3 actions"})
+        if len(actions) > MAX_STEPS:  # the AI team is told three; the rule-driven team may need one move per overloaded line
+            return json.dumps({"error": f"a plan may have at most {MAX_STEPS} actions"})
         actions = [_clean_action(state, a) if isinstance(a, dict) else None for a in actions]
         if None in actions:
             return json.dumps({"error": "an action cannot be run on this grid: use an action type, ids and a numeric amount that "

@@ -393,7 +393,7 @@ def la_copilot_run(body: LARunIn):
         out["synthesis"] = synthesis.build(out, log_entries)
         if study:
             return
-        planner = "AI agent team" if out.get("mode") == "llm" else "rule-based planner"
+        planner = {"gemini": "AI agent team (Gemini)", "agents": "agent team driven by rules"}.get(out.get("planner"), "rule-based planner")
         REC.add("plans", f"Co-pilot returned {len(out['plans'])} plan{'s' if len(out['plans']) != 1 else ''} from the {planner}. "
                          f"Doing nothing fails {len(out['do_nothing']['violations'])} physics check"
                          f"{'s' if len(out['do_nothing']['violations']) != 1 else ''}.",
