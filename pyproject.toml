@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv==1.2.4",
     "deepagents==0.7.38",
     "pyserial==3.5",
+    "vercel==0.13.0",  # the shared cache that keeps the hosted copies in step (backend/hosted.py)
 ]
 # Left out on purpose: langchain-google-genai (the Gemini team), langchain-community and twilio (text alerts). The
 # hosted copy has no keys, so it runs the rule-driven agent team and alerts stay a dry run. Leaving them out keeps the

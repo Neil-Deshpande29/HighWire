@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -50,6 +51,12 @@ def copilot_status(job_id: str):
         raise HTTPException(404, "unknown job")
     return job
 
+
+# Hosted copy (Vercel): several copies of this server run at once, so they share what changes (backend/hosted.py).
+if os.environ.get("VERCEL"):
+    from . import hosted
+
+    hosted.install(app)
 
 # Hosted copy (Vercel): the same server also hands out the built screen, so the whole app is one address.
 # Every route above wins over these files. Locally the screen runs on its own port (npm run dev) and this is unused.

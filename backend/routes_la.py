@@ -208,6 +208,15 @@ def la_site_photo(line_id: str, n: int):
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
     t = naip.cached_tile(line_id, n) if 0 <= n < 8 else None
+    if not t and 0 <= n < 8:
+        from .la import forecast as FCST
+
+        if FCST.HOSTED:  # another copy of the server fetched this line's photos into its own temp folder: fetch it here too
+            try:
+                pts = SF.line_points(line_id)
+                t = naip.tile_for(line_id, n, *pts[n]) if n < len(pts) else None
+            except Exception:  # noqa: BLE001  no photo is a 404, as before
+                t = None
     if not t:
         raise HTTPException(404, "no cached photo (GET /la/site/{line_id} fetches the line's photos)")
     return FileResponse(t["img"], media_type="image/jpeg")

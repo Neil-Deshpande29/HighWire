@@ -1,6 +1,7 @@
 """Co-pilot jobs: each run plans on a background thread while the UI polls for the log and the result. In memory only."""
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -9,6 +10,11 @@ from .agents.team import run_team
 from .agents.tools import JobLog
 
 JOBS: dict[str, dict] = {}
+# The hosted copy (Vercel, backend/hosted.py). WAIT: plan before answering, because a server that is paused between
+# requests would never finish a background run. FORCE_ID: the id the next run must take, so that every copy of the
+# server knows the run by the same id.
+WAIT = bool(os.environ.get("VERCEL"))
+FORCE_ID: str | None = None
 
 
 def start(state, first_line: str | None = None, on_done=None) -> str:
@@ -16,11 +22,14 @@ def start(state, first_line: str | None = None, on_done=None) -> str:
     `state` is the synthetic region or an LA state; both carry `lock`, `plans` and `plan_status`.
     `on_done(output, log_entries)` runs once the plans are verified and before the job is marked done (the LA routes
     use it to stamp each plan with who may approve it, draw how the team's work came together, and write the record)."""
-    job_id = uuid.uuid4().hex[:8]
+    job_id = FORCE_ID or uuid.uuid4().hex[:8]
     JOBS[job_id] = {"status": "running", "log": JobLog(), "output": None, "started": time.time()}
     if first_line:
         JOBS[job_id]["log"]("system", first_line)
-    threading.Thread(target=_run, args=(job_id, state, on_done), daemon=True).start()
+    run = threading.Thread(target=_run, args=(job_id, state, on_done), daemon=True)
+    run.start()
+    if WAIT:
+        run.join()
     return job_id
 
 
