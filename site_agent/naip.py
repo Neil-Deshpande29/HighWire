@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -21,7 +23,8 @@ import requests
 STAC = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 CROP = "https://planetarycomputer.microsoft.com/api/data/v1/item/crop/{minx},{miny},{maxx},{maxy}.jpg"
 ROOT = Path(__file__).resolve().parents[1]
-CACHE = ROOT / "data" / "processed" / "naip"
+# The hosted copy (Vercel) cannot write in the project folder: photos it fetches go to the temp folder instead.
+CACHE = (Path(tempfile.gettempdir()) / "rewire" if os.environ.get("VERCEL") else ROOT / "data" / "processed") / "naip"
 RGB_BANDS = "image|1,2,3"
 NIR_BANDS = "image|4,1,2"  # near-infrared, red, green: lets greenery.py tell vegetation from bare ground
 HALF_KM = 0.6  # half-width of the box around the line's riskiest point: ~1.2 km across

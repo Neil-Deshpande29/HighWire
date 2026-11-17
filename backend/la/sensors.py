@@ -44,11 +44,23 @@ LIVE_SOURCE = "National Weather Service station reports"
 _live: dict = {"at": 0.0, "obs": {}}
 
 
+def _rows() -> pd.DataFrame:
+    """The archive's reports for our stations, in file order. Read in pieces, with the station held as a category:
+    read whole (D.asos), the 4.9 million rows take about 1 GB of memory, which the hosted copy does not have."""
+    ours = pd.CategoricalDtype(list(STATIONS))
+    parts = []
+    for c in pd.read_csv(D.P / f"asos_{D.REGION}.csv.gz", parse_dates=["valid"], dtype={"station": "category"}, chunksize=400_000):
+        c = c[c.station.isin(list(STATIONS))]
+        parts.append(c.assign(station=c.station.astype(ours)))  # one set of categories, so the pieces join as a category
+    a = pd.concat(parts, ignore_index=True)
+    a["valid"] = a["valid"].dt.tz_localize("UTC")
+    return a
+
+
 @lru_cache(maxsize=1)
 def _archive():
     """Recorded reports for the stations inside the weather grid, bad gusts removed, in time order."""
-    a = D.asos()
-    a = a[a.station.isin(list(STATIONS))].sort_values("valid").reset_index(drop=True)
+    a = _rows().sort_values("valid").reset_index(drop=True)
     gust = a.gust_ms.where((a.gust_ms <= MAX_GUST_MS) & ~(a.gust_ms < a.wind_ms))
     wind = a.wind_ms.where(a.wind_ms <= MAX_GUST_MS)
     a = a.assign(gust_ms=gust, wind_ms=wind, g=np.fmax(gust, wind))
@@ -58,8 +70,7 @@ def _archive():
 @lru_cache(maxsize=1)
 def places() -> dict[str, tuple[float, float]]:
     """Station id -> (lat, lon), from the archive."""
-    a = D.asos()
-    first = a[a.station.isin(list(STATIONS))].groupby("station")[["lat", "lon"]].first()
+    first = _archive()[0].groupby("station", observed=True)[["lat", "lon"]].first()  # a station never moves
     return {s: (float(r.lat), float(r.lon)) for s, r in first.iterrows()}
 
 

@@ -76,8 +76,10 @@ def _la_grid():
 
 
 def _require_event(event_id: str, detail: str = "unknown event"):
-    """404 unless this is a replay event or the live forecast (FX)."""
-    if event_id not in LAD.events() and event_id != "FX":
+    """404 unless this is a replay event or the live forecast (FX). The hosted copy has no live forecast."""
+    from .la import forecast as FCST
+
+    if event_id not in LAD.events() and (event_id != "FX" or FCST.HOSTED):
         raise HTTPException(404, detail)
 
 
@@ -154,6 +156,8 @@ def la_forecast_refresh():
     """Fetch the current Open-Meteo forecast and rebuild the live FX replay in the background (~1 min)."""
     from .la import forecast as FCST
 
+    if FCST.HOSTED:
+        return {"status": "error", "error": "This hosted copy shows the replays only. Run Rewire on your own machine for the live forecast."}
     if FORECAST_JOB["status"] == "running":
         return FORECAST_JOB
 
@@ -204,6 +208,15 @@ def la_site_photo(line_id: str, n: int):
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
     t = naip.cached_tile(line_id, n) if 0 <= n < 8 else None
+    if not t and 0 <= n < 8:
+        from .la import forecast as FCST
+
+        if FCST.HOSTED:  # another copy of the server fetched this line's photos into its own temp folder: fetch it here too
+            try:
+                pts = SF.line_points(line_id)
+                t = naip.tile_for(line_id, n, *pts[n]) if n < len(pts) else None
+            except Exception:  # noqa: BLE001  no photo is a 404, as before
+                t = None
     if not t:
         raise HTTPException(404, "no cached photo (GET /la/site/{line_id} fetches the line's photos)")
     return FileResponse(t["img"], media_type="image/jpeg")

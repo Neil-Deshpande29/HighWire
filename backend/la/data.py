@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +14,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 P = ROOT / "data" / "processed"
+# Where the running server saves what it learns (the operator's feedback, photos it fetched). On the hosted copy
+# (Vercel) the project folder is read-only, so those go to the machine's temp folder and last as long as that machine.
+SAVED = Path(tempfile.gettempdir()) / "rewire" if os.environ.get("VERCEL") else P
 REGION = "la"
 
 

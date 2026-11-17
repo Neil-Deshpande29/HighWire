@@ -29,6 +29,22 @@ cd frontend && npm install && cd ..
 
 Open http://localhost:5173. See **The screen** below.
 
+## The hosted copy (2026-11-16)
+
+Rewire also runs on Vercel, as one project: https://rewire-eight-pied.vercel.app
+
+- **What it is.** The same backend and screen, with no keys and no licensed data. It opens on the Woolsey replay. The
+  agent team is the rule-driven one, text alerts are a dry run, and there is no aerial picture under the map.
+- **No live forecast.** Vercel's disk is read-only, so a forecast could never be refreshed there. The hosted copy shows
+  the replays only.
+- **One shared session.** Everyone who opens the link sees the same plans and approvals, as on one local server. It
+  starts over after 12 actions or 30 idle minutes.
+- **How it stays in step.** Vercel runs several copies of the server. `backend/hosted.py` (loaded only on Vercel)
+  writes each state-changing request to a shared list and every copy replays what it has not seen.
+- **To redeploy.** Deploy a clean clone, never your working folder, so no `.env` or licensed data can go up:
+  `git clone <this repo> rewire && cd rewire && vercel deploy --prod`. `pyproject.toml` holds the Vercel settings.
+- **The first load takes about ten seconds** when nobody has used it for a while: the server has to wake up.
+
 ## The screen
 
 One view of the real LA grid at one moment, styled like a light-mode map app. The map fills the window; panels float on top.

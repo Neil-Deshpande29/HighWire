@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from . import data as D
 
-FILE = D.P / "feedback" / "operator_feedback.json"
+FILE = D.SAVED / "feedback" / "operator_feedback.json"
 REASONS = {
     "too_many_customers": "It cuts power to too many customers",
     "critical_site": "It puts a hospital or water plant on backup",
