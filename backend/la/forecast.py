@@ -5,6 +5,7 @@ Run:  python -m backend.la.forecast      (or POST /la/forecast/refresh, or `make
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +24,9 @@ VARS = ["temperature_2m", "relative_humidity_2m", "wind_speed_10m", "wind_direct
 PAST_DAYS, FORECAST_DAYS, SHOW_PAST_H = 2, 4, 12
 COUNTIES = ["06037", "06111", "06059", "06071"]
 WX_FILE = D.P / "weather" / "FX.npz"
+# The hosted copy (Vercel) cannot save files, so it can never fetch a forecast. It shows the replays only: a saved
+# forecast would be days old there and still be labelled "Now".
+HOSTED = bool(os.environ.get("VERCEL"))
 
 
 def fetch(chunk=50):
@@ -53,7 +57,7 @@ def fetch(chunk=50):
 
 def live_event() -> dict | None:
     """Event-like dict for the live forecast window (or None if no forecast was fetched)."""
-    if not WX_FILE.exists():
+    if HOSTED or not WX_FILE.exists():
         return None
     z = np.load(WX_FILE)
     fetched = datetime.fromisoformat(str(z["fetched_utc"]))

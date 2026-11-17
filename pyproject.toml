@@ -1,0 +1,33 @@
+# Used only to host Rewire on Vercel (one project: the FastAPI backend, which also serves the built frontend).
+# Local setup is unchanged: pip install -r backend/requirements.txt, then ./run.sh. See README.
+[project]
+name = "rewire"
+version = "0.1.0"
+requires-python = ">=3.12"
+# What the server needs to run. Tests, charts and the validation scripts need more: backend/requirements.txt.
+dependencies = [
+    "fastapi==0.163.0",
+    "numpy==2.5.4",
+    "pandas==3.1.1",
+    "scipy==1.18.1",
+    "pillow==13.0.0",
+    "pyyaml==6.0.3",
+    "pydantic==2.14.3",
+    "requests==2.34.2",
+    "python-dotenv==1.2.4",
+    "deepagents==0.7.38",
+    "langchain-google-genai==4.5.0",
+    "langchain-community==0.4.2",
+    "twilio==9.13.0",
+    "pyserial==3.5",
+]
+
+[tool.uv]
+package = false  # an app, not a library: install the dependencies only
+
+[tool.vercel]
+entrypoint = "backend.app:app"
+
+[tool.vercel.scripts]
+# VITE_API empty: the screen calls the same address it was served from.
+build = "cd frontend && npm ci && VITE_API= npm run build"

@@ -76,8 +76,10 @@ def _la_grid():
 
 
 def _require_event(event_id: str, detail: str = "unknown event"):
-    """404 unless this is a replay event or the live forecast (FX)."""
-    if event_id not in LAD.events() and event_id != "FX":
+    """404 unless this is a replay event or the live forecast (FX). The hosted copy has no live forecast."""
+    from .la import forecast as FCST
+
+    if event_id not in LAD.events() and (event_id != "FX" or FCST.HOSTED):
         raise HTTPException(404, detail)
 
 
@@ -154,6 +156,8 @@ def la_forecast_refresh():
     """Fetch the current Open-Meteo forecast and rebuild the live FX replay in the background (~1 min)."""
     from .la import forecast as FCST
 
+    if FCST.HOSTED:
+        return {"status": "error", "error": "This hosted copy shows the replays only. Run Rewire on your own machine for the live forecast."}
     if FORECAST_JOB["status"] == "running":
         return FORECAST_JOB
 
