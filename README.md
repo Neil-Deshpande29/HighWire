@@ -31,7 +31,7 @@ Open http://localhost:5173. See **The screen** below.
 
 ## The hosted copy (2026-11-16)
 
-Rewire also runs on Vercel, as one project: https://rewire-eight-pied.vercel.app
+Rewire also runs on Vercel, as one project: https://rewire-grid.vercel.app
 
 - **What it is.** The same backend and screen, with no keys and no licensed data. It opens on the Woolsey replay. The
   agent team is the rule-driven one, text alerts are a dry run, and there is no aerial picture under the map.
