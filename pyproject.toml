@@ -16,17 +16,20 @@ dependencies = [
     "requests==2.34.2",
     "python-dotenv==1.2.4",
     "deepagents==0.7.38",
-    "langchain-google-genai==4.5.0",
-    "langchain-community==0.4.2",
-    "twilio==9.13.0",
     "pyserial==3.5",
 ]
+# Left out on purpose: langchain-google-genai (the Gemini team), langchain-community and twilio (text alerts). The
+# hosted copy has no keys, so it runs the rule-driven agent team and alerts stay a dry run. Leaving them out keeps the
+# bundle smaller. Add them back here if keys are ever set on the hosted project.
 
 [tool.uv]
 package = false  # an app, not a library: install the dependencies only
 
 [tool.vercel]
 entrypoint = "backend.app:app"
+
+[tool.vercel.fastapi.static]
+cdn = true  # serve the built screen from Vercel's CDN, so opening the page does not wait for the server to wake
 
 [tool.vercel.scripts]
 # VITE_API empty: the screen calls the same address it was served from.
