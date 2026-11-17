@@ -2,6 +2,8 @@
 
 _Fall 2026 HackPrinceton submission._
 
+**Live demo:** https://rewire-grid.vercel.app
+
 During storms, grid operators decide which power lines to reroute or shut off, while residents and 911 report downed
 wires one call at a time. Rewire is a team of AI agents that reads what the weather is physically doing to the wires,
 then hands the operator a short, ranked list of plans. **A deterministic physics engine tests every plan before the
